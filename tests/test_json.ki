@@ -1,0 +1,1491 @@
+/// Tests for the JSON library
+/// Covers parsing, serialization, accessors, and transformations.
+
+module test_json
+
+import src.json
+
+// =============================================================================
+// Test Utilities
+// =============================================================================
+
+/// Asserts that a condition is true, with a message.
+let assert_true: fn(bool, string) -> void = fn(condition: bool, message: string) -> void {
+    assert(condition, message)
+    return
+}
+
+/// Asserts that two strings are equal.
+let assert_str_eq: fn(string, string, string) -> void =
+    fn(actual: string, expected: string, message: string) -> void {
+        assert(std.string.equals(actual, expected), message)
+        return
+    }
+
+/// Asserts that two i32 values are equal.
+let assert_i32_eq: fn(i32, i32, string) -> void =
+    fn(actual: i32, expected: i32, message: string) -> void {
+        assert(actual == expected, message)
+        return
+    }
+
+/// Asserts that two f64 values are equal.
+let assert_f64_eq: fn(f64, f64, string) -> void =
+    fn(actual: f64, expected: f64, message: string) -> void {
+        assert(actual == expected, message)
+        return
+    }
+
+/// Asserts that an Option is Some.
+let assert_some[T]: fn(Option[T], string) -> void = fn(opt: Option[T], message: string) -> void {
+    match opt {
+        Some(_) => { return }
+        None => { assert(false, message) }
+    }
+    return
+}
+
+/// Asserts that an Option is None.
+let assert_none[T]: fn(Option[T], string) -> void = fn(opt: Option[T], message: string) -> void {
+    match opt {
+        Some(_) => { assert(false, message) }
+        None => { return }
+    }
+    return
+}
+
+/// Asserts that a Result is Ok.
+let assert_ok[T, E]: fn(Result[T, E], string) -> void = fn(result: Result[T, E], message: string) -> void {
+    match result {
+        Ok(_) => { return }
+        Err(_) => { assert(false, message) }
+    }
+    return
+}
+
+/// Asserts that a Result is Err.
+let assert_err[T, E]: fn(Result[T, E], string) -> void = fn(result: Result[T, E], message: string) -> void {
+    match result {
+        Ok(_) => { assert(false, message) }
+        Err(_) => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Type Checking Predicate Tests
+// =============================================================================
+
+let test_is_null_with_null: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JNull
+
+    // Act
+    let result: bool = src.json.is_null(value)
+
+    // Assert
+    assert_true(result, "JNull should be identified as null")
+    return
+}
+
+let test_is_null_with_non_null: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JBool(true)
+
+    // Act
+    let result: bool = src.json.is_null(value)
+
+    // Assert
+    assert_true(not result, "JBool should not be identified as null")
+    return
+}
+
+let test_is_bool_with_bool: fn() -> void = fn() -> void {
+    // Arrange
+    let value_true: src.json.Json = src.json.JBool(true)
+    let value_false: src.json.Json = src.json.JBool(false)
+
+    // Act & Assert
+    assert_true(src.json.is_bool(value_true), "JBool(true) should be identified as bool")
+    assert_true(src.json.is_bool(value_false), "JBool(false) should be identified as bool")
+    return
+}
+
+let test_is_bool_with_non_bool: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JNumber(42.0)
+
+    // Act
+    let result: bool = src.json.is_bool(value)
+
+    // Assert
+    assert_true(not result, "JNumber should not be identified as bool")
+    return
+}
+
+let test_is_number_with_number: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JNumber(3.14)
+
+    // Act
+    let result: bool = src.json.is_number(value)
+
+    // Assert
+    assert_true(result, "JNumber should be identified as number")
+    return
+}
+
+let test_is_number_with_non_number: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JString("42")
+
+    // Act
+    let result: bool = src.json.is_number(value)
+
+    // Assert
+    assert_true(not result, "JString should not be identified as number")
+    return
+}
+
+let test_is_string_with_string: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JString("hello")
+
+    // Act
+    let result: bool = src.json.is_string(value)
+
+    // Assert
+    assert_true(result, "JString should be identified as string")
+    return
+}
+
+let test_is_string_with_empty_string: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JString("")
+
+    // Act
+    let result: bool = src.json.is_string(value)
+
+    // Assert
+    assert_true(result, "Empty JString should be identified as string")
+    return
+}
+
+let test_is_array_with_array: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JArray(Cons(src.json.JNull, Nil))
+
+    // Act
+    let result: bool = src.json.is_array(value)
+
+    // Assert
+    assert_true(result, "JArray should be identified as array")
+    return
+}
+
+let test_is_array_with_empty_array: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JArray(Nil)
+
+    // Act
+    let result: bool = src.json.is_array(value)
+
+    // Assert
+    assert_true(result, "Empty JArray should be identified as array")
+    return
+}
+
+let test_is_object_with_object: fn() -> void = fn() -> void {
+    // Arrange
+    let field: src.json.JsonField = src.json.JsonField { key: "x", value: src.json.JNull }
+    let value: src.json.Json = src.json.JObject(Cons(field, Nil))
+
+    // Act
+    let result: bool = src.json.is_object(value)
+
+    // Assert
+    assert_true(result, "JObject should be identified as object")
+    return
+}
+
+let test_is_object_with_empty_object: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JObject(Nil)
+
+    // Act
+    let result: bool = src.json.is_object(value)
+
+    // Assert
+    assert_true(result, "Empty JObject should be identified as object")
+    return
+}
+
+// =============================================================================
+// Type Name Tests
+// =============================================================================
+
+let test_type_name_null: fn() -> void = fn() -> void {
+    let result: string = src.json.type_name(src.json.JNull)
+    assert_str_eq(result, "null", "type_name of JNull should be 'null'")
+    return
+}
+
+let test_type_name_boolean: fn() -> void = fn() -> void {
+    let result: string = src.json.type_name(src.json.JBool(true))
+    assert_str_eq(result, "boolean", "type_name of JBool should be 'boolean'")
+    return
+}
+
+let test_type_name_number: fn() -> void = fn() -> void {
+    let result: string = src.json.type_name(src.json.JNumber(0.0))
+    assert_str_eq(result, "number", "type_name of JNumber should be 'number'")
+    return
+}
+
+let test_type_name_string: fn() -> void = fn() -> void {
+    let result: string = src.json.type_name(src.json.JString(""))
+    assert_str_eq(result, "string", "type_name of JString should be 'string'")
+    return
+}
+
+let test_type_name_array: fn() -> void = fn() -> void {
+    let result: string = src.json.type_name(src.json.JArray(Nil))
+    assert_str_eq(result, "array", "type_name of JArray should be 'array'")
+    return
+}
+
+let test_type_name_object: fn() -> void = fn() -> void {
+    let result: string = src.json.type_name(src.json.JObject(Nil))
+    assert_str_eq(result, "object", "type_name of JObject should be 'object'")
+    return
+}
+
+// =============================================================================
+// Value Extractor Tests
+// =============================================================================
+
+let test_as_string_with_string: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JString("hello")
+
+    // Act
+    let result: Option[string] = src.json.as_string(value)
+
+    // Assert
+    match result {
+        Some(s) => { assert_str_eq(s, "hello", "as_string should extract 'hello'") }
+        None => { assert(false, "as_string should return Some for JString") }
+    }
+    return
+}
+
+let test_as_string_with_non_string: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JNumber(42.0)
+
+    // Act
+    let result: Option[string] = src.json.as_string(value)
+
+    // Assert
+    assert_none[string](result, "as_string should return None for JNumber")
+    return
+}
+
+let test_as_number_with_number: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JNumber(3.14)
+
+    // Act
+    let result: Option[f64] = src.json.as_number(value)
+
+    // Assert
+    match result {
+        Some(n) => { assert_f64_eq(n, 3.14, "as_number should extract 3.14") }
+        None => { assert(false, "as_number should return Some for JNumber") }
+    }
+    return
+}
+
+let test_as_number_with_non_number: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JString("3.14")
+
+    // Act
+    let result: Option[f64] = src.json.as_number(value)
+
+    // Assert
+    assert_none[f64](result, "as_number should return None for JString")
+    return
+}
+
+let test_as_int_with_integer: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JNumber(42.0)
+
+    // Act
+    let result: Option[i64] = src.json.as_int(value)
+
+    // Assert
+    match result {
+        Some(n) => { assert(n == 42, "as_int should extract 42") }
+        None => { assert(false, "as_int should return Some for JNumber") }
+    }
+    return
+}
+
+let test_as_int_truncates_decimal: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JNumber(3.7)
+
+    // Act
+    let result: Option[i64] = src.json.as_int(value)
+
+    // Assert
+    match result {
+        Some(n) => { assert(n == 3, "as_int should truncate 3.7 to 3") }
+        None => { assert(false, "as_int should return Some for JNumber") }
+    }
+    return
+}
+
+let test_as_bool_with_true: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JBool(true)
+
+    // Act
+    let result: Option[bool] = src.json.as_bool(value)
+
+    // Assert
+    match result {
+        Some(b) => { assert_true(b, "as_bool should extract true") }
+        None => { assert(false, "as_bool should return Some for JBool") }
+    }
+    return
+}
+
+let test_as_bool_with_false: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JBool(false)
+
+    // Act
+    let result: Option[bool] = src.json.as_bool(value)
+
+    // Assert
+    match result {
+        Some(b) => { assert_true(not b, "as_bool should extract false") }
+        None => { assert(false, "as_bool should return Some for JBool") }
+    }
+    return
+}
+
+let test_as_array_with_array: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JArray(Cons(src.json.JNull, Nil))
+
+    // Act
+    let result: Option[List[src.json.Json]] = src.json.as_array(value)
+
+    // Assert
+    assert_some[List[src.json.Json]](result, "as_array should return Some for JArray")
+    return
+}
+
+let test_as_object_with_object: fn() -> void = fn() -> void {
+    // Arrange
+    let field: src.json.JsonField = src.json.JsonField { key: "x", value: src.json.JNull }
+    let value: src.json.Json = src.json.JObject(Cons(field, Nil))
+
+    // Act
+    let result: Option[List[src.json.JsonField]] = src.json.as_object(value)
+
+    // Assert
+    assert_some[List[src.json.JsonField]](result, "as_object should return Some for JObject")
+    return
+}
+
+// =============================================================================
+// Field/Index Accessor Tests
+// =============================================================================
+
+let test_get_field_existing: fn() -> void = fn() -> void {
+    // Arrange
+    let field: src.json.JsonField = src.json.JsonField { key: "name", value: src.json.JString("Alice") }
+    let obj: src.json.Json = src.json.JObject(Cons(field, Nil))
+
+    // Act
+    let result: Option[src.json.Json] = src.json.get_field(obj, "name")
+
+    // Assert
+    match result {
+        Some(v) => {
+            match src.json.as_string(v) {
+                Some(s) => { assert_str_eq(s, "Alice", "get_field should return 'Alice'") }
+                None => { assert(false, "Field value should be a string") }
+            }
+        }
+        None => { assert(false, "get_field should find 'name' field") }
+    }
+    return
+}
+
+let test_get_field_non_existing: fn() -> void = fn() -> void {
+    // Arrange
+    let field: src.json.JsonField = src.json.JsonField { key: "name", value: src.json.JString("Alice") }
+    let obj: src.json.Json = src.json.JObject(Cons(field, Nil))
+
+    // Act
+    let result: Option[src.json.Json] = src.json.get_field(obj, "age")
+
+    // Assert
+    assert_none[src.json.Json](result, "get_field should return None for non-existing key")
+    return
+}
+
+let test_get_field_on_non_object: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JArray(Nil)
+
+    // Act
+    let result: Option[src.json.Json] = src.json.get_field(value, "name")
+
+    // Assert
+    assert_none[src.json.Json](result, "get_field should return None for non-object")
+    return
+}
+
+let test_get_index_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let arr: src.json.Json = src.json.JArray(Cons(
+        src.json.JNumber(10.0),
+        Cons(src.json.JNumber(20.0), Cons(src.json.JNumber(30.0), Nil))
+    ))
+
+    // Act
+    let result: Option[src.json.Json] = src.json.get_index(arr, 1)
+
+    // Assert
+    match result {
+        Some(v) => {
+            match src.json.as_number(v) {
+                Some(n) => { assert_f64_eq(n, 20.0, "get_index(1) should return 20.0") }
+                None => { assert(false, "Element should be a number") }
+            }
+        }
+        None => { assert(false, "get_index should find element at index 1") }
+    }
+    return
+}
+
+let test_get_index_out_of_bounds: fn() -> void = fn() -> void {
+    // Arrange
+    let arr: src.json.Json = src.json.JArray(Cons(src.json.JNumber(10.0), Nil))
+
+    // Act
+    let result: Option[src.json.Json] = src.json.get_index(arr, 5)
+
+    // Assert
+    assert_none[src.json.Json](result, "get_index should return None for out of bounds")
+    return
+}
+
+let test_get_index_negative: fn() -> void = fn() -> void {
+    // Arrange
+    let arr: src.json.Json = src.json.JArray(Cons(src.json.JNumber(10.0), Nil))
+
+    // Act
+    let result: Option[src.json.Json] = src.json.get_index(arr, -1)
+
+    // Assert
+    assert_none[src.json.Json](result, "get_index should return None for negative index")
+    return
+}
+
+let test_size_array: fn() -> void = fn() -> void {
+    // Arrange
+    let arr: src.json.Json = src.json.JArray(Cons(
+        src.json.JNull,
+        Cons(src.json.JNull, Cons(src.json.JNull, Nil))
+    ))
+
+    // Act
+    let result: Option[i32] = src.json.size(arr)
+
+    // Assert
+    match result {
+        Some(n) => { assert_i32_eq(n, 3, "size of 3-element array should be 3") }
+        None => { assert(false, "size should return Some for array") }
+    }
+    return
+}
+
+let test_size_empty_array: fn() -> void = fn() -> void {
+    // Arrange
+    let arr: src.json.Json = src.json.JArray(Nil)
+
+    // Act
+    let result: Option[i32] = src.json.size(arr)
+
+    // Assert
+    match result {
+        Some(n) => { assert_i32_eq(n, 0, "size of empty array should be 0") }
+        None => { assert(false, "size should return Some for empty array") }
+    }
+    return
+}
+
+let test_size_object: fn() -> void = fn() -> void {
+    // Arrange
+    let field1: src.json.JsonField = src.json.JsonField { key: "a", value: src.json.JNull }
+    let field2: src.json.JsonField = src.json.JsonField { key: "b", value: src.json.JNull }
+    let obj: src.json.Json = src.json.JObject(Cons(field1, Cons(field2, Nil)))
+
+    // Act
+    let result: Option[i32] = src.json.size(obj)
+
+    // Assert
+    match result {
+        Some(n) => { assert_i32_eq(n, 2, "size of 2-field object should be 2") }
+        None => { assert(false, "size should return Some for object") }
+    }
+    return
+}
+
+let test_size_non_container: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JNumber(42.0)
+
+    // Act
+    let result: Option[i32] = src.json.size(value)
+
+    // Assert
+    assert_none[i32](result, "size should return None for non-container types")
+    return
+}
+
+let test_keys_object: fn() -> void = fn() -> void {
+    // Arrange
+    let field1: src.json.JsonField = src.json.JsonField { key: "name", value: src.json.JNull }
+    let field2: src.json.JsonField = src.json.JsonField { key: "age", value: src.json.JNull }
+    let obj: src.json.Json = src.json.JObject(Cons(field1, Cons(field2, Nil)))
+
+    // Act
+    let result: Option[List[string]] = src.json.keys(obj)
+
+    // Assert
+    assert_some[List[string]](result, "keys should return Some for object")
+    return
+}
+
+let test_keys_non_object: fn() -> void = fn() -> void {
+    // Arrange
+    let value: src.json.Json = src.json.JArray(Nil)
+
+    // Act
+    let result: Option[List[string]] = src.json.keys(value)
+
+    // Assert
+    assert_none[List[string]](result, "keys should return None for non-object")
+    return
+}
+
+let test_values_object: fn() -> void = fn() -> void {
+    // Arrange
+    let field: src.json.JsonField = src.json.JsonField { key: "x", value: src.json.JNumber(1.0) }
+    let obj: src.json.Json = src.json.JObject(Cons(field, Nil))
+
+    // Act
+    let result: Option[List[src.json.Json]] = src.json.values(obj)
+
+    // Assert
+    assert_some[List[src.json.Json]](result, "values should return Some for object")
+    return
+}
+
+// =============================================================================
+// Serialization Tests
+// =============================================================================
+
+let test_stringify_null: fn() -> void = fn() -> void {
+    let result: string = src.json.stringify(src.json.JNull)
+    assert_str_eq(result, "null", "stringify JNull should produce 'null'")
+    return
+}
+
+let test_stringify_true: fn() -> void = fn() -> void {
+    let result: string = src.json.stringify(src.json.JBool(true))
+    assert_str_eq(result, "true", "stringify JBool(true) should produce 'true'")
+    return
+}
+
+let test_stringify_false: fn() -> void = fn() -> void {
+    let result: string = src.json.stringify(src.json.JBool(false))
+    assert_str_eq(result, "false", "stringify JBool(false) should produce 'false'")
+    return
+}
+
+let test_stringify_number_integer: fn() -> void = fn() -> void {
+    let result: string = src.json.stringify(src.json.JNumber(42.0))
+    // Note: float to string may vary, checking contains "42"
+    assert_true(std.string.contains(result, "42"), "stringify should contain '42'")
+    return
+}
+
+let test_stringify_string_simple: fn() -> void = fn() -> void {
+    let result: string = src.json.stringify(src.json.JString("hello"))
+    assert_str_eq(result, "\"hello\"", "stringify should quote strings")
+    return
+}
+
+let test_stringify_string_with_quotes: fn() -> void = fn() -> void {
+    let result: string = src.json.stringify(src.json.JString("say \"hi\""))
+    assert_true(std.string.contains(result, "\\\""), "stringify should escape quotes")
+    return
+}
+
+let test_stringify_string_with_newline: fn() -> void = fn() -> void {
+    let result: string = src.json.stringify(src.json.JString("line1\nline2"))
+    assert_true(std.string.contains(result, "\\n"), "stringify should escape newlines")
+    return
+}
+
+let test_stringify_empty_array: fn() -> void = fn() -> void {
+    let result: string = src.json.stringify(src.json.JArray(Nil))
+    assert_str_eq(result, "[]", "stringify empty array should produce '[]'")
+    return
+}
+
+let test_stringify_array_with_elements: fn() -> void = fn() -> void {
+    let arr: src.json.Json = src.json.JArray(Cons(
+        src.json.JNumber(1.0),
+        Cons(src.json.JNumber(2.0), Nil)
+    ))
+    let result: string = src.json.stringify(arr)
+    assert_true(std.string.contains(result, "["), "stringify array should start with '['")
+    assert_true(std.string.contains(result, "]"), "stringify array should end with ']'")
+    assert_true(std.string.contains(result, ","), "stringify array should have comma separator")
+    return
+}
+
+let test_stringify_empty_object: fn() -> void = fn() -> void {
+    let result: string = src.json.stringify(src.json.JObject(Nil))
+    assert_str_eq(result, "{}", "stringify empty object should produce '{}'")
+    return
+}
+
+let test_stringify_object_with_fields: fn() -> void = fn() -> void {
+    let field: src.json.JsonField = src.json.JsonField { key: "x", value: src.json.JNumber(1.0) }
+    let obj: src.json.Json = src.json.JObject(Cons(field, Nil))
+    let result: string = src.json.stringify(obj)
+    assert_true(std.string.contains(result, "\"x\""), "stringify object should have quoted key")
+    assert_true(std.string.contains(result, ":"), "stringify object should have colon")
+    return
+}
+
+let test_stringify_pretty_indentation: fn() -> void = fn() -> void {
+    let field: src.json.JsonField = src.json.JsonField { key: "x", value: src.json.JNumber(1.0) }
+    let obj: src.json.Json = src.json.JObject(Cons(field, Nil))
+    let result: string = src.json.stringify_pretty(obj)
+    assert_true(std.string.contains(result, "\n"), "stringify_pretty should have newlines")
+    assert_true(std.string.contains(result, "  "), "stringify_pretty should have indentation")
+    return
+}
+
+// =============================================================================
+// Parser Tests
+// =============================================================================
+
+let test_parse_null: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("null")
+    match result {
+        Ok(v) => { assert_true(src.json.is_null(v), "parse 'null' should produce JNull") }
+        Err(_) => { assert(false, "parse 'null' should succeed") }
+    }
+    return
+}
+
+let test_parse_true: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("true")
+    match result {
+        Ok(v) => {
+            match src.json.as_bool(v) {
+                Some(b) => { assert_true(b, "parse 'true' should produce true") }
+                None => { assert(false, "parse 'true' should produce bool") }
+            }
+        }
+        Err(_) => { assert(false, "parse 'true' should succeed") }
+    }
+    return
+}
+
+let test_parse_false: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("false")
+    match result {
+        Ok(v) => {
+            match src.json.as_bool(v) {
+                Some(b) => { assert_true(not b, "parse 'false' should produce false") }
+                None => { assert(false, "parse 'false' should produce bool") }
+            }
+        }
+        Err(_) => { assert(false, "parse 'false' should succeed") }
+    }
+    return
+}
+
+let test_parse_integer: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("42")
+    match result {
+        Ok(v) => {
+            match src.json.as_number(v) {
+                Some(n) => { assert_f64_eq(n, 42.0, "parse '42' should produce 42.0") }
+                None => { assert(false, "parse '42' should produce number") }
+            }
+        }
+        Err(_) => { assert(false, "parse '42' should succeed") }
+    }
+    return
+}
+
+let test_parse_negative_number: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("-17")
+    match result {
+        Ok(v) => {
+            match src.json.as_number(v) {
+                Some(n) => { assert_f64_eq(n, -17.0, "parse '-17' should produce -17.0") }
+                None => { assert(false, "parse '-17' should produce number") }
+            }
+        }
+        Err(_) => { assert(false, "parse '-17' should succeed") }
+    }
+    return
+}
+
+let test_parse_decimal: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("3.14")
+    match result {
+        Ok(v) => {
+            match src.json.as_number(v) {
+                Some(n) => { assert_f64_eq(n, 3.14, "parse '3.14' should produce 3.14") }
+                None => { assert(false, "parse '3.14' should produce number") }
+            }
+        }
+        Err(_) => { assert(false, "parse '3.14' should succeed") }
+    }
+    return
+}
+
+let test_parse_exponent: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("1e10")
+    match result {
+        Ok(v) => { assert_true(src.json.is_number(v), "parse '1e10' should produce number") }
+        Err(_) => { assert(false, "parse '1e10' should succeed") }
+    }
+    return
+}
+
+let test_parse_string_simple: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("\"hello\"")
+    match result {
+        Ok(v) => {
+            match src.json.as_string(v) {
+                Some(s) => { assert_str_eq(s, "hello", "parse should produce 'hello'") }
+                None => { assert(false, "parse should produce string") }
+            }
+        }
+        Err(_) => { assert(false, "parse '\"hello\"' should succeed") }
+    }
+    return
+}
+
+let test_parse_string_empty: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("\"\"")
+    match result {
+        Ok(v) => {
+            match src.json.as_string(v) {
+                Some(s) => { assert_str_eq(s, "", "parse should produce empty string") }
+                None => { assert(false, "parse should produce string") }
+            }
+        }
+        Err(_) => { assert(false, "parse '\"\"' should succeed") }
+    }
+    return
+}
+
+let test_parse_string_escaped_quote: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("\"say \\\"hi\\\"\"")
+    match result {
+        Ok(v) => {
+            match src.json.as_string(v) {
+                Some(s) => { assert_true(std.string.contains(s, "\""), "parse should unescape quotes") }
+                None => { assert(false, "parse should produce string") }
+            }
+        }
+        Err(_) => { assert(false, "parse escaped quotes should succeed") }
+    }
+    return
+}
+
+let test_parse_string_escaped_newline: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("\"line1\\nline2\"")
+    match result {
+        Ok(v) => {
+            match src.json.as_string(v) {
+                Some(s) => { assert_true(std.string.contains(s, "\n"), "parse should unescape newline") }
+                None => { assert(false, "parse should produce string") }
+            }
+        }
+        Err(_) => { assert(false, "parse escaped newline should succeed") }
+    }
+    return
+}
+
+let test_parse_array_empty: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("[]")
+    match result {
+        Ok(v) => {
+            assert_true(src.json.is_array(v), "parse '[]' should produce array")
+            match src.json.size(v) {
+                Some(n) => { assert_i32_eq(n, 0, "parse '[]' should produce empty array") }
+                None => { assert(false, "size should work on array") }
+            }
+        }
+        Err(_) => { assert(false, "parse '[]' should succeed") }
+    }
+    return
+}
+
+let test_parse_array_with_elements: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("[1, 2, 3]")
+    match result {
+        Ok(v) => {
+            assert_true(src.json.is_array(v), "parse '[1,2,3]' should produce array")
+            match src.json.size(v) {
+                Some(n) => { assert_i32_eq(n, 3, "parse '[1,2,3]' should have 3 elements") }
+                None => { assert(false, "size should work on array") }
+            }
+        }
+        Err(_) => { assert(false, "parse '[1,2,3]' should succeed") }
+    }
+    return
+}
+
+let test_parse_array_mixed_types: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("[1, \"two\", true, null]")
+    match result {
+        Ok(v) => {
+            assert_true(src.json.is_array(v), "parse mixed array should produce array")
+            match src.json.size(v) {
+                Some(n) => { assert_i32_eq(n, 4, "parse mixed array should have 4 elements") }
+                None => { assert(false, "size should work on array") }
+            }
+        }
+        Err(_) => { assert(false, "parse mixed array should succeed") }
+    }
+    return
+}
+
+let test_parse_object_empty: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("{}")
+    match result {
+        Ok(v) => {
+            assert_true(src.json.is_object(v), "parse '{}' should produce object")
+            match src.json.size(v) {
+                Some(n) => { assert_i32_eq(n, 0, "parse '{}' should produce empty object") }
+                None => { assert(false, "size should work on object") }
+            }
+        }
+        Err(_) => { assert(false, "parse '{}' should succeed") }
+    }
+    return
+}
+
+let test_parse_object_single_field: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("{\"name\": \"Alice\"}")
+    match result {
+        Ok(v) => {
+            assert_true(src.json.is_object(v), "parse should produce object")
+            match src.json.get_field(v, "name") {
+                Some(name_val) => {
+                    match src.json.as_string(name_val) {
+                        Some(s) => { assert_str_eq(s, "Alice", "name field should be 'Alice'") }
+                        None => { assert(false, "name field should be string") }
+                    }
+                }
+                None => { assert(false, "object should have 'name' field") }
+            }
+        }
+        Err(_) => { assert(false, "parse object should succeed") }
+    }
+    return
+}
+
+let test_parse_object_multiple_fields: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("{\"a\": 1, \"b\": 2}")
+    match result {
+        Ok(v) => {
+            assert_true(src.json.is_object(v), "parse should produce object")
+            match src.json.size(v) {
+                Some(n) => { assert_i32_eq(n, 2, "object should have 2 fields") }
+                None => { assert(false, "size should work on object") }
+            }
+        }
+        Err(_) => { assert(false, "parse object should succeed") }
+    }
+    return
+}
+
+let test_parse_nested_object: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("{\"outer\": {\"inner\": 42}}")
+    match result {
+        Ok(v) => {
+            match src.json.get_field(v, "outer") {
+                Some(outer) => {
+                    assert_true(src.json.is_object(outer), "outer should be object")
+                    match src.json.get_field(outer, "inner") {
+                        Some(inner) => {
+                            match src.json.as_number(inner) {
+                                Some(n) => { assert_f64_eq(n, 42.0, "inner should be 42") }
+                                None => { assert(false, "inner should be number") }
+                            }
+                        }
+                        None => { assert(false, "should have inner field") }
+                    }
+                }
+                None => { assert(false, "should have outer field") }
+            }
+        }
+        Err(_) => { assert(false, "parse nested object should succeed") }
+    }
+    return
+}
+
+let test_parse_with_whitespace: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("  {  \"x\"  :  1  }  ")
+    assert_ok[src.json.Json, src.json.ParseError](result, "parse with whitespace should succeed")
+    return
+}
+
+// Parser Error Tests
+
+let test_parse_error_invalid_token: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("undefined")
+    assert_err[src.json.Json, src.json.ParseError](result, "parse 'undefined' should fail")
+    return
+}
+
+let test_parse_error_unterminated_string: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("\"hello")
+    assert_err[src.json.Json, src.json.ParseError](result, "parse unterminated string should fail")
+    return
+}
+
+let test_parse_error_unterminated_array: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("[1, 2")
+    assert_err[src.json.Json, src.json.ParseError](result, "parse unterminated array should fail")
+    return
+}
+
+let test_parse_error_unterminated_object: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("{\"x\": 1")
+    assert_err[src.json.Json, src.json.ParseError](result, "parse unterminated object should fail")
+    return
+}
+
+let test_parse_error_trailing_content: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("true false")
+    assert_err[src.json.Json, src.json.ParseError](result, "parse trailing content should fail")
+    return
+}
+
+let test_parse_error_missing_colon: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("{\"x\" 1}")
+    assert_err[src.json.Json, src.json.ParseError](result, "parse missing colon should fail")
+    return
+}
+
+let test_parse_error_position_tracking: fn() -> void = fn() -> void {
+    let result: Result[src.json.Json, src.json.ParseError] = src.json.parse("{\"x\": badvalue}")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            // Error should have position information
+            assert_true(e.line >= 1, "error should have line number")
+            assert_true(e.column >= 1, "error should have column number")
+        }
+    }
+    return
+}
+
+// =============================================================================
+// Transformer Tests
+// =============================================================================
+
+let test_set_field_new: fn() -> void = fn() -> void {
+    // Arrange
+    let obj: src.json.Json = src.json.JObject(Nil)
+
+    // Act
+    let result: src.json.Json = src.json.set_field(obj, "x", src.json.JNumber(1.0))
+
+    // Assert
+    match src.json.get_field(result, "x") {
+        Some(v) => {
+            match src.json.as_number(v) {
+                Some(n) => { assert_f64_eq(n, 1.0, "set_field should add new field") }
+                None => { assert(false, "field should be number") }
+            }
+        }
+        None => { assert(false, "set_field should create field") }
+    }
+    return
+}
+
+let test_set_field_update: fn() -> void = fn() -> void {
+    // Arrange
+    let field: src.json.JsonField = src.json.JsonField { key: "x", value: src.json.JNumber(1.0) }
+    let obj: src.json.Json = src.json.JObject(Cons(field, Nil))
+
+    // Act
+    let result: src.json.Json = src.json.set_field(obj, "x", src.json.JNumber(99.0))
+
+    // Assert
+    match src.json.get_field(result, "x") {
+        Some(v) => {
+            match src.json.as_number(v) {
+                Some(n) => { assert_f64_eq(n, 99.0, "set_field should update existing field") }
+                None => { assert(false, "field should be number") }
+            }
+        }
+        None => { assert(false, "field should exist") }
+    }
+    return
+}
+
+let test_set_field_on_non_object: fn() -> void = fn() -> void {
+    // Arrange
+    let arr: src.json.Json = src.json.JArray(Nil)
+
+    // Act
+    let result: src.json.Json = src.json.set_field(arr, "x", src.json.JNumber(1.0))
+
+    // Assert
+    assert_true(src.json.is_array(result), "set_field on non-object should return unchanged")
+    return
+}
+
+let test_remove_field_existing: fn() -> void = fn() -> void {
+    // Arrange
+    let field1: src.json.JsonField = src.json.JsonField { key: "a", value: src.json.JNumber(1.0) }
+    let field2: src.json.JsonField = src.json.JsonField { key: "b", value: src.json.JNumber(2.0) }
+    let obj: src.json.Json = src.json.JObject(Cons(field1, Cons(field2, Nil)))
+
+    // Act
+    let result: src.json.Json = src.json.remove_field(obj, "a")
+
+    // Assert
+    assert_none[src.json.Json](src.json.get_field(result, "a"), "remove_field should remove 'a'")
+    assert_some[src.json.Json](src.json.get_field(result, "b"), "remove_field should keep 'b'")
+    return
+}
+
+let test_remove_field_non_existing: fn() -> void = fn() -> void {
+    // Arrange
+    let field: src.json.JsonField = src.json.JsonField { key: "a", value: src.json.JNumber(1.0) }
+    let obj: src.json.Json = src.json.JObject(Cons(field, Nil))
+
+    // Act
+    let result: src.json.Json = src.json.remove_field(obj, "nonexistent")
+
+    // Assert
+    match src.json.size(result) {
+        Some(n) => { assert_i32_eq(n, 1, "remove non-existing should not change size") }
+        None => { assert(false, "should be object") }
+    }
+    return
+}
+
+let test_merge_objects: fn() -> void = fn() -> void {
+    // Arrange
+    let field_a: src.json.JsonField = src.json.JsonField { key: "a", value: src.json.JNumber(1.0) }
+    let field_b: src.json.JsonField = src.json.JsonField { key: "b", value: src.json.JNumber(2.0) }
+    let obj1: src.json.Json = src.json.JObject(Cons(field_a, Nil))
+    let obj2: src.json.Json = src.json.JObject(Cons(field_b, Nil))
+
+    // Act
+    let result: src.json.Json = src.json.merge(obj1, obj2)
+
+    // Assert
+    assert_some[src.json.Json](src.json.get_field(result, "a"), "merge should keep 'a'")
+    assert_some[src.json.Json](src.json.get_field(result, "b"), "merge should add 'b'")
+    return
+}
+
+let test_merge_override: fn() -> void = fn() -> void {
+    // Arrange
+    let field1: src.json.JsonField = src.json.JsonField { key: "x", value: src.json.JNumber(1.0) }
+    let field2: src.json.JsonField = src.json.JsonField { key: "x", value: src.json.JNumber(99.0) }
+    let obj1: src.json.Json = src.json.JObject(Cons(field1, Nil))
+    let obj2: src.json.Json = src.json.JObject(Cons(field2, Nil))
+
+    // Act
+    let result: src.json.Json = src.json.merge(obj1, obj2)
+
+    // Assert
+    match src.json.get_field(result, "x") {
+        Some(v) => {
+            match src.json.as_number(v) {
+                Some(n) => { assert_f64_eq(n, 99.0, "merge should override with second object") }
+                None => { assert(false, "field should be number") }
+            }
+        }
+        None => { assert(false, "field should exist") }
+    }
+    return
+}
+
+let test_merge_non_objects: fn() -> void = fn() -> void {
+    // Arrange
+    let val1: src.json.Json = src.json.JNumber(1.0)
+    let val2: src.json.Json = src.json.JNumber(2.0)
+
+    // Act
+    let result: src.json.Json = src.json.merge(val1, val2)
+
+    // Assert
+    match src.json.as_number(result) {
+        Some(n) => { assert_f64_eq(n, 2.0, "merge non-objects should return second value") }
+        None => { assert(false, "result should be number") }
+    }
+    return
+}
+
+let test_map_array_transform: fn() -> void = fn() -> void {
+    // Arrange
+    let arr: src.json.Json = src.json.JArray(Cons(
+        src.json.JNumber(1.0),
+        Cons(src.json.JNumber(2.0), Nil)
+    ))
+
+    // Act - double each number
+    let result: src.json.Json = src.json.map_array(arr, fn(elem: src.json.Json) -> src.json.Json {
+        match src.json.as_number(elem) {
+            Some(n) => { return src.json.JNumber(n * 2.0) }
+            None => { return elem }
+        }
+    })
+
+    // Assert
+    match src.json.get_index(result, 0) {
+        Some(v) => {
+            match src.json.as_number(v) {
+                Some(n) => { assert_f64_eq(n, 2.0, "first element should be doubled") }
+                None => { assert(false, "element should be number") }
+            }
+        }
+        None => { assert(false, "should have element at index 0") }
+    }
+    return
+}
+
+let test_filter_array_predicate: fn() -> void = fn() -> void {
+    // Arrange
+    let arr: src.json.Json = src.json.JArray(Cons(
+        src.json.JNumber(1.0),
+        Cons(src.json.JNumber(2.0), Cons(src.json.JNumber(3.0), Nil))
+    ))
+
+    // Act - keep only numbers > 1
+    let result: src.json.Json = src.json.filter_array(arr, fn(elem: src.json.Json) -> bool {
+        match src.json.as_number(elem) {
+            Some(n) => { return n > 1.0 }
+            None => { return false }
+        }
+    })
+
+    // Assert
+    match src.json.size(result) {
+        Some(n) => { assert_i32_eq(n, 2, "filtered array should have 2 elements") }
+        None => { assert(false, "result should be array") }
+    }
+    return
+}
+
+let test_filter_fields_predicate: fn() -> void = fn() -> void {
+    // Arrange
+    let field1: src.json.JsonField = src.json.JsonField { key: "keep", value: src.json.JNumber(1.0) }
+    let field2: src.json.JsonField = src.json.JsonField { key: "remove", value: src.json.JNumber(2.0) }
+    let obj: src.json.Json = src.json.JObject(Cons(field1, Cons(field2, Nil)))
+
+    // Act - keep only fields starting with "keep"
+    let result: src.json.Json = src.json.filter_fields(obj, fn(key: string, value: src.json.Json) -> bool {
+        return std.string.starts_with(key, "keep")
+    })
+
+    // Assert
+    assert_some[src.json.Json](src.json.get_field(result, "keep"), "should keep 'keep' field")
+    assert_none[src.json.Json](src.json.get_field(result, "remove"), "should remove 'remove' field")
+    return
+}
+
+let test_make_field_helper: fn() -> void = fn() -> void {
+    // Act
+    let field: src.json.JsonField = src.json.make_field("test", src.json.JNull)
+
+    // Assert
+    assert_str_eq(field.key, "test", "make_field should set key")
+    assert_true(src.json.is_null(field.value), "make_field should set value")
+    return
+}
+
+// =============================================================================
+// Round-Trip Tests (Property-Based)
+// =============================================================================
+
+let test_roundtrip_null: fn() -> void = fn() -> void {
+    // Property: parse(stringify(x)) == x for null
+    let original: src.json.Json = src.json.JNull
+    let json_str: string = src.json.stringify(original)
+    let parsed: Result[src.json.Json, src.json.ParseError] = src.json.parse(json_str)
+    match parsed {
+        Ok(v) => { assert_true(src.json.is_null(v), "roundtrip null should preserve null") }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_bool: fn() -> void = fn() -> void {
+    let original: src.json.Json = src.json.JBool(true)
+    let json_str: string = src.json.stringify(original)
+    let parsed: Result[src.json.Json, src.json.ParseError] = src.json.parse(json_str)
+    match parsed {
+        Ok(v) => {
+            match src.json.as_bool(v) {
+                Some(b) => { assert_true(b, "roundtrip should preserve true") }
+                None => { assert(false, "should be bool") }
+            }
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_number: fn() -> void = fn() -> void {
+    let original: src.json.Json = src.json.JNumber(42.5)
+    let json_str: string = src.json.stringify(original)
+    let parsed: Result[src.json.Json, src.json.ParseError] = src.json.parse(json_str)
+    match parsed {
+        Ok(v) => {
+            match src.json.as_number(v) {
+                Some(n) => { assert_f64_eq(n, 42.5, "roundtrip should preserve number") }
+                None => { assert(false, "should be number") }
+            }
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_string: fn() -> void = fn() -> void {
+    let original: src.json.Json = src.json.JString("hello world")
+    let json_str: string = src.json.stringify(original)
+    let parsed: Result[src.json.Json, src.json.ParseError] = src.json.parse(json_str)
+    match parsed {
+        Ok(v) => {
+            match src.json.as_string(v) {
+                Some(s) => { assert_str_eq(s, "hello world", "roundtrip should preserve string") }
+                None => { assert(false, "should be string") }
+            }
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_array: fn() -> void = fn() -> void {
+    let original: src.json.Json = src.json.JArray(Cons(
+        src.json.JNumber(1.0),
+        Cons(src.json.JNumber(2.0), Nil)
+    ))
+    let json_str: string = src.json.stringify(original)
+    let parsed: Result[src.json.Json, src.json.ParseError] = src.json.parse(json_str)
+    match parsed {
+        Ok(v) => {
+            assert_true(src.json.is_array(v), "roundtrip should preserve array type")
+            match src.json.size(v) {
+                Some(n) => { assert_i32_eq(n, 2, "roundtrip should preserve array size") }
+                None => { assert(false, "should be array") }
+            }
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_object: fn() -> void = fn() -> void {
+    let field: src.json.JsonField = src.json.JsonField { key: "x", value: src.json.JNumber(1.0) }
+    let original: src.json.Json = src.json.JObject(Cons(field, Nil))
+    let json_str: string = src.json.stringify(original)
+    let parsed: Result[src.json.Json, src.json.ParseError] = src.json.parse(json_str)
+    match parsed {
+        Ok(v) => {
+            assert_true(src.json.is_object(v), "roundtrip should preserve object type")
+            match src.json.get_field(v, "x") {
+                Some(x_val) => {
+                    match src.json.as_number(x_val) {
+                        Some(n) => { assert_f64_eq(n, 1.0, "roundtrip should preserve field value") }
+                        None => { assert(false, "should be number") }
+                    }
+                }
+                None => { assert(false, "should have field 'x'") }
+            }
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+// =============================================================================
+// Test Runner
+// =============================================================================
+
+effect fn run_test(name: string, test_fn: fn() -> void) -> IO[void] {
+    std.io.print("  ")
+    std.io.print(name)
+    std.io.print(" ... ")
+    test_fn()
+    std.io.println("ok")
+    return
+}
+
+effect fn main() -> IO[void] {
+    std.io.println("Running JSON Library Tests")
+    std.io.println("==========================")
+    std.io.println("")
+
+    std.io.println("Type Checking Predicates:")
+    run_test("test_is_null_with_null", test_is_null_with_null)
+    run_test("test_is_null_with_non_null", test_is_null_with_non_null)
+    run_test("test_is_bool_with_bool", test_is_bool_with_bool)
+    run_test("test_is_bool_with_non_bool", test_is_bool_with_non_bool)
+    run_test("test_is_number_with_number", test_is_number_with_number)
+    run_test("test_is_number_with_non_number", test_is_number_with_non_number)
+    run_test("test_is_string_with_string", test_is_string_with_string)
+    run_test("test_is_string_with_empty_string", test_is_string_with_empty_string)
+    run_test("test_is_array_with_array", test_is_array_with_array)
+    run_test("test_is_array_with_empty_array", test_is_array_with_empty_array)
+    run_test("test_is_object_with_object", test_is_object_with_object)
+    run_test("test_is_object_with_empty_object", test_is_object_with_empty_object)
+    std.io.println("")
+
+    std.io.println("Type Names:")
+    run_test("test_type_name_null", test_type_name_null)
+    run_test("test_type_name_boolean", test_type_name_boolean)
+    run_test("test_type_name_number", test_type_name_number)
+    run_test("test_type_name_string", test_type_name_string)
+    run_test("test_type_name_array", test_type_name_array)
+    run_test("test_type_name_object", test_type_name_object)
+    std.io.println("")
+
+    std.io.println("Value Extractors:")
+    run_test("test_as_string_with_string", test_as_string_with_string)
+    run_test("test_as_string_with_non_string", test_as_string_with_non_string)
+    run_test("test_as_number_with_number", test_as_number_with_number)
+    run_test("test_as_number_with_non_number", test_as_number_with_non_number)
+    run_test("test_as_int_with_integer", test_as_int_with_integer)
+    run_test("test_as_int_truncates_decimal", test_as_int_truncates_decimal)
+    run_test("test_as_bool_with_true", test_as_bool_with_true)
+    run_test("test_as_bool_with_false", test_as_bool_with_false)
+    run_test("test_as_array_with_array", test_as_array_with_array)
+    run_test("test_as_object_with_object", test_as_object_with_object)
+    std.io.println("")
+
+    std.io.println("Field/Index Accessors:")
+    run_test("test_get_field_existing", test_get_field_existing)
+    run_test("test_get_field_non_existing", test_get_field_non_existing)
+    run_test("test_get_field_on_non_object", test_get_field_on_non_object)
+    run_test("test_get_index_valid", test_get_index_valid)
+    run_test("test_get_index_out_of_bounds", test_get_index_out_of_bounds)
+    run_test("test_get_index_negative", test_get_index_negative)
+    run_test("test_size_array", test_size_array)
+    run_test("test_size_empty_array", test_size_empty_array)
+    run_test("test_size_object", test_size_object)
+    run_test("test_size_non_container", test_size_non_container)
+    run_test("test_keys_object", test_keys_object)
+    run_test("test_keys_non_object", test_keys_non_object)
+    run_test("test_values_object", test_values_object)
+    std.io.println("")
+
+    std.io.println("Serialization:")
+    run_test("test_stringify_null", test_stringify_null)
+    run_test("test_stringify_true", test_stringify_true)
+    run_test("test_stringify_false", test_stringify_false)
+    run_test("test_stringify_number_integer", test_stringify_number_integer)
+    run_test("test_stringify_string_simple", test_stringify_string_simple)
+    run_test("test_stringify_string_with_quotes", test_stringify_string_with_quotes)
+    run_test("test_stringify_string_with_newline", test_stringify_string_with_newline)
+    run_test("test_stringify_empty_array", test_stringify_empty_array)
+    run_test("test_stringify_array_with_elements", test_stringify_array_with_elements)
+    run_test("test_stringify_empty_object", test_stringify_empty_object)
+    run_test("test_stringify_object_with_fields", test_stringify_object_with_fields)
+    run_test("test_stringify_pretty_indentation", test_stringify_pretty_indentation)
+    std.io.println("")
+
+    std.io.println("Parsing:")
+    run_test("test_parse_null", test_parse_null)
+    run_test("test_parse_true", test_parse_true)
+    run_test("test_parse_false", test_parse_false)
+    run_test("test_parse_integer", test_parse_integer)
+    run_test("test_parse_negative_number", test_parse_negative_number)
+    run_test("test_parse_decimal", test_parse_decimal)
+    run_test("test_parse_exponent", test_parse_exponent)
+    run_test("test_parse_string_simple", test_parse_string_simple)
+    run_test("test_parse_string_empty", test_parse_string_empty)
+    run_test("test_parse_string_escaped_quote", test_parse_string_escaped_quote)
+    run_test("test_parse_string_escaped_newline", test_parse_string_escaped_newline)
+    run_test("test_parse_array_empty", test_parse_array_empty)
+    run_test("test_parse_array_with_elements", test_parse_array_with_elements)
+    run_test("test_parse_array_mixed_types", test_parse_array_mixed_types)
+    run_test("test_parse_object_empty", test_parse_object_empty)
+    run_test("test_parse_object_single_field", test_parse_object_single_field)
+    run_test("test_parse_object_multiple_fields", test_parse_object_multiple_fields)
+    run_test("test_parse_nested_object", test_parse_nested_object)
+    run_test("test_parse_with_whitespace", test_parse_with_whitespace)
+    std.io.println("")
+
+    std.io.println("Parser Errors:")
+    run_test("test_parse_error_invalid_token", test_parse_error_invalid_token)
+    run_test("test_parse_error_unterminated_string", test_parse_error_unterminated_string)
+    run_test("test_parse_error_unterminated_array", test_parse_error_unterminated_array)
+    run_test("test_parse_error_unterminated_object", test_parse_error_unterminated_object)
+    run_test("test_parse_error_trailing_content", test_parse_error_trailing_content)
+    run_test("test_parse_error_missing_colon", test_parse_error_missing_colon)
+    run_test("test_parse_error_position_tracking", test_parse_error_position_tracking)
+    std.io.println("")
+
+    std.io.println("Transformers:")
+    run_test("test_set_field_new", test_set_field_new)
+    run_test("test_set_field_update", test_set_field_update)
+    run_test("test_set_field_on_non_object", test_set_field_on_non_object)
+    run_test("test_remove_field_existing", test_remove_field_existing)
+    run_test("test_remove_field_non_existing", test_remove_field_non_existing)
+    run_test("test_merge_objects", test_merge_objects)
+    run_test("test_merge_override", test_merge_override)
+    run_test("test_merge_non_objects", test_merge_non_objects)
+    run_test("test_map_array_transform", test_map_array_transform)
+    run_test("test_filter_array_predicate", test_filter_array_predicate)
+    run_test("test_filter_fields_predicate", test_filter_fields_predicate)
+    run_test("test_make_field_helper", test_make_field_helper)
+    std.io.println("")
+
+    std.io.println("Round-Trip (Property Tests):")
+    run_test("test_roundtrip_null", test_roundtrip_null)
+    run_test("test_roundtrip_bool", test_roundtrip_bool)
+    run_test("test_roundtrip_number", test_roundtrip_number)
+    run_test("test_roundtrip_string", test_roundtrip_string)
+    run_test("test_roundtrip_array", test_roundtrip_array)
+    run_test("test_roundtrip_object", test_roundtrip_object)
+    std.io.println("")
+
+    std.io.println("==========================")
+    std.io.println("All tests passed!")
+    return
+}
