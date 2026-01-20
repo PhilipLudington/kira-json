@@ -1,0 +1,8 @@
+import src.json.{ Json, JNull, JString, JObject, JsonField, make_field, stringify }
+
+effect fn main() -> IO[void] {
+    let field: JsonField = make_field("name", JString("Alice"))
+    let person: Json = JObject(Cons(field, Nil))
+    std.io.println(stringify(person))
+    return
+}

@@ -1,0 +1,6 @@
+/// Minimal test
+
+effect fn main() -> IO[void] {
+    std.io.println("Hello, Kira!")
+    return
+}

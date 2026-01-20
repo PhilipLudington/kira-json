@@ -1,0 +1,277 @@
+/// JSON Library Demo for Kira
+/// Demonstrates ADTs, pattern matching, and pure functional design.
+
+// =============================================================================
+// Core Types - Demonstrating Algebraic Data Types
+// =============================================================================
+
+/// JSON value - a sum type with 6 variants
+type Json =
+    | JNull
+    | JBool(bool)
+    | JNumber(f64)
+    | JString(string)
+    | JArray(List[Json])
+    | JObject(List[JsonField])
+
+/// Key-value pair for JSON objects - a product type
+type JsonField = {
+    key: string,
+    value: Json
+}
+
+// =============================================================================
+// Type Checking - Pattern Matching on Sum Types
+// =============================================================================
+
+let is_null: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JNull => { return true }
+        _ => { return false }
+    }
+}
+
+let is_bool: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JBool(_) => { return true }
+        _ => { return false }
+    }
+}
+
+let is_string: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JString(_) => { return true }
+        _ => { return false }
+    }
+}
+
+let is_array: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JArray(_) => { return true }
+        _ => { return false }
+    }
+}
+
+let is_object: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JObject(_) => { return true }
+        _ => { return false }
+    }
+}
+
+let type_name: fn(Json) -> string = fn(json: Json) -> string {
+    match json {
+        JNull => { return "null" }
+        JBool(_) => { return "boolean" }
+        JNumber(_) => { return "number" }
+        JString(_) => { return "string" }
+        JArray(_) => { return "array" }
+        JObject(_) => { return "object" }
+    }
+}
+
+// =============================================================================
+// Value Extractors - Safe Access with Option Type
+// =============================================================================
+
+let as_string: fn(Json) -> Option[string] = fn(json: Json) -> Option[string] {
+    match json {
+        JString(s) => { return Some(s) }
+        _ => { return None }
+    }
+}
+
+let as_bool: fn(Json) -> Option[bool] = fn(json: Json) -> Option[bool] {
+    match json {
+        JBool(b) => { return Some(b) }
+        _ => { return None }
+    }
+}
+
+// =============================================================================
+// Object Field Access
+// =============================================================================
+
+let get_field: fn(Json, string) -> Option[Json] = fn(json: Json, key: string) -> Option[Json] {
+    match json {
+        JObject(fields) => { return find_field(fields, key) }
+        _ => { return None }
+    }
+}
+
+let find_field: fn(List[JsonField], string) -> Option[Json] = fn(fields: List[JsonField], key: string) -> Option[Json] {
+    match fields {
+        Nil => { return None }
+        Cons(field, rest) => {
+            if field.key == key {
+                return Some(field.value)
+            }
+            return find_field(rest, key)
+        }
+    }
+}
+
+// =============================================================================
+// Serialization (Simplified)
+// =============================================================================
+
+let stringify: fn(Json) -> string = fn(json: Json) -> string {
+    match json {
+        JNull => { return "null" }
+        JBool(b) => {
+            if b {
+                return "true"
+            }
+            return "false"
+        }
+        JNumber(_) => { return "<number>" }
+        JString(s) => { return std.string.concat("\"", std.string.concat(s, "\"")) }
+        JArray(arr) => { return stringify_array(arr) }
+        JObject(fields) => { return stringify_object(fields) }
+    }
+}
+
+let stringify_array: fn(List[Json]) -> string = fn(arr: List[Json]) -> string {
+    match arr {
+        Nil => { return "[]" }
+        _ => {
+            let contents: string = stringify_array_items(arr, true)
+            return std.string.concat("[", std.string.concat(contents, "]"))
+        }
+    }
+}
+
+let stringify_array_items: fn(List[Json], bool) -> string = fn(arr: List[Json], is_first: bool) -> string {
+    match arr {
+        Nil => { return "" }
+        Cons(elem, rest) => {
+            let elem_str: string = stringify(elem)
+            var prefix: string = ""
+            if not is_first {
+                prefix = ", "
+            }
+            let this_part: string = std.string.concat(prefix, elem_str)
+            return std.string.concat(this_part, stringify_array_items(rest, false))
+        }
+    }
+}
+
+let stringify_object: fn(List[JsonField]) -> string = fn(fields: List[JsonField]) -> string {
+    match fields {
+        Nil => { return "{}" }
+        _ => {
+            let contents: string = stringify_object_fields(fields, true)
+            return std.string.concat("{", std.string.concat(contents, "}"))
+        }
+    }
+}
+
+let stringify_object_fields: fn(List[JsonField], bool) -> string = fn(fields: List[JsonField], is_first: bool) -> string {
+    match fields {
+        Nil => { return "" }
+        Cons(field, rest) => {
+            let key_str: string = std.string.concat("\"", std.string.concat(field.key, "\""))
+            let value_str: string = stringify(field.value)
+            let pair: string = std.string.concat(key_str, std.string.concat(": ", value_str))
+            var prefix: string = ""
+            if not is_first {
+                prefix = ", "
+            }
+            let this_part: string = std.string.concat(prefix, pair)
+            return std.string.concat(this_part, stringify_object_fields(rest, false))
+        }
+    }
+}
+
+// =============================================================================
+// Transformers - Functional Object Manipulation
+// =============================================================================
+
+let set_field: fn(Json, string, Json) -> Json = fn(json: Json, key: string, value: Json) -> Json {
+    match json {
+        JObject(fields) => {
+            let new_field: JsonField = JsonField { key: key, value: value }
+            let updated: List[JsonField] = Cons(new_field, remove_field_from_list(fields, key))
+            return JObject(updated)
+        }
+        _ => { return json }
+    }
+}
+
+let remove_field_from_list: fn(List[JsonField], string) -> List[JsonField] = fn(fields: List[JsonField], key: string) -> List[JsonField] {
+    match fields {
+        Nil => { return Nil }
+        Cons(field, rest) => {
+            if field.key == key {
+                return remove_field_from_list(rest, key)
+            }
+            return Cons(field, remove_field_from_list(rest, key))
+        }
+    }
+}
+
+// =============================================================================
+// Demo
+// =============================================================================
+
+effect fn main() -> IO[void] {
+    std.io.println("JSON Library for Kira - Demo")
+    std.io.println("============================")
+    std.io.println("")
+
+    // Demo 1: Building JSON
+    std.io.println("=== Demo 1: Building JSON ===")
+    let name_field: JsonField = JsonField { key: "name", value: JString("Alice") }
+    let active_field: JsonField = JsonField { key: "active", value: JBool(true) }
+    let person: Json = JObject(Cons(name_field, Cons(active_field, Nil)))
+    std.io.println("Built object:")
+    std.io.println(stringify(person))
+    std.io.println("")
+
+    // Demo 2: Type Checking
+    std.io.println("=== Demo 2: Type Checking ===")
+    std.io.println("person is_object:")
+    if is_object(person) {
+        std.io.println("  true")
+    }
+    std.io.println("JNull type_name:")
+    std.io.println(type_name(JNull))
+    std.io.println("JBool(true) type_name:")
+    std.io.println(type_name(JBool(true)))
+    std.io.println("")
+
+    // Demo 3: Safe Field Access
+    std.io.println("=== Demo 3: Safe Field Access ===")
+    match get_field(person, "name") {
+        Some(name_val) => {
+            match as_string(name_val) {
+                Some(name) => {
+                    std.io.println("Found name:")
+                    std.io.println(name)
+                }
+                None => { std.io.println("Name is not a string") }
+            }
+        }
+        None => { std.io.println("No name field") }
+    }
+    std.io.println("")
+
+    // Demo 4: Arrays
+    std.io.println("=== Demo 4: Arrays ===")
+    let arr: Json = JArray(Cons(JBool(true), Cons(JBool(false), Cons(JNull, Nil))))
+    std.io.println("Array:")
+    std.io.println(stringify(arr))
+    std.io.println("")
+
+    // Demo 5: Transformation
+    std.io.println("=== Demo 5: Transformation ===")
+    std.io.println("Original:")
+    std.io.println(stringify(person))
+    let updated: Json = set_field(person, "role", JString("admin"))
+    std.io.println("After set_field:")
+    std.io.println(stringify(updated))
+    std.io.println("")
+
+    std.io.println("=== Demo Complete ===")
+    return
+}

@@ -1,0 +1,244 @@
+/// JSON Library Demo
+/// Demonstrates parsing, building, transforming, and serializing JSON.
+
+module json_demo
+
+import src.json
+
+// =============================================================================
+// Demo 1: Building JSON Programmatically
+// =============================================================================
+
+effect fn demo_building() -> IO[void] {
+    std.io.println("=== Demo 1: Building JSON ===")
+    std.io.println("")
+
+    // Build a simple object
+    let name_field: src.json.JsonField = src.json.JsonField { key: "name", value: src.json.JString("Alice") }
+    let age_field: src.json.JsonField = src.json.JsonField { key: "age", value: src.json.JNumber(30.0) }
+    let active_field: src.json.JsonField = src.json.JsonField { key: "active", value: src.json.JBool(true) }
+    let person: src.json.Json = src.json.JObject(Cons(name_field, Cons(age_field, Cons(active_field, Nil))))
+
+    std.io.println("Built object:")
+    std.io.println(src.json.stringify_pretty(person))
+    std.io.println("")
+
+    // Build an array
+    let numbers: src.json.Json = src.json.JArray(Cons(src.json.JNumber(1.0), Cons(src.json.JNumber(2.0), Cons(src.json.JNumber(3.0), Nil))))
+
+    std.io.println("Built array:")
+    std.io.println(src.json.stringify(numbers))
+    std.io.println("")
+
+    return
+}
+
+// =============================================================================
+// Demo 2: Type Checking
+// =============================================================================
+
+effect fn demo_type_checking() -> IO[void] {
+    std.io.println("=== Demo 2: Type Checking ===")
+    std.io.println("")
+
+    let null_val: src.json.Json = src.json.JNull
+    let bool_val: src.json.Json = src.json.JBool(true)
+    let num_val: src.json.Json = src.json.JNumber(42.0)
+    let str_val: src.json.Json = src.json.JString("hello")
+
+    std.io.println("null is_null:")
+    if src.json.is_null(null_val) {
+        std.io.println("  true")
+    } else {
+        std.io.println("  false")
+    }
+
+    std.io.println("bool is_bool:")
+    if src.json.is_bool(bool_val) {
+        std.io.println("  true")
+    } else {
+        std.io.println("  false")
+    }
+
+    std.io.println("number type_name:")
+    std.io.println(src.json.type_name(num_val))
+
+    std.io.println("string type_name:")
+    std.io.println(src.json.type_name(str_val))
+
+    std.io.println("")
+    return
+}
+
+// =============================================================================
+// Demo 3: Parsing JSON
+// =============================================================================
+
+effect fn demo_parsing() -> IO[void] {
+    std.io.println("=== Demo 3: Parsing JSON ===")
+    std.io.println("")
+
+    let json_str: string = "{\"name\": \"Bob\", \"age\": 25}"
+    std.io.println("Parsing:")
+    std.io.println(json_str)
+
+    match src.json.parse(json_str) {
+        Ok(value) => {
+            std.io.println("Parsed successfully!")
+            std.io.println("Type:")
+            std.io.println(src.json.type_name(value))
+
+            // Access a field
+            match src.json.get_field(value, "name") {
+                Some(name_json) => {
+                    match src.json.as_string(name_json) {
+                        Some(name) => {
+                            std.io.println("Name:")
+                            std.io.println(name)
+                        }
+                        None => {
+                            std.io.println("Name is not a string")
+                        }
+                    }
+                }
+                None => {
+                    std.io.println("No name field")
+                }
+            }
+
+            // Access another field
+            match src.json.get_field(value, "age") {
+                Some(age_json) => {
+                    match src.json.as_int(age_json) {
+                        Some(age) => {
+                            std.io.println("Age found")
+                        }
+                        None => {
+                            std.io.println("Age is not a number")
+                        }
+                    }
+                }
+                None => {
+                    std.io.println("No age field")
+                }
+            }
+        }
+        Err(e) => {
+            std.io.println("Parse error:")
+            std.io.println(e.message)
+        }
+    }
+
+    std.io.println("")
+    return
+}
+
+// =============================================================================
+// Demo 4: Serialization
+// =============================================================================
+
+effect fn demo_serialization() -> IO[void] {
+    std.io.println("=== Demo 4: Serialization ===")
+    std.io.println("")
+
+    let alice_field: src.json.JsonField = src.json.JsonField { key: "name", value: src.json.JString("Alice") }
+    let bob_field: src.json.JsonField = src.json.JsonField { key: "name", value: src.json.JString("Bob") }
+    let alice_obj: src.json.Json = src.json.JObject(Cons(alice_field, Nil))
+    let bob_obj: src.json.Json = src.json.JObject(Cons(bob_field, Nil))
+    let users_arr: src.json.Json = src.json.JArray(Cons(alice_obj, Cons(bob_obj, Nil)))
+    let users_field: src.json.JsonField = src.json.JsonField { key: "users", value: users_arr }
+    let data: src.json.Json = src.json.JObject(Cons(users_field, Nil))
+
+    std.io.println("Compact:")
+    std.io.println(src.json.stringify(data))
+    std.io.println("")
+
+    std.io.println("Pretty (2-space):")
+    std.io.println(src.json.stringify_pretty(data))
+    std.io.println("")
+
+    std.io.println("Pretty (4-space):")
+    std.io.println(src.json.stringify_pretty_with(data, 4))
+    std.io.println("")
+
+    return
+}
+
+// =============================================================================
+// Demo 5: Transformations
+// =============================================================================
+
+effect fn demo_transforms() -> IO[void] {
+    std.io.println("=== Demo 5: Transformations ===")
+    std.io.println("")
+
+    let x_field: src.json.JsonField = src.json.JsonField { key: "x", value: src.json.JNumber(10.0) }
+    let y_field: src.json.JsonField = src.json.JsonField { key: "y", value: src.json.JNumber(20.0) }
+    let obj: src.json.Json = src.json.JObject(Cons(x_field, Cons(y_field, Nil)))
+
+    std.io.println("Original:")
+    std.io.println(src.json.stringify(obj))
+
+    // Set a field
+    let with_z: src.json.Json = src.json.set_field(obj, "z", src.json.JNumber(30.0))
+    std.io.println("After set_field z:")
+    std.io.println(src.json.stringify(with_z))
+
+    // Remove a field
+    let without_x: src.json.Json = src.json.remove_field(with_z, "x")
+    std.io.println("After remove_field x:")
+    std.io.println(src.json.stringify(without_x))
+
+    std.io.println("")
+    return
+}
+
+// =============================================================================
+// Demo 6: Merge
+// =============================================================================
+
+effect fn demo_merge() -> IO[void] {
+    std.io.println("=== Demo 6: Merge ===")
+    std.io.println("")
+
+    let a_field: src.json.JsonField = src.json.JsonField { key: "a", value: src.json.JNumber(1.0) }
+    let b_field: src.json.JsonField = src.json.JsonField { key: "b", value: src.json.JNumber(2.0) }
+    let base: src.json.Json = src.json.JObject(Cons(a_field, Cons(b_field, Nil)))
+
+    let b2_field: src.json.JsonField = src.json.JsonField { key: "b", value: src.json.JNumber(20.0) }
+    let c_field: src.json.JsonField = src.json.JsonField { key: "c", value: src.json.JNumber(30.0) }
+    let overlay: src.json.Json = src.json.JObject(Cons(b2_field, Cons(c_field, Nil)))
+
+    std.io.println("Base:")
+    std.io.println(src.json.stringify(base))
+
+    std.io.println("Overlay:")
+    std.io.println(src.json.stringify(overlay))
+
+    let merged: src.json.Json = src.json.merge(base, overlay)
+    std.io.println("Merged:")
+    std.io.println(src.json.stringify(merged))
+
+    std.io.println("")
+    return
+}
+
+// =============================================================================
+// Main
+// =============================================================================
+
+effect fn main() -> IO[void] {
+    std.io.println("JSON Library for Kira - Demo")
+    std.io.println("============================")
+    std.io.println("")
+
+    demo_building()
+    demo_type_checking()
+    demo_parsing()
+    demo_serialization()
+    demo_transforms()
+    demo_merge()
+
+    std.io.println("Demo complete!")
+    return
+}

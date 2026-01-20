@@ -1,0 +1,1265 @@
+/// JSON Parser Library for Kira
+/// A pure functional JSON parsing, manipulation, and serialization library.
+
+module json
+
+// =============================================================================
+// Core Types
+// =============================================================================
+
+/// Represents a JSON value.
+/// JSON can be null, boolean, number, string, array, or object.
+pub type Json =
+    | JNull
+    | JBool(bool)
+    | JNumber(f64)
+    | JString(string)
+    | JArray(List[Json])
+    | JObject(List[JsonField])
+
+/// A key-value pair in a JSON object.
+pub type JsonField = {
+    key: string,
+    value: Json
+}
+
+/// Creates a JsonField from a key and value.
+pub let make_field: fn(string, Json) -> JsonField = fn(key: string, value: Json) -> JsonField {
+    return JsonField { key: key, value: value }
+}
+
+/// Error information from parsing, including position in the input.
+pub type ParseError = {
+    message: string,
+    line: i32,
+    column: i32
+}
+
+/// Internal state for the recursive descent parser.
+type ParserState = {
+    input: string,
+    pos: i32,
+    line: i32,
+    column: i32
+}
+
+/// Result of a parse operation - either success with value and new state,
+/// or failure with an error.
+type ParseResult[T] =
+    | ParseOk(T, ParserState)
+    | ParseErr(ParseError)
+
+// =============================================================================
+// Type Checking Predicates
+// =============================================================================
+
+/// Returns true if the JSON value is null.
+pub let is_null: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JNull => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns true if the JSON value is a boolean.
+pub let is_bool: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JBool(_) => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns true if the JSON value is a number.
+pub let is_number: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JNumber(_) => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns true if the JSON value is a string.
+pub let is_string: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JString(_) => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns true if the JSON value is an array.
+pub let is_array: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JArray(_) => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns true if the JSON value is an object.
+pub let is_object: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JObject(_) => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns the type name of a JSON value as a string.
+pub let type_name: fn(Json) -> string = fn(json: Json) -> string {
+    match json {
+        JNull => { return "null" }
+        JBool(_) => { return "boolean" }
+        JNumber(_) => { return "number" }
+        JString(_) => { return "string" }
+        JArray(_) => { return "array" }
+        JObject(_) => { return "object" }
+    }
+}
+
+// =============================================================================
+// Value Extractors
+// =============================================================================
+
+/// Extracts the string value if the JSON is a string.
+pub let as_string: fn(Json) -> Option[string] = fn(json: Json) -> Option[string] {
+    match json {
+        JString(s) => { return Some(s) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the number value if the JSON is a number.
+pub let as_number: fn(Json) -> Option[f64] = fn(json: Json) -> Option[f64] {
+    match json {
+        JNumber(n) => { return Some(n) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the number as an integer if the JSON is a number.
+/// Truncates any fractional part.
+pub let as_int: fn(Json) -> Option[i64] = fn(json: Json) -> Option[i64] {
+    match json {
+        JNumber(n) => { return Some(std.math.trunc_to_i64(n)) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the boolean value if the JSON is a boolean.
+pub let as_bool: fn(Json) -> Option[bool] = fn(json: Json) -> Option[bool] {
+    match json {
+        JBool(b) => { return Some(b) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the array if the JSON is an array.
+pub let as_array: fn(Json) -> Option[List[Json]] = fn(json: Json) -> Option[List[Json]] {
+    match json {
+        JArray(arr) => { return Some(arr) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the object fields if the JSON is an object.
+pub let as_object: fn(Json) -> Option[List[JsonField]] = fn(json: Json) -> Option[List[JsonField]] {
+    match json {
+        JObject(fields) => { return Some(fields) }
+        _ => { return None }
+    }
+}
+
+// =============================================================================
+// Field/Index Accessors
+// =============================================================================
+
+/// Gets a field value from a JSON object by key.
+/// Returns None if not an object or key not found.
+pub let get_field: fn(Json, string) -> Option[Json] = fn(json: Json, key: string) -> Option[Json] {
+    match json {
+        JObject(fields) => { return find_field(fields, key) }
+        _ => { return None }
+    }
+}
+
+/// Helper to find a field in a list of JsonFields.
+let find_field: fn(List[JsonField], string) -> Option[Json] =
+    fn(fields: List[JsonField], key: string) -> Option[Json] {
+        match fields {
+            Nil => { return None }
+            Cons(field, rest) => {
+                if std.string.equals(field.key, key) {
+                    return Some(field.value)
+                }
+                return find_field(rest, key)
+            }
+        }
+    }
+
+/// Gets an element from a JSON array by index.
+/// Returns None if not an array or index out of bounds.
+pub let get_index: fn(Json, i32) -> Option[Json] = fn(json: Json, index: i32) -> Option[Json] {
+    match json {
+        JArray(arr) => { return list_get(arr, index) }
+        _ => { return None }
+    }
+}
+
+/// Helper to get an element from a list by index.
+let list_get: fn(List[Json], i32) -> Option[Json] = fn(list: List[Json], index: i32) -> Option[Json] {
+    if index < 0 {
+        return None
+    }
+    match list {
+        Nil => { return None }
+        Cons(head, tail) => {
+            if index == 0 {
+                return Some(head)
+            }
+            return list_get(tail, index - 1)
+        }
+    }
+}
+
+/// Returns the size of a JSON array or object.
+/// Returns None for other types.
+pub let size: fn(Json) -> Option[i32] = fn(json: Json) -> Option[i32] {
+    match json {
+        JArray(arr) => { return Some(list_length[Json](arr)) }
+        JObject(fields) => { return Some(list_length[JsonField](fields)) }
+        _ => { return None }
+    }
+}
+
+/// Helper to get the length of a list.
+let list_length[T]: fn(List[T]) -> i32 = fn(list: List[T]) -> i32 {
+    match list {
+        Nil => { return 0 }
+        Cons(_, tail) => { return 1 + list_length[T](tail) }
+    }
+}
+
+/// Returns the keys of a JSON object.
+/// Returns None if not an object.
+pub let keys: fn(Json) -> Option[List[string]] = fn(json: Json) -> Option[List[string]] {
+    match json {
+        JObject(fields) => { return Some(extract_keys(fields)) }
+        _ => { return None }
+    }
+}
+
+/// Helper to extract keys from a list of JsonFields.
+let extract_keys: fn(List[JsonField]) -> List[string] = fn(fields: List[JsonField]) -> List[string] {
+    match fields {
+        Nil => { return Nil }
+        Cons(field, rest) => { return Cons(field.key, extract_keys(rest)) }
+    }
+}
+
+/// Returns the values of a JSON object.
+/// Returns None if not an object.
+pub let values: fn(Json) -> Option[List[Json]] = fn(json: Json) -> Option[List[Json]] {
+    match json {
+        JObject(fields) => { return Some(extract_values(fields)) }
+        _ => { return None }
+    }
+}
+
+/// Helper to extract values from a list of JsonFields.
+let extract_values: fn(List[JsonField]) -> List[Json] = fn(fields: List[JsonField]) -> List[Json] {
+    match fields {
+        Nil => { return Nil }
+        Cons(field, rest) => { return Cons(field.value, extract_values(rest)) }
+    }
+}
+
+// =============================================================================
+// Serializer - String Escaping
+// =============================================================================
+
+/// Escapes a string for JSON output.
+let escape_string: fn(string) -> string = fn(s: string) -> string {
+    return escape_chars(std.string.to_chars(s))
+}
+
+/// Helper to escape a list of characters.
+let escape_chars: fn(List[char]) -> string = fn(chars: List[char]) -> string {
+    match chars {
+        Nil => { return "" }
+        Cons(c, rest) => {
+            let escaped: string = escape_char(c)
+            return std.string.concat(escaped, escape_chars(rest))
+        }
+    }
+}
+
+/// Escapes a single character for JSON.
+let escape_char: fn(char) -> string = fn(c: char) -> string {
+    match c {
+        '"' => { return "\\\"" }
+        '\\' => { return "\\\\" }
+        '\n' => { return "\\n" }
+        '\r' => { return "\\r" }
+        '\t' => { return "\\t" }
+        _ => {
+            let code: i32 = std.char.to_i32(c)
+            if code < 32 {
+                return escape_control_char(code)
+            }
+            return std.char.to_string(c)
+        }
+    }
+}
+
+/// Escapes a control character as \uXXXX.
+let escape_control_char: fn(i32) -> string = fn(code: i32) -> string {
+    let hex: string = std.int.to_hex(code)
+    let padded: string = pad_left(hex, 4, '0')
+    return std.string.concat("\\u", padded)
+}
+
+/// Pads a string on the left to the specified length.
+let pad_left: fn(string, i32, char) -> string = fn(s: string, len: i32, pad: char) -> string {
+    let current_len: i32 = std.string.length(s)
+    if current_len >= len {
+        return s
+    }
+    let pad_str: string = std.char.to_string(pad)
+    return pad_left(std.string.concat(pad_str, s), len, pad)
+}
+
+// =============================================================================
+// Serializer - Stringify
+// =============================================================================
+
+/// Converts a JSON value to a compact string representation.
+pub let stringify: fn(Json) -> string = fn(json: Json) -> string {
+    match json {
+        JNull => { return "null" }
+        JBool(b) => {
+            if b {
+                return "true"
+            }
+            return "false"
+        }
+        JNumber(n) => { return std.float.to_string(n) }
+        JString(s) => {
+            return std.string.concat("\"", std.string.concat(escape_string(s), "\""))
+        }
+        JArray(arr) => { return stringify_array(arr) }
+        JObject(fields) => { return stringify_object(fields) }
+    }
+}
+
+/// Stringifies an array.
+let stringify_array: fn(List[Json]) -> string = fn(arr: List[Json]) -> string {
+    let contents: string = stringify_array_contents(arr, true)
+    return std.string.concat("[", std.string.concat(contents, "]"))
+}
+
+/// Stringifies array contents with comma separation.
+let stringify_array_contents: fn(List[Json], bool) -> string =
+    fn(arr: List[Json], is_first: bool) -> string {
+        match arr {
+            Nil => { return "" }
+            Cons(elem, rest) => {
+                let elem_str: string = stringify(elem)
+                var prefix: string = ""
+                if not is_first {
+                    prefix = ","
+                }
+                let this_part: string = std.string.concat(prefix, elem_str)
+                return std.string.concat(this_part, stringify_array_contents(rest, false))
+            }
+        }
+    }
+
+/// Stringifies an object.
+let stringify_object: fn(List[JsonField]) -> string = fn(fields: List[JsonField]) -> string {
+    let contents: string = stringify_object_contents(fields, true)
+    return std.string.concat("{", std.string.concat(contents, "}"))
+}
+
+/// Stringifies object contents with comma separation.
+let stringify_object_contents: fn(List[JsonField], bool) -> string =
+    fn(fields: List[JsonField], is_first: bool) -> string {
+        match fields {
+            Nil => { return "" }
+            Cons(field, rest) => {
+                let key_str: string = std.string.concat("\"", std.string.concat(escape_string(field.key), "\""))
+                let value_str: string = stringify(field.value)
+                let pair: string = std.string.concat(key_str, std.string.concat(":", value_str))
+                var prefix: string = ""
+                if not is_first {
+                    prefix = ","
+                }
+                let this_part: string = std.string.concat(prefix, pair)
+                return std.string.concat(this_part, stringify_object_contents(rest, false))
+            }
+        }
+    }
+
+/// Converts a JSON value to a pretty-printed string with 2-space indentation.
+pub let stringify_pretty: fn(Json) -> string = fn(json: Json) -> string {
+    return stringify_pretty_with(json, 2)
+}
+
+/// Converts a JSON value to a pretty-printed string with custom indentation.
+pub let stringify_pretty_with: fn(Json, i32) -> string = fn(json: Json, indent_size: i32) -> string {
+    return stringify_indent(json, 0, indent_size)
+}
+
+/// Stringifies with indentation at the current level.
+let stringify_indent: fn(Json, i32, i32) -> string = fn(json: Json, level: i32, indent_size: i32) -> string {
+    match json {
+        JNull => { return "null" }
+        JBool(b) => {
+            if b {
+                return "true"
+            }
+            return "false"
+        }
+        JNumber(n) => { return std.float.to_string(n) }
+        JString(s) => {
+            return std.string.concat("\"", std.string.concat(escape_string(s), "\""))
+        }
+        JArray(arr) => { return stringify_array_pretty(arr, level, indent_size) }
+        JObject(fields) => { return stringify_object_pretty(fields, level, indent_size) }
+    }
+}
+
+/// Creates an indentation string for the given level.
+let make_indent: fn(i32, i32) -> string = fn(level: i32, indent_size: i32) -> string {
+    let total_spaces: i32 = level * indent_size
+    return repeat_char(' ', total_spaces)
+}
+
+/// Repeats a character n times.
+let repeat_char: fn(char, i32) -> string = fn(c: char, n: i32) -> string {
+    if n <= 0 {
+        return ""
+    }
+    return std.string.concat(std.char.to_string(c), repeat_char(c, n - 1))
+}
+
+/// Pretty-prints an array.
+let stringify_array_pretty: fn(List[Json], i32, i32) -> string =
+    fn(arr: List[Json], level: i32, indent_size: i32) -> string {
+        match arr {
+            Nil => { return "[]" }
+            _ => {
+                let inner_indent: string = make_indent(level + 1, indent_size)
+                let outer_indent: string = make_indent(level, indent_size)
+                let contents: string = stringify_array_contents_pretty(arr, level + 1, indent_size, true)
+                return std.string.concat("[\n",
+                    std.string.concat(contents,
+                        std.string.concat("\n", std.string.concat(outer_indent, "]"))))
+            }
+        }
+    }
+
+/// Pretty-prints array contents.
+let stringify_array_contents_pretty: fn(List[Json], i32, i32, bool) -> string =
+    fn(arr: List[Json], level: i32, indent_size: i32, is_first: bool) -> string {
+        match arr {
+            Nil => { return "" }
+            Cons(elem, rest) => {
+                let indent: string = make_indent(level, indent_size)
+                let elem_str: string = stringify_indent(elem, level, indent_size)
+                var prefix: string = ""
+                if not is_first {
+                    prefix = ",\n"
+                }
+                let this_part: string = std.string.concat(prefix, std.string.concat(indent, elem_str))
+                return std.string.concat(this_part, stringify_array_contents_pretty(rest, level, indent_size, false))
+            }
+        }
+    }
+
+/// Pretty-prints an object.
+let stringify_object_pretty: fn(List[JsonField], i32, i32) -> string =
+    fn(fields: List[JsonField], level: i32, indent_size: i32) -> string {
+        match fields {
+            Nil => { return "{}" }
+            _ => {
+                let outer_indent: string = make_indent(level, indent_size)
+                let contents: string = stringify_object_contents_pretty(fields, level + 1, indent_size, true)
+                return std.string.concat("{\n",
+                    std.string.concat(contents,
+                        std.string.concat("\n", std.string.concat(outer_indent, "}"))))
+            }
+        }
+    }
+
+/// Pretty-prints object contents.
+let stringify_object_contents_pretty: fn(List[JsonField], i32, i32, bool) -> string =
+    fn(fields: List[JsonField], level: i32, indent_size: i32, is_first: bool) -> string {
+        match fields {
+            Nil => { return "" }
+            Cons(field, rest) => {
+                let indent: string = make_indent(level, indent_size)
+                let key_str: string = std.string.concat("\"", std.string.concat(escape_string(field.key), "\""))
+                let value_str: string = stringify_indent(field.value, level, indent_size)
+                let pair: string = std.string.concat(key_str, std.string.concat(": ", value_str))
+                var prefix: string = ""
+                if not is_first {
+                    prefix = ",\n"
+                }
+                let this_part: string = std.string.concat(prefix, std.string.concat(indent, pair))
+                return std.string.concat(this_part, stringify_object_contents_pretty(rest, level, indent_size, false))
+            }
+        }
+    }
+
+// =============================================================================
+// Parser - State Utilities
+// =============================================================================
+
+/// Creates an initial parser state from an input string.
+let init_state: fn(string) -> ParserState = fn(input: string) -> ParserState {
+    return ParserState {
+        input: input,
+        pos: 0,
+        line: 1,
+        column: 1
+    }
+}
+
+/// Creates a parse error with the current position.
+let make_error: fn(ParserState, string) -> ParseError = fn(state: ParserState, message: string) -> ParseError {
+    return ParseError {
+        message: message,
+        line: state.line,
+        column: state.column
+    }
+}
+
+/// Returns true if the parser has reached the end of input.
+let is_eof: fn(ParserState) -> bool = fn(state: ParserState) -> bool {
+    return state.pos >= std.string.length(state.input)
+}
+
+/// Returns the current character without consuming it.
+let peek: fn(ParserState) -> Option[char] = fn(state: ParserState) -> Option[char] {
+    if is_eof(state) {
+        return None
+    }
+    return Some(std.string.char_at(state.input, state.pos))
+}
+
+/// Returns the character at a given offset from current position.
+let peek_at: fn(ParserState, i32) -> Option[char] = fn(state: ParserState, offset: i32) -> Option[char] {
+    let target_pos: i32 = state.pos + offset
+    if target_pos >= std.string.length(state.input) {
+        return None
+    }
+    return Some(std.string.char_at(state.input, target_pos))
+}
+
+/// Advances the parser by one character, updating line/column tracking.
+let advance: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserState {
+    if is_eof(state) {
+        return state
+    }
+    let c: char = std.string.char_at(state.input, state.pos)
+    var new_line: i32 = state.line
+    var new_column: i32 = state.column
+    if c == '\n' {
+        new_line = state.line + 1
+        new_column = 1
+    } else {
+        new_column = state.column + 1
+    }
+    return ParserState {
+        input: state.input,
+        pos: state.pos + 1,
+        line: new_line,
+        column: new_column
+    }
+}
+
+/// Skips whitespace characters.
+let skip_whitespace: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserState {
+    match peek(state) {
+        None => { return state }
+        Some(c) => {
+            if c == ' ' or c == '\t' or c == '\n' or c == '\r' {
+                return skip_whitespace(advance(state))
+            }
+            return state
+        }
+    }
+}
+
+// =============================================================================
+// Parser - Character Utilities
+// =============================================================================
+
+/// Returns true if the character is a digit (0-9).
+let is_digit: fn(char) -> bool = fn(c: char) -> bool {
+    return c >= '0' and c <= '9'
+}
+
+/// Returns true if the character is a hex digit (0-9, a-f, A-F).
+let is_hex_digit: fn(char) -> bool = fn(c: char) -> bool {
+    return (c >= '0' and c <= '9') or (c >= 'a' and c <= 'f') or (c >= 'A' and c <= 'F')
+}
+
+/// Converts a hex digit to its integer value.
+let hex_digit_value: fn(char) -> i32 = fn(c: char) -> i32 {
+    if c >= '0' and c <= '9' {
+        return std.char.to_i32(c) - std.char.to_i32('0')
+    }
+    if c >= 'a' and c <= 'f' {
+        return 10 + std.char.to_i32(c) - std.char.to_i32('a')
+    }
+    if c >= 'A' and c <= 'F' {
+        return 10 + std.char.to_i32(c) - std.char.to_i32('A')
+    }
+    return 0
+}
+
+// =============================================================================
+// Parser - Literal Parsers
+// =============================================================================
+
+/// Parses the literal "null".
+let parse_null: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
+    let result: ParseResult[string] = expect_string(state, "null")
+    match result {
+        ParseOk(_, new_state) => { return ParseOk(JNull, new_state) }
+        ParseErr(e) => { return ParseErr(e) }
+    }
+}
+
+/// Parses a boolean literal ("true" or "false").
+let parse_bool: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
+    match peek(state) {
+        Some('t') => {
+            let result: ParseResult[string] = expect_string(state, "true")
+            match result {
+                ParseOk(_, new_state) => { return ParseOk(JBool(true), new_state) }
+                ParseErr(e) => { return ParseErr(e) }
+            }
+        }
+        Some('f') => {
+            let result: ParseResult[string] = expect_string(state, "false")
+            match result {
+                ParseOk(_, new_state) => { return ParseOk(JBool(false), new_state) }
+                ParseErr(e) => { return ParseErr(e) }
+            }
+        }
+        _ => { return ParseErr(make_error(state, "Expected 'true' or 'false'")) }
+    }
+}
+
+/// Expects a specific string at the current position.
+let expect_string: fn(ParserState, string) -> ParseResult[string] =
+    fn(state: ParserState, expected: string) -> ParseResult[string] {
+        let chars: List[char] = std.string.to_chars(expected)
+        let result: ParseResult[void] = expect_chars(state, chars)
+        match result {
+            ParseOk(_, new_state) => { return ParseOk(expected, new_state) }
+            ParseErr(e) => { return ParseErr(e) }
+        }
+    }
+
+/// Expects a sequence of characters.
+let expect_chars: fn(ParserState, List[char]) -> ParseResult[void] =
+    fn(state: ParserState, chars: List[char]) -> ParseResult[void] {
+        match chars {
+            Nil => { return ParseOk(void, state) }
+            Cons(expected_char, rest) => {
+                match peek(state) {
+                    None => {
+                        return ParseErr(make_error(state, "Unexpected end of input"))
+                    }
+                    Some(actual_char) => {
+                        if actual_char == expected_char {
+                            return expect_chars(advance(state), rest)
+                        }
+                        let msg: string = std.string.concat("Expected '",
+                            std.string.concat(std.char.to_string(expected_char), "'"))
+                        return ParseErr(make_error(state, msg))
+                    }
+                }
+            }
+        }
+    }
+
+// =============================================================================
+// Parser - Number Parser
+// =============================================================================
+
+/// Parses a JSON number.
+let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
+    let start_pos: i32 = state.pos
+    var current_state: ParserState = state
+
+    // Handle optional negative sign
+    match peek(current_state) {
+        Some('-') => { current_state = advance(current_state) }
+        _ => {}
+    }
+
+    // Parse integer part
+    match peek(current_state) {
+        Some('0') => { current_state = advance(current_state) }
+        Some(c) if is_digit(c) => {
+            current_state = consume_digits(current_state)
+        }
+        _ => { return ParseErr(make_error(current_state, "Expected digit")) }
+    }
+
+    // Parse optional fractional part
+    match peek(current_state) {
+        Some('.') => {
+            current_state = advance(current_state)
+            match peek(current_state) {
+                Some(c) if is_digit(c) => {
+                    current_state = consume_digits(current_state)
+                }
+                _ => { return ParseErr(make_error(current_state, "Expected digit after decimal point")) }
+            }
+        }
+        _ => {}
+    }
+
+    // Parse optional exponent
+    match peek(current_state) {
+        Some('e') | Some('E') => {
+            current_state = advance(current_state)
+            match peek(current_state) {
+                Some('+') | Some('-') => { current_state = advance(current_state) }
+                _ => {}
+            }
+            match peek(current_state) {
+                Some(c) if is_digit(c) => {
+                    current_state = consume_digits(current_state)
+                }
+                _ => { return ParseErr(make_error(current_state, "Expected digit in exponent")) }
+            }
+        }
+        _ => {}
+    }
+
+    let num_str: string = std.string.substring(state.input, start_pos, current_state.pos)
+    match std.float.parse(num_str) {
+        Some(n) => { return ParseOk(JNumber(n), current_state) }
+        None => { return ParseErr(make_error(state, "Invalid number")) }
+    }
+}
+
+/// Consumes digits and returns the new state.
+let consume_digits: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserState {
+    match peek(state) {
+        Some(c) if is_digit(c) => { return consume_digits(advance(state)) }
+        _ => { return state }
+    }
+}
+
+// =============================================================================
+// Parser - String Parser
+// =============================================================================
+
+/// Parses a JSON string (including the surrounding quotes).
+let parse_string: fn(ParserState) -> ParseResult[string] = fn(state: ParserState) -> ParseResult[string] {
+    match peek(state) {
+        Some('"') => {
+            let after_quote: ParserState = advance(state)
+            return parse_string_contents(after_quote, Nil)
+        }
+        _ => { return ParseErr(make_error(state, "Expected '\"'")) }
+    }
+}
+
+/// Parses the contents of a string until the closing quote.
+let parse_string_contents: fn(ParserState, List[char]) -> ParseResult[string] =
+    fn(state: ParserState, acc: List[char]) -> ParseResult[string] {
+        match peek(state) {
+            None => { return ParseErr(make_error(state, "Unterminated string")) }
+            Some('"') => {
+                let result_str: string = std.string.from_chars(list_reverse[char](acc))
+                return ParseOk(result_str, advance(state))
+            }
+            Some('\\') => {
+                let escape_result: ParseResult[char] = parse_escape_sequence(advance(state))
+                match escape_result {
+                    ParseOk(c, new_state) => {
+                        return parse_string_contents(new_state, Cons(c, acc))
+                    }
+                    ParseErr(e) => { return ParseErr(e) }
+                }
+            }
+            Some(c) => {
+                let code: i32 = std.char.to_i32(c)
+                if code < 32 {
+                    return ParseErr(make_error(state, "Control character in string"))
+                }
+                return parse_string_contents(advance(state), Cons(c, acc))
+            }
+        }
+    }
+
+/// Parses an escape sequence (after the backslash).
+let parse_escape_sequence: fn(ParserState) -> ParseResult[char] = fn(state: ParserState) -> ParseResult[char] {
+    match peek(state) {
+        None => { return ParseErr(make_error(state, "Unterminated escape sequence")) }
+        Some('"') => { return ParseOk('"', advance(state)) }
+        Some('\\') => { return ParseOk('\\', advance(state)) }
+        Some('/') => { return ParseOk('/', advance(state)) }
+        Some('b') => { return ParseOk('\b', advance(state)) }
+        Some('f') => { return ParseOk('\f', advance(state)) }
+        Some('n') => { return ParseOk('\n', advance(state)) }
+        Some('r') => { return ParseOk('\r', advance(state)) }
+        Some('t') => { return ParseOk('\t', advance(state)) }
+        Some('u') => { return parse_unicode_escape(advance(state)) }
+        Some(c) => {
+            let msg: string = std.string.concat("Invalid escape sequence: \\", std.char.to_string(c))
+            return ParseErr(make_error(state, msg))
+        }
+    }
+}
+
+/// Parses a \uXXXX unicode escape sequence.
+let parse_unicode_escape: fn(ParserState) -> ParseResult[char] = fn(state: ParserState) -> ParseResult[char] {
+    var current_state: ParserState = state
+    var code_point: i32 = 0
+
+    // Read 4 hex digits
+    var i: i32 = 0
+    while i < 4 {
+        match peek(current_state) {
+            None => { return ParseErr(make_error(current_state, "Incomplete unicode escape")) }
+            Some(c) => {
+                if not is_hex_digit(c) {
+                    return ParseErr(make_error(current_state, "Invalid hex digit in unicode escape"))
+                }
+                code_point = code_point * 16 + hex_digit_value(c)
+                current_state = advance(current_state)
+            }
+        }
+        i = i + 1
+    }
+
+    return ParseOk(std.char.from_i32(code_point), current_state)
+}
+
+/// Reverses a list.
+let list_reverse[T]: fn(List[T]) -> List[T] = fn(list: List[T]) -> List[T] {
+    return list_reverse_acc[T](list, Nil)
+}
+
+/// Reverses a list with an accumulator.
+let list_reverse_acc[T]: fn(List[T], List[T]) -> List[T] = fn(list: List[T], acc: List[T]) -> List[T] {
+    match list {
+        Nil => { return acc }
+        Cons(head, tail) => { return list_reverse_acc[T](tail, Cons(head, acc)) }
+    }
+}
+
+// =============================================================================
+// Parser - Compound Parsers
+// =============================================================================
+
+/// Parses a JSON array.
+let parse_array: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
+    match peek(state) {
+        Some('[') => {
+            let after_bracket: ParserState = skip_whitespace(advance(state))
+            match peek(after_bracket) {
+                Some(']') => { return ParseOk(JArray(Nil), advance(after_bracket)) }
+                _ => { return parse_array_elements(after_bracket, Nil) }
+            }
+        }
+        _ => { return ParseErr(make_error(state, "Expected '['")) }
+    }
+}
+
+/// Parses array elements.
+let parse_array_elements: fn(ParserState, List[Json]) -> ParseResult[Json] =
+    fn(state: ParserState, acc: List[Json]) -> ParseResult[Json] {
+        let value_result: ParseResult[Json] = parse_value(state)
+        match value_result {
+            ParseErr(e) => { return ParseErr(e) }
+            ParseOk(value, after_value) => {
+                let new_acc: List[Json] = Cons(value, acc)
+                let after_ws: ParserState = skip_whitespace(after_value)
+                match peek(after_ws) {
+                    Some(']') => {
+                        return ParseOk(JArray(list_reverse[Json](new_acc)), advance(after_ws))
+                    }
+                    Some(',') => {
+                        let after_comma: ParserState = skip_whitespace(advance(after_ws))
+                        return parse_array_elements(after_comma, new_acc)
+                    }
+                    _ => { return ParseErr(make_error(after_ws, "Expected ',' or ']'")) }
+                }
+            }
+        }
+    }
+
+/// Parses a JSON object.
+let parse_object: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
+    match peek(state) {
+        Some('{') => {
+            let after_brace: ParserState = skip_whitespace(advance(state))
+            match peek(after_brace) {
+                Some('}') => { return ParseOk(JObject(Nil), advance(after_brace)) }
+                _ => { return parse_object_fields(after_brace, Nil) }
+            }
+        }
+        _ => { return ParseErr(make_error(state, "Expected '{'")) }
+    }
+}
+
+/// Parses object fields.
+let parse_object_fields: fn(ParserState, List[JsonField]) -> ParseResult[Json] =
+    fn(state: ParserState, acc: List[JsonField]) -> ParseResult[Json] {
+        // Parse key
+        let key_result: ParseResult[string] = parse_string(state)
+        match key_result {
+            ParseErr(e) => { return ParseErr(e) }
+            ParseOk(key, after_key) => {
+                let after_key_ws: ParserState = skip_whitespace(after_key)
+                // Expect colon
+                match peek(after_key_ws) {
+                    Some(':') => {
+                        let after_colon: ParserState = skip_whitespace(advance(after_key_ws))
+                        // Parse value
+                        let value_result: ParseResult[Json] = parse_value(after_colon)
+                        match value_result {
+                            ParseErr(e) => { return ParseErr(e) }
+                            ParseOk(value, after_value) => {
+                                let field: JsonField = JsonField { key: key, value: value }
+                                let new_acc: List[JsonField] = Cons(field, acc)
+                                let after_ws: ParserState = skip_whitespace(after_value)
+                                match peek(after_ws) {
+                                    Some('}') => {
+                                        return ParseOk(JObject(list_reverse[JsonField](new_acc)), advance(after_ws))
+                                    }
+                                    Some(',') => {
+                                        let after_comma: ParserState = skip_whitespace(advance(after_ws))
+                                        return parse_object_fields(after_comma, new_acc)
+                                    }
+                                    _ => { return ParseErr(make_error(after_ws, "Expected ',' or '}'")) }
+                                }
+                            }
+                        }
+                    }
+                    _ => { return ParseErr(make_error(after_key_ws, "Expected ':'")) }
+                }
+            }
+        }
+    }
+
+// =============================================================================
+// Parser - Main Parse Dispatch
+// =============================================================================
+
+/// Parses a JSON value based on the first character.
+let parse_value: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
+    let ws_state: ParserState = skip_whitespace(state)
+    match peek(ws_state) {
+        None => { return ParseErr(make_error(ws_state, "Unexpected end of input")) }
+        Some('n') => { return parse_null(ws_state) }
+        Some('t') | Some('f') => { return parse_bool(ws_state) }
+        Some('"') => {
+            let str_result: ParseResult[string] = parse_string(ws_state)
+            match str_result {
+                ParseOk(s, new_state) => { return ParseOk(JString(s), new_state) }
+                ParseErr(e) => { return ParseErr(e) }
+            }
+        }
+        Some('[') => { return parse_array(ws_state) }
+        Some('{') => { return parse_object(ws_state) }
+        Some('-') => { return parse_number(ws_state) }
+        Some('0') => { return parse_number(ws_state) }
+        Some('1') => { return parse_number(ws_state) }
+        Some('2') => { return parse_number(ws_state) }
+        Some('3') => { return parse_number(ws_state) }
+        Some('4') => { return parse_number(ws_state) }
+        Some('5') => { return parse_number(ws_state) }
+        Some('6') => { return parse_number(ws_state) }
+        Some('7') => { return parse_number(ws_state) }
+        Some('8') => { return parse_number(ws_state) }
+        Some('9') => { return parse_number(ws_state) }
+        Some(c) => {
+            let msg: string = std.string.concat("Unexpected character: ", std.char.to_string(c))
+            return ParseErr(make_error(ws_state, msg))
+        }
+    }
+}
+
+/// Public API: Parses a JSON string into a Json value.
+pub let parse: fn(string) -> Result[Json, ParseError] = fn(input: string) -> Result[Json, ParseError] {
+    let state: ParserState = init_state(input)
+    let result: ParseResult[Json] = parse_value(state)
+    match result {
+        ParseOk(json, final_state) => {
+            let after_ws: ParserState = skip_whitespace(final_state)
+            if is_eof(after_ws) {
+                return Ok(json)
+            }
+            return Err(make_error(after_ws, "Unexpected content after JSON value"))
+        }
+        ParseErr(e) => { return Err(e) }
+    }
+}
+
+// =============================================================================
+// Transformers - Value Mapping
+// =============================================================================
+
+/// Recursively applies a function to all JSON values.
+pub let map_values: fn(Json, fn(Json) -> Json) -> Json = fn(json: Json, f: fn(Json) -> Json) -> Json {
+    let mapped: Json = f(json)
+    match mapped {
+        JArray(arr) => {
+            return JArray(map_list[Json](arr, fn(elem: Json) -> Json { return map_values(elem, f) }))
+        }
+        JObject(fields) => {
+            return JObject(map_list[JsonField](fields, fn(field: JsonField) -> JsonField {
+                return JsonField { key: field.key, value: map_values(field.value, f) }
+            }))
+        }
+        _ => { return mapped }
+    }
+}
+
+/// Maps a function over a list.
+let map_list[A]: fn(List[A], fn(A) -> A) -> List[A] = fn(list: List[A], f: fn(A) -> A) -> List[A] {
+    match list {
+        Nil => { return Nil }
+        Cons(head, tail) => { return Cons(f(head), map_list[A](tail, f)) }
+    }
+}
+
+// =============================================================================
+// Transformers - Field Filtering
+// =============================================================================
+
+/// Filters object fields at the top level.
+pub let filter_fields: fn(Json, fn(string, Json) -> bool) -> Json =
+    fn(json: Json, pred: fn(string, Json) -> bool) -> Json {
+        match json {
+            JObject(fields) => {
+                let filtered: List[JsonField] = filter_fields_list(fields, pred)
+                return JObject(filtered)
+            }
+            _ => { return json }
+        }
+    }
+
+/// Recursively filters object fields at all levels.
+pub let filter_fields_deep: fn(Json, fn(string, Json) -> bool) -> Json =
+    fn(json: Json, pred: fn(string, Json) -> bool) -> Json {
+        match json {
+            JArray(arr) => {
+                return JArray(map_list[Json](arr, fn(elem: Json) -> Json {
+                    return filter_fields_deep(elem, pred)
+                }))
+            }
+            JObject(fields) => {
+                let filtered: List[JsonField] = filter_fields_list(fields, pred)
+                let deep_filtered: List[JsonField] = map_list[JsonField](filtered, fn(field: JsonField) -> JsonField {
+                    return JsonField { key: field.key, value: filter_fields_deep(field.value, pred) }
+                })
+                return JObject(deep_filtered)
+            }
+            _ => { return json }
+        }
+    }
+
+/// Filters a list of JsonFields based on a predicate.
+let filter_fields_list: fn(List[JsonField], fn(string, Json) -> bool) -> List[JsonField] =
+    fn(fields: List[JsonField], pred: fn(string, Json) -> bool) -> List[JsonField] {
+        match fields {
+            Nil => { return Nil }
+            Cons(field, rest) => {
+                if pred(field.key, field.value) {
+                    return Cons(field, filter_fields_list(rest, pred))
+                }
+                return filter_fields_list(rest, pred)
+            }
+        }
+    }
+
+// =============================================================================
+// Transformers - Object Operations
+// =============================================================================
+
+/// Sets a field in a JSON object. If the key exists, updates it; otherwise adds it.
+pub let set_field: fn(Json, string, Json) -> Json = fn(json: Json, key: string, value: Json) -> Json {
+    match json {
+        JObject(fields) => {
+            let updated: List[JsonField] = set_field_in_list(fields, key, value, false)
+            return JObject(updated)
+        }
+        _ => { return json }
+    }
+}
+
+/// Helper to set a field in a list of JsonFields.
+let set_field_in_list: fn(List[JsonField], string, Json, bool) -> List[JsonField] =
+    fn(fields: List[JsonField], key: string, value: Json, found: bool) -> List[JsonField] {
+        match fields {
+            Nil => {
+                if found {
+                    return Nil
+                }
+                // Key not found, append new field
+                return Cons(JsonField { key: key, value: value }, Nil)
+            }
+            Cons(field, rest) => {
+                if std.string.equals(field.key, key) {
+                    // Found the key, update it
+                    return Cons(JsonField { key: key, value: value }, set_field_in_list(rest, key, value, true))
+                }
+                return Cons(field, set_field_in_list(rest, key, value, found))
+            }
+        }
+    }
+
+/// Removes a field from a JSON object.
+pub let remove_field: fn(Json, string) -> Json = fn(json: Json, key: string) -> Json {
+    match json {
+        JObject(fields) => {
+            let filtered: List[JsonField] = remove_field_from_list(fields, key)
+            return JObject(filtered)
+        }
+        _ => { return json }
+    }
+}
+
+/// Helper to remove a field from a list of JsonFields.
+let remove_field_from_list: fn(List[JsonField], string) -> List[JsonField] =
+    fn(fields: List[JsonField], key: string) -> List[JsonField] {
+        match fields {
+            Nil => { return Nil }
+            Cons(field, rest) => {
+                if std.string.equals(field.key, key) {
+                    return remove_field_from_list(rest, key)
+                }
+                return Cons(field, remove_field_from_list(rest, key))
+            }
+        }
+    }
+
+// =============================================================================
+// Transformers - Merge Operations
+// =============================================================================
+
+/// Shallow merges two JSON values. For objects, b's fields override a's.
+pub let merge: fn(Json, Json) -> Json = fn(a: Json, b: Json) -> Json {
+    match (a, b) {
+        (JObject(fields_a), JObject(fields_b)) => {
+            let merged: List[JsonField] = merge_fields(fields_a, fields_b)
+            return JObject(merged)
+        }
+        _ => { return b }
+    }
+}
+
+/// Merges two field lists, with the second list's fields taking precedence.
+let merge_fields: fn(List[JsonField], List[JsonField]) -> List[JsonField] =
+    fn(fields_a: List[JsonField], fields_b: List[JsonField]) -> List[JsonField] {
+        // Start with fields from a that are not in b, then add all of b
+        let a_only: List[JsonField] = filter_fields_not_in(fields_a, fields_b)
+        return list_concat[JsonField](a_only, fields_b)
+    }
+
+/// Filters fields from the first list that are not present in the second list.
+let filter_fields_not_in: fn(List[JsonField], List[JsonField]) -> List[JsonField] =
+    fn(fields: List[JsonField], exclude: List[JsonField]) -> List[JsonField] {
+        match fields {
+            Nil => { return Nil }
+            Cons(field, rest) => {
+                if has_key(exclude, field.key) {
+                    return filter_fields_not_in(rest, exclude)
+                }
+                return Cons(field, filter_fields_not_in(rest, exclude))
+            }
+        }
+    }
+
+/// Checks if a field list contains a key.
+let has_key: fn(List[JsonField], string) -> bool = fn(fields: List[JsonField], key: string) -> bool {
+    match fields {
+        Nil => { return false }
+        Cons(field, rest) => {
+            if std.string.equals(field.key, key) {
+                return true
+            }
+            return has_key(rest, key)
+        }
+    }
+}
+
+/// Concatenates two lists.
+let list_concat[T]: fn(List[T], List[T]) -> List[T] = fn(a: List[T], b: List[T]) -> List[T] {
+    match a {
+        Nil => { return b }
+        Cons(head, tail) => { return Cons(head, list_concat[T](tail, b)) }
+    }
+}
+
+/// Deep merges two JSON values. For objects, recursively merges nested objects.
+pub let merge_deep: fn(Json, Json) -> Json = fn(a: Json, b: Json) -> Json {
+    match (a, b) {
+        (JObject(fields_a), JObject(fields_b)) => {
+            let merged: List[JsonField] = merge_fields_deep(fields_a, fields_b)
+            return JObject(merged)
+        }
+        _ => { return b }
+    }
+}
+
+/// Deep merges two field lists.
+let merge_fields_deep: fn(List[JsonField], List[JsonField]) -> List[JsonField] =
+    fn(fields_a: List[JsonField], fields_b: List[JsonField]) -> List[JsonField] {
+        let a_processed: List[JsonField] = map_list[JsonField](fields_a, fn(field_a: JsonField) -> JsonField {
+            match find_field(fields_b, field_a.key) {
+                Some(value_b) => {
+                    return JsonField { key: field_a.key, value: merge_deep(field_a.value, value_b) }
+                }
+                None => { return field_a }
+            }
+        })
+        let b_only: List[JsonField] = filter_fields_not_in(fields_b, fields_a)
+        return list_concat[JsonField](a_processed, b_only)
+    }
+
+// =============================================================================
+// Transformers - Array Operations
+// =============================================================================
+
+/// Maps a function over a JSON array's elements.
+pub let map_array: fn(Json, fn(Json) -> Json) -> Json = fn(json: Json, f: fn(Json) -> Json) -> Json {
+    match json {
+        JArray(arr) => {
+            return JArray(map_list[Json](arr, f))
+        }
+        _ => { return json }
+    }
+}
+
+/// Filters a JSON array's elements based on a predicate.
+pub let filter_array: fn(Json, fn(Json) -> bool) -> Json = fn(json: Json, pred: fn(Json) -> bool) -> Json {
+    match json {
+        JArray(arr) => {
+            return JArray(filter_list[Json](arr, pred))
+        }
+        _ => { return json }
+    }
+}
+
+/// Filters a list based on a predicate.
+let filter_list[T]: fn(List[T], fn(T) -> bool) -> List[T] = fn(list: List[T], pred: fn(T) -> bool) -> List[T] {
+    match list {
+        Nil => { return Nil }
+        Cons(head, tail) => {
+            if pred(head) {
+                return Cons(head, filter_list[T](tail, pred))
+            }
+            return filter_list[T](tail, pred)
+        }
+    }
+}
