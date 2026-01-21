@@ -35,6 +35,7 @@ pub type ParseError = {
     column: i32
 }
 
+
 /// Internal state for the recursive descent parser.
 type ParserState = {
     input: string,
@@ -134,12 +135,11 @@ pub let as_number: fn(Json) -> Option[f64] = fn(json: Json) -> Option[f64] {
 }
 
 /// Extracts the number as an integer if the JSON is a number.
-/// Truncates any fractional part.
+/// Note: Float-to-int conversion not available in current std library.
+/// This function is stubbed and always returns None.
 pub let as_int: fn(Json) -> Option[i64] = fn(json: Json) -> Option[i64] {
-    match json {
-        JNumber(n) => { return Some(std.math.trunc_to_i64(n)) }
-        _ => { return None }
-    }
+    // Cannot implement: std.math.trunc_to_i64 not available
+    return None
 }
 
 /// Extracts the boolean value if the JSON is a boolean.
@@ -275,54 +275,51 @@ let extract_values: fn(List[JsonField]) -> List[Json] = fn(fields: List[JsonFiel
 // =============================================================================
 
 /// Escapes a string for JSON output.
+/// Uses index-based iteration to avoid unavailable std.string.to_chars.
 let escape_string: fn(string) -> string = fn(s: string) -> string {
-    return escape_chars(std.string.to_chars(s))
+    return escape_string_from(s, 0, std.string.length(s))
 }
 
-/// Helper to escape a list of characters.
-let escape_chars: fn(List[char]) -> string = fn(chars: List[char]) -> string {
-    match chars {
-        Nil => { return "" }
-        Cons(c, rest) => {
-            let escaped: string = escape_char(c)
-            return std.string.concat(escaped, escape_chars(rest))
+/// Helper to escape string from index to length.
+let escape_string_from: fn(string, i32, i32) -> string =
+    fn(s: string, index: i32, len: i32) -> string {
+        if index >= len {
+            return ""
         }
+        let char_str: string = std.string.substring(s, index, index + 1)
+        let escaped: string = escape_char_str(char_str)
+        return std.string.concat(escaped, escape_string_from(s, index + 1, len))
     }
-}
 
-/// Escapes a single character for JSON.
-let escape_char: fn(char) -> string = fn(c: char) -> string {
-    match c {
-        '"' => { return "\\\"" }
-        '\\' => { return "\\\\" }
-        '\n' => { return "\\n" }
-        '\r' => { return "\\r" }
-        '\t' => { return "\\t" }
-        _ => {
-            let code: i32 = std.char.to_i32(c)
-            if code < 32 {
-                return escape_control_char(code)
-            }
-            return std.char.to_string(c)
-        }
+/// Escapes a single character (as string) for JSON.
+let escape_char_str: fn(string) -> string = fn(c: string) -> string {
+    if std.string.equals(c, "\"") {
+        return "\\\""
     }
-}
-
-/// Escapes a control character as \uXXXX.
-let escape_control_char: fn(i32) -> string = fn(code: i32) -> string {
-    let hex: string = std.int.to_hex(code)
-    let padded: string = pad_left(hex, 4, '0')
-    return std.string.concat("\\u", padded)
+    if std.string.equals(c, "\\") {
+        return "\\\\"
+    }
+    if std.string.equals(c, "\n") {
+        return "\\n"
+    }
+    if std.string.equals(c, "\r") {
+        return "\\r"
+    }
+    if std.string.equals(c, "\t") {
+        return "\\t"
+    }
+    // For other characters, return as-is
+    // Note: Control character escaping not supported without std.char.to_i32
+    return c
 }
 
 /// Pads a string on the left to the specified length.
-let pad_left: fn(string, i32, char) -> string = fn(s: string, len: i32, pad: char) -> string {
+let pad_left_str: fn(string, i32, string) -> string = fn(s: string, len: i32, pad: string) -> string {
     let current_len: i32 = std.string.length(s)
     if current_len >= len {
         return s
     }
-    let pad_str: string = std.char.to_string(pad)
-    return pad_left(std.string.concat(pad_str, s), len, pad)
+    return pad_left_str(std.string.concat(pad, s), len, pad)
 }
 
 // =============================================================================
@@ -428,15 +425,15 @@ let stringify_indent: fn(Json, i32, i32) -> string = fn(json: Json, level: i32, 
 /// Creates an indentation string for the given level.
 let make_indent: fn(i32, i32) -> string = fn(level: i32, indent_size: i32) -> string {
     let total_spaces: i32 = level * indent_size
-    return repeat_char(' ', total_spaces)
+    return repeat_string(" ", total_spaces)
 }
 
-/// Repeats a character n times.
-let repeat_char: fn(char, i32) -> string = fn(c: char, n: i32) -> string {
+/// Repeats a string n times.
+let repeat_string: fn(string, i32) -> string = fn(s: string, n: i32) -> string {
     if n <= 0 {
         return ""
     }
-    return std.string.concat(std.char.to_string(c), repeat_char(c, n - 1))
+    return std.string.concat(s, repeat_string(s, n - 1))
 }
 
 /// Pretty-prints an array.
@@ -536,21 +533,21 @@ let is_eof: fn(ParserState) -> bool = fn(state: ParserState) -> bool {
     return state.pos >= std.string.length(state.input)
 }
 
-/// Returns the current character without consuming it.
-let peek: fn(ParserState) -> Option[char] = fn(state: ParserState) -> Option[char] {
+/// Returns the current character as a string without consuming it.
+let peek_str: fn(ParserState) -> Option[string] = fn(state: ParserState) -> Option[string] {
     if is_eof(state) {
         return None
     }
-    return Some(std.string.char_at(state.input, state.pos))
+    return Some(std.string.substring(state.input, state.pos, state.pos + 1))
 }
 
-/// Returns the character at a given offset from current position.
-let peek_at: fn(ParserState, i32) -> Option[char] = fn(state: ParserState, offset: i32) -> Option[char] {
+/// Returns the character at a given offset as a string.
+let peek_at_str: fn(ParserState, i32) -> Option[string] = fn(state: ParserState, offset: i32) -> Option[string] {
     let target_pos: i32 = state.pos + offset
     if target_pos >= std.string.length(state.input) {
         return None
     }
-    return Some(std.string.char_at(state.input, target_pos))
+    return Some(std.string.substring(state.input, target_pos, target_pos + 1))
 }
 
 /// Advances the parser by one character, updating line/column tracking.
@@ -558,10 +555,10 @@ let advance: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserSt
     if is_eof(state) {
         return state
     }
-    let c: char = std.string.char_at(state.input, state.pos)
+    let c: string = std.string.substring(state.input, state.pos, state.pos + 1)
     var new_line: i32 = state.line
     var new_column: i32 = state.column
-    if c == '\n' {
+    if std.string.equals(c, "\n") {
         new_line = state.line + 1
         new_column = 1
     } else {
@@ -577,10 +574,10 @@ let advance: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserSt
 
 /// Skips whitespace characters.
 let skip_whitespace: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserState {
-    match peek(state) {
+    match peek_str(state) {
         None => { return state }
         Some(c) => {
-            if c == ' ' or c == '\t' or c == '\n' or c == '\r' {
+            if is_whitespace_str(c) {
                 return skip_whitespace(advance(state))
             }
             return state
@@ -588,31 +585,54 @@ let skip_whitespace: fn(ParserState) -> ParserState = fn(state: ParserState) -> 
     }
 }
 
-// =============================================================================
-// Parser - Character Utilities
-// =============================================================================
-
-/// Returns true if the character is a digit (0-9).
-let is_digit: fn(char) -> bool = fn(c: char) -> bool {
-    return c >= '0' and c <= '9'
+/// Returns true if the string is a whitespace character.
+let is_whitespace_str: fn(string) -> bool = fn(c: string) -> bool {
+    return std.string.equals(c, " ") or std.string.equals(c, "\t") or
+           std.string.equals(c, "\n") or std.string.equals(c, "\r")
 }
 
-/// Returns true if the character is a hex digit (0-9, a-f, A-F).
-let is_hex_digit: fn(char) -> bool = fn(c: char) -> bool {
-    return (c >= '0' and c <= '9') or (c >= 'a' and c <= 'f') or (c >= 'A' and c <= 'F')
+// =============================================================================
+// Parser - Character Utilities (String-Based)
+// =============================================================================
+
+/// Returns true if the string (single char) is a digit (0-9).
+let is_digit_str: fn(string) -> bool = fn(c: string) -> bool {
+    return std.string.equals(c, "0") or std.string.equals(c, "1") or
+           std.string.equals(c, "2") or std.string.equals(c, "3") or
+           std.string.equals(c, "4") or std.string.equals(c, "5") or
+           std.string.equals(c, "6") or std.string.equals(c, "7") or
+           std.string.equals(c, "8") or std.string.equals(c, "9")
 }
 
-/// Converts a hex digit to its integer value.
-let hex_digit_value: fn(char) -> i32 = fn(c: char) -> i32 {
-    if c >= '0' and c <= '9' {
-        return std.char.to_i32(c) - std.char.to_i32('0')
-    }
-    if c >= 'a' and c <= 'f' {
-        return 10 + std.char.to_i32(c) - std.char.to_i32('a')
-    }
-    if c >= 'A' and c <= 'F' {
-        return 10 + std.char.to_i32(c) - std.char.to_i32('A')
-    }
+/// Returns true if the string (single char) is a hex digit (0-9, a-f, A-F).
+let is_hex_digit_str: fn(string) -> bool = fn(c: string) -> bool {
+    return is_digit_str(c) or
+           std.string.equals(c, "a") or std.string.equals(c, "b") or
+           std.string.equals(c, "c") or std.string.equals(c, "d") or
+           std.string.equals(c, "e") or std.string.equals(c, "f") or
+           std.string.equals(c, "A") or std.string.equals(c, "B") or
+           std.string.equals(c, "C") or std.string.equals(c, "D") or
+           std.string.equals(c, "E") or std.string.equals(c, "F")
+}
+
+/// Converts a hex digit string to its integer value.
+let hex_digit_value_str: fn(string) -> i32 = fn(c: string) -> i32 {
+    if std.string.equals(c, "0") { return 0 }
+    if std.string.equals(c, "1") { return 1 }
+    if std.string.equals(c, "2") { return 2 }
+    if std.string.equals(c, "3") { return 3 }
+    if std.string.equals(c, "4") { return 4 }
+    if std.string.equals(c, "5") { return 5 }
+    if std.string.equals(c, "6") { return 6 }
+    if std.string.equals(c, "7") { return 7 }
+    if std.string.equals(c, "8") { return 8 }
+    if std.string.equals(c, "9") { return 9 }
+    if std.string.equals(c, "a") or std.string.equals(c, "A") { return 10 }
+    if std.string.equals(c, "b") or std.string.equals(c, "B") { return 11 }
+    if std.string.equals(c, "c") or std.string.equals(c, "C") { return 12 }
+    if std.string.equals(c, "d") or std.string.equals(c, "D") { return 13 }
+    if std.string.equals(c, "e") or std.string.equals(c, "E") { return 14 }
+    if std.string.equals(c, "f") or std.string.equals(c, "F") { return 15 }
     return 0
 }
 
@@ -622,7 +642,7 @@ let hex_digit_value: fn(char) -> i32 = fn(c: char) -> i32 {
 
 /// Parses the literal "null".
 let parse_null: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
-    let result: ParseResult[string] = expect_string(state, "null")
+    let result: ParseResult[string] = expect_literal(state, "null")
     match result {
         ParseOk(_, new_state) => { return ParseOk(JNull, new_state) }
         ParseErr(e) => { return ParseErr(e) }
@@ -631,55 +651,53 @@ let parse_null: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) ->
 
 /// Parses a boolean literal ("true" or "false").
 let parse_bool: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
-    match peek(state) {
-        Some('t') => {
-            let result: ParseResult[string] = expect_string(state, "true")
-            match result {
-                ParseOk(_, new_state) => { return ParseOk(JBool(true), new_state) }
-                ParseErr(e) => { return ParseErr(e) }
+    match peek_str(state) {
+        Some(c) => {
+            if std.string.equals(c, "t") {
+                let result: ParseResult[string] = expect_literal(state, "true")
+                match result {
+                    ParseOk(_, new_state) => { return ParseOk(JBool(true), new_state) }
+                    ParseErr(e) => { return ParseErr(e) }
+                }
             }
-        }
-        Some('f') => {
-            let result: ParseResult[string] = expect_string(state, "false")
-            match result {
-                ParseOk(_, new_state) => { return ParseOk(JBool(false), new_state) }
-                ParseErr(e) => { return ParseErr(e) }
+            if std.string.equals(c, "f") {
+                let result: ParseResult[string] = expect_literal(state, "false")
+                match result {
+                    ParseOk(_, new_state) => { return ParseOk(JBool(false), new_state) }
+                    ParseErr(e) => { return ParseErr(e) }
+                }
             }
+            return ParseErr(make_error(state, "Expected 'true' or 'false'"))
         }
-        _ => { return ParseErr(make_error(state, "Expected 'true' or 'false'")) }
+        None => { return ParseErr(make_error(state, "Expected 'true' or 'false'")) }
     }
 }
 
-/// Expects a specific string at the current position.
-let expect_string: fn(ParserState, string) -> ParseResult[string] =
+/// Expects a specific string literal at the current position.
+/// Uses index-based comparison to avoid std.string.to_chars.
+let expect_literal: fn(ParserState, string) -> ParseResult[string] =
     fn(state: ParserState, expected: string) -> ParseResult[string] {
-        let chars: List[char] = std.string.to_chars(expected)
-        let result: ParseResult[void] = expect_chars(state, chars)
-        match result {
-            ParseOk(_, new_state) => { return ParseOk(expected, new_state) }
-            ParseErr(e) => { return ParseErr(e) }
-        }
+        let expected_len: i32 = std.string.length(expected)
+        return expect_literal_from(state, expected, 0, expected_len)
     }
 
-/// Expects a sequence of characters.
-let expect_chars: fn(ParserState, List[char]) -> ParseResult[void] =
-    fn(state: ParserState, chars: List[char]) -> ParseResult[void] {
-        match chars {
-            Nil => { return ParseOk(void, state) }
-            Cons(expected_char, rest) => {
-                match peek(state) {
-                    None => {
-                        return ParseErr(make_error(state, "Unexpected end of input"))
-                    }
-                    Some(actual_char) => {
-                        if actual_char == expected_char {
-                            return expect_chars(advance(state), rest)
-                        }
-                        let msg: string = std.string.concat("Expected '",
-                            std.string.concat(std.char.to_string(expected_char), "'"))
-                        return ParseErr(make_error(state, msg))
-                    }
+/// Helper for expect_literal with index tracking.
+let expect_literal_from: fn(ParserState, string, i32, i32) -> ParseResult[string] =
+    fn(state: ParserState, expected: string, index: i32, len: i32) -> ParseResult[string] {
+        if index >= len {
+            return ParseOk(expected, state)
+        }
+        match peek_str(state) {
+            None => {
+                return ParseErr(make_error(state, "Unexpected end of input"))
+            }
+            Some(actual) => {
+                let expected_char: string = std.string.substring(expected, index, index + 1)
+                if std.string.equals(actual, expected_char) {
+                    return expect_literal_from(advance(state), expected, index + 1, len)
                 }
+                let msg: string = std.string.concat("Expected '", std.string.concat(expected_char, "'"))
+                return ParseErr(make_error(state, msg))
             }
         }
     }
@@ -694,50 +712,75 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
     var current_state: ParserState = state
 
     // Handle optional negative sign
-    match peek(current_state) {
-        Some('-') => { current_state = advance(current_state) }
-        _ => {}
+    match peek_str(current_state) {
+        Some(c) => {
+            if std.string.equals(c, "-") {
+                current_state = advance(current_state)
+            }
+        }
+        None => {}
     }
 
     // Parse integer part
-    match peek(current_state) {
-        Some('0') => { current_state = advance(current_state) }
-        Some(c) if is_digit(c) => {
-            current_state = consume_digits(current_state)
+    match peek_str(current_state) {
+        Some(c) => {
+            if std.string.equals(c, "0") {
+                current_state = advance(current_state)
+            } else if is_digit_str(c) {
+                current_state = consume_digits_str(current_state)
+            } else {
+                return ParseErr(make_error(current_state, "Expected digit"))
+            }
         }
-        _ => { return ParseErr(make_error(current_state, "Expected digit")) }
+        None => { return ParseErr(make_error(current_state, "Expected digit")) }
     }
 
     // Parse optional fractional part
-    match peek(current_state) {
-        Some('.') => {
-            current_state = advance(current_state)
-            match peek(current_state) {
-                Some(c) if is_digit(c) => {
-                    current_state = consume_digits(current_state)
+    match peek_str(current_state) {
+        Some(c) => {
+            if std.string.equals(c, ".") {
+                current_state = advance(current_state)
+                match peek_str(current_state) {
+                    Some(d) => {
+                        if is_digit_str(d) {
+                            current_state = consume_digits_str(current_state)
+                        } else {
+                            return ParseErr(make_error(current_state, "Expected digit after decimal point"))
+                        }
+                    }
+                    None => { return ParseErr(make_error(current_state, "Expected digit after decimal point")) }
                 }
-                _ => { return ParseErr(make_error(current_state, "Expected digit after decimal point")) }
             }
         }
-        _ => {}
+        None => {}
     }
 
     // Parse optional exponent
-    match peek(current_state) {
-        Some('e') | Some('E') => {
-            current_state = advance(current_state)
-            match peek(current_state) {
-                Some('+') | Some('-') => { current_state = advance(current_state) }
-                _ => {}
-            }
-            match peek(current_state) {
-                Some(c) if is_digit(c) => {
-                    current_state = consume_digits(current_state)
+    match peek_str(current_state) {
+        Some(c) => {
+            if std.string.equals(c, "e") or std.string.equals(c, "E") {
+                current_state = advance(current_state)
+                match peek_str(current_state) {
+                    Some(sign) => {
+                        if std.string.equals(sign, "+") or std.string.equals(sign, "-") {
+                            current_state = advance(current_state)
+                        }
+                    }
+                    None => {}
                 }
-                _ => { return ParseErr(make_error(current_state, "Expected digit in exponent")) }
+                match peek_str(current_state) {
+                    Some(d) => {
+                        if is_digit_str(d) {
+                            current_state = consume_digits_str(current_state)
+                        } else {
+                            return ParseErr(make_error(current_state, "Expected digit in exponent"))
+                        }
+                    }
+                    None => { return ParseErr(make_error(current_state, "Expected digit in exponent")) }
+                }
             }
         }
-        _ => {}
+        None => {}
     }
 
     let num_str: string = std.string.substring(state.input, start_pos, current_state.pos)
@@ -748,10 +791,15 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
 }
 
 /// Consumes digits and returns the new state.
-let consume_digits: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserState {
-    match peek(state) {
-        Some(c) if is_digit(c) => { return consume_digits(advance(state)) }
-        _ => { return state }
+let consume_digits_str: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserState {
+    match peek_str(state) {
+        Some(c) => {
+            if is_digit_str(c) {
+                return consume_digits_str(advance(state))
+            }
+            return state
+        }
+        None => { return state }
     }
 }
 
@@ -761,86 +809,94 @@ let consume_digits: fn(ParserState) -> ParserState = fn(state: ParserState) -> P
 
 /// Parses a JSON string (including the surrounding quotes).
 let parse_string: fn(ParserState) -> ParseResult[string] = fn(state: ParserState) -> ParseResult[string] {
-    match peek(state) {
-        Some('"') => {
-            let after_quote: ParserState = advance(state)
-            return parse_string_contents(after_quote, Nil)
+    match peek_str(state) {
+        Some(c) => {
+            if std.string.equals(c, "\"") {
+                let after_quote: ParserState = advance(state)
+                return parse_string_contents_str(after_quote, "")
+            }
+            return ParseErr(make_error(state, "Expected '\"'"))
         }
-        _ => { return ParseErr(make_error(state, "Expected '\"'")) }
+        None => { return ParseErr(make_error(state, "Expected '\"'")) }
     }
 }
 
 /// Parses the contents of a string until the closing quote.
-let parse_string_contents: fn(ParserState, List[char]) -> ParseResult[string] =
-    fn(state: ParserState, acc: List[char]) -> ParseResult[string] {
-        match peek(state) {
+/// Accumulates result as string instead of List[char].
+let parse_string_contents_str: fn(ParserState, string) -> ParseResult[string] =
+    fn(state: ParserState, acc: string) -> ParseResult[string] {
+        match peek_str(state) {
             None => { return ParseErr(make_error(state, "Unterminated string")) }
-            Some('"') => {
-                let result_str: string = std.string.from_chars(list_reverse[char](acc))
-                return ParseOk(result_str, advance(state))
-            }
-            Some('\\') => {
-                let escape_result: ParseResult[char] = parse_escape_sequence(advance(state))
-                match escape_result {
-                    ParseOk(c, new_state) => {
-                        return parse_string_contents(new_state, Cons(c, acc))
-                    }
-                    ParseErr(e) => { return ParseErr(e) }
-                }
-            }
             Some(c) => {
-                let code: i32 = std.char.to_i32(c)
-                if code < 32 {
-                    return ParseErr(make_error(state, "Control character in string"))
+                if std.string.equals(c, "\"") {
+                    return ParseOk(acc, advance(state))
                 }
-                return parse_string_contents(advance(state), Cons(c, acc))
+                if std.string.equals(c, "\\") {
+                    let escape_result: ParseResult[string] = parse_escape_sequence_str(advance(state))
+                    match escape_result {
+                        ParseOk(escaped, new_state) => {
+                            return parse_string_contents_str(new_state, std.string.concat(acc, escaped))
+                        }
+                        ParseErr(e) => { return ParseErr(e) }
+                    }
+                }
+                // Regular character - add to accumulator
+                // Note: Control character checking not supported without std.char.to_i32
+                return parse_string_contents_str(advance(state), std.string.concat(acc, c))
             }
         }
     }
 
 /// Parses an escape sequence (after the backslash).
-let parse_escape_sequence: fn(ParserState) -> ParseResult[char] = fn(state: ParserState) -> ParseResult[char] {
-    match peek(state) {
+/// Returns the escaped character as a string.
+let parse_escape_sequence_str: fn(ParserState) -> ParseResult[string] = fn(state: ParserState) -> ParseResult[string] {
+    match peek_str(state) {
         None => { return ParseErr(make_error(state, "Unterminated escape sequence")) }
-        Some('"') => { return ParseOk('"', advance(state)) }
-        Some('\\') => { return ParseOk('\\', advance(state)) }
-        Some('/') => { return ParseOk('/', advance(state)) }
-        Some('b') => { return ParseOk('\b', advance(state)) }
-        Some('f') => { return ParseOk('\f', advance(state)) }
-        Some('n') => { return ParseOk('\n', advance(state)) }
-        Some('r') => { return ParseOk('\r', advance(state)) }
-        Some('t') => { return ParseOk('\t', advance(state)) }
-        Some('u') => { return parse_unicode_escape(advance(state)) }
         Some(c) => {
-            let msg: string = std.string.concat("Invalid escape sequence: \\", std.char.to_string(c))
+            if std.string.equals(c, "\"") { return ParseOk("\"", advance(state)) }
+            if std.string.equals(c, "\\") { return ParseOk("\\", advance(state)) }
+            if std.string.equals(c, "/") { return ParseOk("/", advance(state)) }
+            if std.string.equals(c, "b") { return ParseOk("\b", advance(state)) }
+            if std.string.equals(c, "f") { return ParseOk("\f", advance(state)) }
+            if std.string.equals(c, "n") { return ParseOk("\n", advance(state)) }
+            if std.string.equals(c, "r") { return ParseOk("\r", advance(state)) }
+            if std.string.equals(c, "t") { return ParseOk("\t", advance(state)) }
+            if std.string.equals(c, "u") { return parse_unicode_escape_str(advance(state)) }
+            let msg: string = std.string.concat("Invalid escape sequence: \\", c)
             return ParseErr(make_error(state, msg))
         }
     }
 }
 
 /// Parses a \uXXXX unicode escape sequence.
-let parse_unicode_escape: fn(ParserState) -> ParseResult[char] = fn(state: ParserState) -> ParseResult[char] {
+/// Note: Full unicode support not available without std.char.from_i32.
+/// This implementation parses the hex digits but returns "?" for the character.
+let parse_unicode_escape_str: fn(ParserState) -> ParseResult[string] = fn(state: ParserState) -> ParseResult[string] {
     var current_state: ParserState = state
-    var code_point: i32 = 0
 
     // Read 4 hex digits
     var i: i32 = 0
     while i < 4 {
-        match peek(current_state) {
+        match peek_str(current_state) {
             None => { return ParseErr(make_error(current_state, "Incomplete unicode escape")) }
             Some(c) => {
-                if not is_hex_digit(c) {
+                if not is_hex_digit_str(c) {
                     return ParseErr(make_error(current_state, "Invalid hex digit in unicode escape"))
                 }
-                code_point = code_point * 16 + hex_digit_value(c)
                 current_state = advance(current_state)
             }
         }
         i = i + 1
     }
 
-    return ParseOk(std.char.from_i32(code_point), current_state)
+    // Cannot convert code point to char without std.char.from_i32
+    // Return replacement character
+    return ParseOk("?", current_state)
 }
+
+// =============================================================================
+// Parser - List Utilities
+// =============================================================================
 
 /// Reverses a list.
 let list_reverse[T]: fn(List[T]) -> List[T] = fn(list: List[T]) -> List[T] {
@@ -861,15 +917,23 @@ let list_reverse_acc[T]: fn(List[T], List[T]) -> List[T] = fn(list: List[T], acc
 
 /// Parses a JSON array.
 let parse_array: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
-    match peek(state) {
-        Some('[') => {
-            let after_bracket: ParserState = skip_whitespace(advance(state))
-            match peek(after_bracket) {
-                Some(']') => { return ParseOk(JArray(Nil), advance(after_bracket)) }
-                _ => { return parse_array_elements(after_bracket, Nil) }
+    match peek_str(state) {
+        Some(c) => {
+            if std.string.equals(c, "[") {
+                let after_bracket: ParserState = skip_whitespace(advance(state))
+                match peek_str(after_bracket) {
+                    Some(c2) => {
+                        if std.string.equals(c2, "]") {
+                            return ParseOk(JArray(Nil), advance(after_bracket))
+                        }
+                        return parse_array_elements(after_bracket, Nil)
+                    }
+                    None => { return parse_array_elements(after_bracket, Nil) }
+                }
             }
+            return ParseErr(make_error(state, "Expected '['"))
         }
-        _ => { return ParseErr(make_error(state, "Expected '['")) }
+        None => { return ParseErr(make_error(state, "Expected '['")) }
     }
 }
 
@@ -882,15 +946,18 @@ let parse_array_elements: fn(ParserState, List[Json]) -> ParseResult[Json] =
             ParseOk(value, after_value) => {
                 let new_acc: List[Json] = Cons(value, acc)
                 let after_ws: ParserState = skip_whitespace(after_value)
-                match peek(after_ws) {
-                    Some(']') => {
-                        return ParseOk(JArray(list_reverse[Json](new_acc)), advance(after_ws))
+                match peek_str(after_ws) {
+                    Some(c) => {
+                        if std.string.equals(c, "]") {
+                            return ParseOk(JArray(list_reverse[Json](new_acc)), advance(after_ws))
+                        }
+                        if std.string.equals(c, ",") {
+                            let after_comma: ParserState = skip_whitespace(advance(after_ws))
+                            return parse_array_elements(after_comma, new_acc)
+                        }
+                        return ParseErr(make_error(after_ws, "Expected ',' or ']'"))
                     }
-                    Some(',') => {
-                        let after_comma: ParserState = skip_whitespace(advance(after_ws))
-                        return parse_array_elements(after_comma, new_acc)
-                    }
-                    _ => { return ParseErr(make_error(after_ws, "Expected ',' or ']'")) }
+                    None => { return ParseErr(make_error(after_ws, "Expected ',' or ']'")) }
                 }
             }
         }
@@ -898,15 +965,23 @@ let parse_array_elements: fn(ParserState, List[Json]) -> ParseResult[Json] =
 
 /// Parses a JSON object.
 let parse_object: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
-    match peek(state) {
-        Some('{') => {
-            let after_brace: ParserState = skip_whitespace(advance(state))
-            match peek(after_brace) {
-                Some('}') => { return ParseOk(JObject(Nil), advance(after_brace)) }
-                _ => { return parse_object_fields(after_brace, Nil) }
+    match peek_str(state) {
+        Some(c) => {
+            if std.string.equals(c, "{") {
+                let after_brace: ParserState = skip_whitespace(advance(state))
+                match peek_str(after_brace) {
+                    Some(c2) => {
+                        if std.string.equals(c2, "}") {
+                            return ParseOk(JObject(Nil), advance(after_brace))
+                        }
+                        return parse_object_fields(after_brace, Nil)
+                    }
+                    None => { return parse_object_fields(after_brace, Nil) }
+                }
             }
+            return ParseErr(make_error(state, "Expected '{'"))
         }
-        _ => { return ParseErr(make_error(state, "Expected '{'")) }
+        None => { return ParseErr(make_error(state, "Expected '{'")) }
     }
 }
 
@@ -920,31 +995,37 @@ let parse_object_fields: fn(ParserState, List[JsonField]) -> ParseResult[Json] =
             ParseOk(key, after_key) => {
                 let after_key_ws: ParserState = skip_whitespace(after_key)
                 // Expect colon
-                match peek(after_key_ws) {
-                    Some(':') => {
-                        let after_colon: ParserState = skip_whitespace(advance(after_key_ws))
-                        // Parse value
-                        let value_result: ParseResult[Json] = parse_value(after_colon)
-                        match value_result {
-                            ParseErr(e) => { return ParseErr(e) }
-                            ParseOk(value, after_value) => {
-                                let field: JsonField = JsonField { key: key, value: value }
-                                let new_acc: List[JsonField] = Cons(field, acc)
-                                let after_ws: ParserState = skip_whitespace(after_value)
-                                match peek(after_ws) {
-                                    Some('}') => {
-                                        return ParseOk(JObject(list_reverse[JsonField](new_acc)), advance(after_ws))
+                match peek_str(after_key_ws) {
+                    Some(c) => {
+                        if std.string.equals(c, ":") {
+                            let after_colon: ParserState = skip_whitespace(advance(after_key_ws))
+                            // Parse value
+                            let value_result: ParseResult[Json] = parse_value(after_colon)
+                            match value_result {
+                                ParseErr(e) => { return ParseErr(e) }
+                                ParseOk(value, after_value) => {
+                                    let field: JsonField = JsonField { key: key, value: value }
+                                    let new_acc: List[JsonField] = Cons(field, acc)
+                                    let after_ws: ParserState = skip_whitespace(after_value)
+                                    match peek_str(after_ws) {
+                                        Some(c2) => {
+                                            if std.string.equals(c2, "}") {
+                                                return ParseOk(JObject(list_reverse[JsonField](new_acc)), advance(after_ws))
+                                            }
+                                            if std.string.equals(c2, ",") {
+                                                let after_comma: ParserState = skip_whitespace(advance(after_ws))
+                                                return parse_object_fields(after_comma, new_acc)
+                                            }
+                                            return ParseErr(make_error(after_ws, "Expected ',' or '}'"))
+                                        }
+                                        None => { return ParseErr(make_error(after_ws, "Expected ',' or '}'")) }
                                     }
-                                    Some(',') => {
-                                        let after_comma: ParserState = skip_whitespace(advance(after_ws))
-                                        return parse_object_fields(after_comma, new_acc)
-                                    }
-                                    _ => { return ParseErr(make_error(after_ws, "Expected ',' or '}'")) }
                                 }
                             }
                         }
+                        return ParseErr(make_error(after_key_ws, "Expected ':'"))
                     }
-                    _ => { return ParseErr(make_error(after_key_ws, "Expected ':'")) }
+                    None => { return ParseErr(make_error(after_key_ws, "Expected ':'")) }
                 }
             }
         }
@@ -957,32 +1038,32 @@ let parse_object_fields: fn(ParserState, List[JsonField]) -> ParseResult[Json] =
 /// Parses a JSON value based on the first character.
 let parse_value: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
     let ws_state: ParserState = skip_whitespace(state)
-    match peek(ws_state) {
+    match peek_str(ws_state) {
         None => { return ParseErr(make_error(ws_state, "Unexpected end of input")) }
-        Some('n') => { return parse_null(ws_state) }
-        Some('t') | Some('f') => { return parse_bool(ws_state) }
-        Some('"') => {
-            let str_result: ParseResult[string] = parse_string(ws_state)
-            match str_result {
-                ParseOk(s, new_state) => { return ParseOk(JString(s), new_state) }
-                ParseErr(e) => { return ParseErr(e) }
-            }
-        }
-        Some('[') => { return parse_array(ws_state) }
-        Some('{') => { return parse_object(ws_state) }
-        Some('-') => { return parse_number(ws_state) }
-        Some('0') => { return parse_number(ws_state) }
-        Some('1') => { return parse_number(ws_state) }
-        Some('2') => { return parse_number(ws_state) }
-        Some('3') => { return parse_number(ws_state) }
-        Some('4') => { return parse_number(ws_state) }
-        Some('5') => { return parse_number(ws_state) }
-        Some('6') => { return parse_number(ws_state) }
-        Some('7') => { return parse_number(ws_state) }
-        Some('8') => { return parse_number(ws_state) }
-        Some('9') => { return parse_number(ws_state) }
         Some(c) => {
-            let msg: string = std.string.concat("Unexpected character: ", std.char.to_string(c))
+            if std.string.equals(c, "n") {
+                return parse_null(ws_state)
+            }
+            if std.string.equals(c, "t") or std.string.equals(c, "f") {
+                return parse_bool(ws_state)
+            }
+            if std.string.equals(c, "\"") {
+                let str_result: ParseResult[string] = parse_string(ws_state)
+                match str_result {
+                    ParseOk(s, new_state) => { return ParseOk(JString(s), new_state) }
+                    ParseErr(e) => { return ParseErr(e) }
+                }
+            }
+            if std.string.equals(c, "[") {
+                return parse_array(ws_state)
+            }
+            if std.string.equals(c, "{") {
+                return parse_object(ws_state)
+            }
+            if std.string.equals(c, "-") or is_digit_str(c) {
+                return parse_number(ws_state)
+            }
+            let msg: string = std.string.concat("Unexpected character: ", c)
             return ParseErr(make_error(ws_state, msg))
         }
     }
@@ -1263,3 +1344,4 @@ let filter_list[T]: fn(List[T], fn(T) -> bool) -> List[T] = fn(list: List[T], pr
         }
     }
 }
+

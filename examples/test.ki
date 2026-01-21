@@ -1,4 +1,5 @@
-import src.json.{ Json, JNull, JString, JObject, JsonField, make_field, stringify }
+import src.json.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField, make_field, stringify }
+import std.list.{ Cons, Nil }
 
 effect fn main() -> IO[void] {
     let field: JsonField = make_field("name", JString("Alice"))

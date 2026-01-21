@@ -4,6 +4,8 @@ This project uses the Kira-Toolkit framework (v0.1.0) for Kira development stand
 
 See `kira-toolkit/KIRATOOLKIT.md` for coding guidelines and available commands.
 
+See `kira-toolkit/STANDARDS.md` for full language standards and module system documentation.
+
 ### Key Syntax Requirements
 - **Explicit types**: `let x: i32 = 42`
 - **Explicit return**: `return value` (not implicit last expression)

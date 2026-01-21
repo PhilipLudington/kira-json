@@ -1,9 +1,0 @@
-/// Test import and use
-
-import src.json
-
-effect fn main() -> IO[void] {
-    let null_val: src.json.Json = src.json.JNull
-    std.io.println("Created null JSON")
-    return
-}
