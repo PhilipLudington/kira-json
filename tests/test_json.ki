@@ -3,7 +3,7 @@
 
 module test_json
 
-import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error }
+import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, parse_with_max_depth, default_max_depth, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error }
 
 // =============================================================================
 // Test Utilities
@@ -2408,6 +2408,140 @@ let test_get_path_consecutive_array_indices: fn() -> void = fn() -> void {
 }
 
 // =============================================================================
+// Stack Safety Tests
+// =============================================================================
+
+let test_default_max_depth_returns_512: fn() -> void = fn() -> void {
+    // Arrange & Act
+    let depth: i32 = default_max_depth()
+
+    // Assert
+    assert_i32_eq(depth, 512, "default_max_depth should return 512")
+    return
+}
+
+let test_parse_with_max_depth_small_limit_success: fn() -> void = fn() -> void {
+    // Arrange: simple array with depth 2 (outer array + inner value)
+    let input: string = "[1, 2, 3]"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_with_max_depth(input, 5)
+
+    // Assert
+    assert_ok[Json, JsonError](result, "should parse successfully within depth limit")
+    return
+}
+
+let test_parse_with_max_depth_nested_array_exceeds_limit: fn() -> void = fn() -> void {
+    // Arrange: nested arrays with depth 4: [[[1]]]
+    let input: string = "[[[1]]]"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_with_max_depth(input, 2)
+
+    // Assert
+    match result {
+        Ok(_) => { assert(false, "should fail when depth exceeds limit") }
+        Err(MaxDepthExceeded { depth: d, max_depth: m, line: _, col: _ }) => {
+            assert_i32_eq(m, 2, "max_depth should be 2")
+            assert_i32_eq(d, 3, "depth should be 3 when failure occurs")
+        }
+        Err(_) => { assert(false, "should be MaxDepthExceeded error") }
+    }
+    return
+}
+
+let test_parse_with_max_depth_nested_object_exceeds_limit: fn() -> void = fn() -> void {
+    // Arrange: nested objects with depth 3: {"a": {"b": 1}}
+    let input: string = "{\"a\": {\"b\": 1}}"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_with_max_depth(input, 1)
+
+    // Assert
+    match result {
+        Ok(_) => { assert(false, "should fail when depth exceeds limit") }
+        Err(MaxDepthExceeded { depth: _, max_depth: m, line: _, col: _ }) => {
+            assert_i32_eq(m, 1, "max_depth should be 1")
+        }
+        Err(_) => { assert(false, "should be MaxDepthExceeded error") }
+    }
+    return
+}
+
+let test_parse_with_max_depth_at_exact_limit: fn() -> void = fn() -> void {
+    // Arrange: depth 2 with limit 2
+    let input: string = "[[1]]"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_with_max_depth(input, 2)
+
+    // Assert
+    assert_ok[Json, JsonError](result, "should parse at exact depth limit")
+    return
+}
+
+let test_parse_with_max_depth_zero_means_unlimited: fn() -> void = fn() -> void {
+    // Arrange: depth 3 with limit 0 (unlimited)
+    let input: string = "[[[1]]]"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_with_max_depth(input, 0)
+
+    // Assert
+    assert_ok[Json, JsonError](result, "limit 0 should mean unlimited depth")
+    return
+}
+
+let test_parse_default_allows_nested_structures: fn() -> void = fn() -> void {
+    // Arrange: moderately nested structure (depth 3)
+    let input: string = "{\"a\": {\"b\": [1, 2, 3]}}"
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_ok[Json, JsonError](result, "default parse should allow reasonable nesting")
+    return
+}
+
+let test_format_error_max_depth_exceeded: fn() -> void = fn() -> void {
+    // Arrange
+    let err: JsonError = MaxDepthExceeded { depth: 10, max_depth: 5, line: 1, col: 15 }
+
+    // Act
+    let msg: string = format_error(err)
+
+    // Assert
+    assert_true(std.string.length(msg) > 0, "format_error should produce non-empty message for MaxDepthExceeded")
+    return
+}
+
+let test_error_line_max_depth_exceeded: fn() -> void = fn() -> void {
+    // Arrange
+    let err: JsonError = MaxDepthExceeded { depth: 10, max_depth: 5, line: 3, col: 7 }
+
+    // Act
+    let line: i32 = error_line(err)
+
+    // Assert
+    assert_i32_eq(line, 3, "error_line should return line from MaxDepthExceeded")
+    return
+}
+
+let test_error_column_max_depth_exceeded: fn() -> void = fn() -> void {
+    // Arrange
+    let err: JsonError = MaxDepthExceeded { depth: 10, max_depth: 5, line: 3, col: 7 }
+
+    // Act
+    let col: i32 = error_column(err)
+
+    // Assert
+    assert_i32_eq(col, 7, "error_column should return column from MaxDepthExceeded")
+    return
+}
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -2638,6 +2772,19 @@ effect fn main() -> IO[void] {
     run_test("test_remove_path_simple_key", test_remove_path_simple_key)
     run_test("test_remove_path_nested", test_remove_path_nested)
     run_test("test_remove_path_array_index", test_remove_path_array_index)
+    std.io.println("")
+
+    std.io.println("Stack Safety:")
+    run_test("test_default_max_depth_returns_512", test_default_max_depth_returns_512)
+    run_test("test_parse_with_max_depth_small_limit_success", test_parse_with_max_depth_small_limit_success)
+    run_test("test_parse_with_max_depth_nested_array_exceeds_limit", test_parse_with_max_depth_nested_array_exceeds_limit)
+    run_test("test_parse_with_max_depth_nested_object_exceeds_limit", test_parse_with_max_depth_nested_object_exceeds_limit)
+    run_test("test_parse_with_max_depth_at_exact_limit", test_parse_with_max_depth_at_exact_limit)
+    run_test("test_parse_with_max_depth_zero_means_unlimited", test_parse_with_max_depth_zero_means_unlimited)
+    run_test("test_parse_default_allows_nested_structures", test_parse_default_allows_nested_structures)
+    run_test("test_format_error_max_depth_exceeded", test_format_error_max_depth_exceeded)
+    run_test("test_error_line_max_depth_exceeded", test_error_line_max_depth_exceeded)
+    run_test("test_error_column_max_depth_exceeded", test_error_column_max_depth_exceeded)
     std.io.println("")
 
     std.io.println("==========================")

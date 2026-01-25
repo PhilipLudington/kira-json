@@ -68,11 +68,11 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 **Files:** `src/json.ki` (parse_string_contents_str, parse_string_contents_builder)
 
-### 2.3 Stack Safety
-- [ ] Add depth limit parameter to parser
-- [ ] Default reasonable limit (e.g., 512 levels)
-- [ ] Return error on excessive nesting
-- [ ] Consider iterative parsing for deeply nested structures
+### 2.3 Stack Safety ✓
+- [x] Add depth limit parameter to parser (`parse_with_max_depth`)
+- [x] Default reasonable limit (512 levels via `default_max_depth()`)
+- [x] Return error on excessive nesting (`MaxDepthExceeded` error variant)
+- [ ] Consider iterative parsing for deeply nested structures (optional, recursive works for 512)
 
 **Files:** `src/json.ki` (parse_value, parse_array, parse_object)
 
@@ -220,7 +220,7 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 4. ~~**Phase 3.2** - Equality~~ ✓
 5. ~~**Phase 4.1** - Structured errors~~ ✓
 6. ~~**Phase 3.1** - Path access~~ ✓
-7. **Phase 2.3** - Stack safety (robustness)
+7. ~~**Phase 2.3** - Stack safety~~ ✓
 8. **Phase 1.1** - Surrogate pairs (full Unicode)
 9. **Phase 5.1** - Test suite (validation)
 10. **Phase 2.1** - HashMap objects (if perf needed)
