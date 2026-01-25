@@ -1,167 +1,231 @@
-# JSON Parser Library for Kira - Implementation Plan
+# JSON Library Production Readiness Plan
 
-A pure functional JSON parsing, manipulation, and serialization library demonstrating Kira's ADTs, pattern matching, and higher-order functions.
+## Current Status
 
-## Phase 1: Core Types & Accessors
+The library provides functional JSON parsing, serialization, and manipulation with ~97 passing tests. Recent improvements leverage new compiler features (StringBuilder, std.char.from_i32, std.math.trunc_to_i64).
 
-Create the foundation with type definitions and accessor functions.
+### What Works
+- Core types: `Json`, `JsonField`, `ParseError`
+- Type predicates: `is_null`, `is_bool`, `is_number`, `is_string`, `is_array`, `is_object`
+- Value extraction: `as_string`, `as_number`, `as_int`, `as_bool`, `as_array`, `as_object`
+- Accessors: `get_field`, `get_index`, `size`, `keys`, `values`
+- Serialization: `stringify`, `stringify_pretty`, `stringify_pretty_with`
+- Parsing: `parse` with line/column error tracking
+- Transforms: `map_values`, `filter_fields`, `set_field`, `remove_field`, `merge`, `merge_deep`, `map_array`, `filter_array`
+- Unicode escapes: `\uXXXX` parsing and serialization
+- Control character escaping
 
-- [x] Create `src/json.ki` with core type definitions
-  - `Json` sum type (JNull, JBool, JNumber, JString, JArray, JObject)
-  - `JsonField` record type for key-value pairs
-  - `ParseError` record type with line/column info
-  - `ParserState` record type for internal parser state
-  - `ParseResult[T]` sum type for parse results
+---
 
-- [x] Implement type checking predicates
-  - `is_null(json: Json) -> bool`
-  - `is_bool(json: Json) -> bool`
-  - `is_number(json: Json) -> bool`
-  - `is_string(json: Json) -> bool`
-  - `is_array(json: Json) -> bool`
-  - `is_object(json: Json) -> bool`
-  - `type_name(json: Json) -> string`
+## Phase 1: JSON Specification Compliance
 
-- [x] Implement value extractors
-  - `as_string(json: Json) -> Option[string]`
-  - `as_number(json: Json) -> Option[f64]`
-  - `as_int(json: Json) -> Option[i64]`
-  - `as_bool(json: Json) -> Option[bool]`
-  - `as_array(json: Json) -> Option[List[Json]]`
-  - `as_object(json: Json) -> Option[List[JsonField]]`
+### 1.1 UTF-16 Surrogate Pair Support
+- [ ] Handle surrogate pairs in unicode escapes (`\uD800`-`\uDFFF`)
+- [ ] Parse `\uD83D\uDE00` as single emoji character
+- [ ] Add tests for emoji and extended Unicode
 
-- [x] Implement field/index accessors
-  - `get_field(json: Json, key: string) -> Option[Json]`
-  - `get_index(json: Json, index: i32) -> Option[Json]`
-  - `size(json: Json) -> Option[i32]`
-  - `keys(json: Json) -> Option[List[string]]`
-  - `values(json: Json) -> Option[List[Json]]`
+**Files:** `src/json.ki` (parse_unicode_escape_str)
 
-- [x] Test accessors with manually constructed JSON values
+### 1.2 Number Handling Edge Cases
+- [ ] Reject leading zeros (e.g., `007` is invalid JSON)
+- [ ] Handle very large numbers (overflow to infinity)
+- [ ] Handle very small numbers (underflow to zero)
+- [ ] Reject `NaN` and `Infinity` in parsing
+- [ ] Test scientific notation edge cases (`1e999`, `1e-999`)
 
-## Phase 2: Serializer
+**Files:** `src/json.ki` (parse_number)
 
-Implement JSON to string conversion with proper escaping and formatting.
+### 1.3 String Validation
+- [ ] Reject unescaped control characters (0x00-0x1F) in input
+- [ ] Validate UTF-8 sequences in input strings
+- [ ] Handle bare `\` at end of string as error
 
-- [x] Implement string escape handling
-  - Escape quotes, backslashes, newlines, tabs, carriage returns
-  - Handle Unicode escapes if needed
+**Files:** `src/json.ki` (parse_string_contents_str)
 
-- [x] Implement `stringify(json: Json) -> string`
-  - Compact output with no extra whitespace
-  - Handle all JSON types correctly
+### 1.4 Duplicate Key Handling
+- [ ] Define behavior for duplicate keys (last-wins or error)
+- [ ] Add `parse_strict` that rejects duplicates
+- [ ] Document the behavior
 
-- [x] Implement `stringify_pretty(json: Json) -> string`
-  - Pretty-printed with 2-space indentation
-  - Proper newlines and formatting
+**Files:** `src/json.ki` (parse_object_fields)
 
-- [x] Implement `stringify_pretty_with(json: Json, indent_size: i32) -> string`
-  - Custom indentation size support
+---
 
-- [x] Test serializer with various JSON structures
+## Phase 2: Performance Optimization
 
-## Phase 3: Parser
+### 2.1 HashMap-Based Objects (Requires std.map)
+- [ ] Create `JsonObjectMap` type using `std.map`
+- [ ] O(1) field lookup instead of O(n) list traversal
+- [ ] Preserve insertion order for serialization
+- [ ] Benchmark before/after
 
-Implement recursive descent parser for JSON strings.
+**Files:** `src/json.ki` (new type, update accessors)
 
-- [x] Implement parser state utilities
-  - `init_state(input: string) -> ParserState`
-  - `make_error(state: ParserState, message: string) -> ParseError`
-  - `is_eof(state: ParserState) -> bool`
-  - `peek(state: ParserState) -> Option[char]`
-  - `advance(state: ParserState) -> ParserState`
-  - `skip_whitespace(state: ParserState) -> ParserState`
+### 2.2 Parser String Building
+- [ ] Use StringBuilder in `parse_string_contents_str`
+- [ ] Currently uses recursive `std.string.concat` (O(n²))
+- [ ] Benchmark improvement
 
-- [x] Implement character utilities
-  - `is_digit(c: char) -> bool`
-  - `is_hex_digit(c: char) -> bool` (for unicode escapes)
+**Files:** `src/json.ki` (parse_string_contents_str)
 
-- [x] Implement literal parsers
-  - `parse_null(state: ParserState) -> ParseResult[Json]`
-  - `parse_bool(state: ParserState) -> ParseResult[Json]`
+### 2.3 Stack Safety
+- [ ] Add depth limit parameter to parser
+- [ ] Default reasonable limit (e.g., 512 levels)
+- [ ] Return error on excessive nesting
+- [ ] Consider iterative parsing for deeply nested structures
 
-- [x] Implement number parser
-  - `parse_number(state: ParserState) -> ParseResult[Json]`
-  - Handle integers, decimals, and exponent notation
-  - Handle negative numbers
+**Files:** `src/json.ki` (parse_value, parse_array, parse_object)
 
-- [x] Implement string parser
-  - `parse_string(state: ParserState) -> ParseResult[string]`
-  - Handle escape sequences: `\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`
-  - Handle unicode escapes: `\uXXXX`
+---
 
-- [x] Implement compound parsers
-  - `parse_array(state: ParserState) -> ParseResult[Json]`
-  - `parse_object(state: ParserState) -> ParseResult[Json]`
-  - Handle empty arrays/objects
-  - Handle trailing commas (optional, per JSON spec)
+## Phase 3: API Enhancements
 
-- [x] Implement main parse dispatch
-  - `parse_value(state: ParserState) -> ParseResult[Json]`
-  - Dispatch based on first character
-  - `parse(input: string) -> Result[Json, ParseError]` public API
+### 3.1 Path-Based Access
+- [ ] `get_path(json, "user.address.city")` → `Option[Json]`
+- [ ] `get_path(json, "users[0].name")` → `Option[Json]`
+- [ ] `set_path(json, "user.name", value)` → `Json`
+- [ ] Path parsing with error handling
 
-- [x] Test parser with various valid JSON inputs
+**New file:** `src/json_path.ki`
 
-- [x] Test parser error handling with invalid inputs
+### 3.2 Equality and Comparison
+- [ ] `equals(a, b)` → `bool` (deep structural equality)
+- [ ] Handle object key order (should be order-independent)
+- [ ] Handle number comparison (floating point issues)
 
-## Phase 4: Transformers
+**Files:** `src/json.ki`
 
-Implement higher-order functions for JSON manipulation.
+### 3.3 JSON Schema Validation
+- [ ] Define schema type
+- [ ] `validate(json, schema)` → `Result[void, ValidationError]`
+- [ ] Support type constraints, required fields, patterns
+- [ ] Collect all errors vs fail-fast mode
 
-- [x] Implement value mapping
-  - `map_values(json: Json, f: fn(Json) -> Json) -> Json`
-  - Recursively apply function to all values
+**New file:** `src/json_schema.ki`
 
-- [x] Implement field filtering
-  - `filter_fields(json: Json, pred: fn(string, Json) -> bool) -> Json`
-  - `filter_fields_deep(json: Json, pred: fn(string, Json) -> bool) -> Json`
+### 3.4 Builder Pattern
+- [ ] `JsonBuilder` type for fluent object construction
+- [ ] `object().field("name", string("Alice")).field("age", number(30)).build()`
+- [ ] Type-safe construction
 
-- [x] Implement object operations
-  - `set_field(json: Json, key: string, value: Json) -> Json`
-  - `remove_field(json: Json, key: string) -> Json`
+**Files:** `src/json.ki`
 
-- [x] Implement merge operations
-  - `merge(a: Json, b: Json) -> Json` - shallow merge
-  - `merge_deep(a: Json, b: Json) -> Json` - recursive merge
+### 3.5 Convenience Constructors
+- [ ] `json_string(s)` → `Json` (alias for `JString(s)`)
+- [ ] `json_number(n)` → `Json`
+- [ ] `json_bool(b)` → `Json`
+- [ ] `json_array(list)` → `Json`
+- [ ] `json_object(fields)` → `Json`
 
-- [x] Implement array operations
-  - `map_array(json: Json, f: fn(Json) -> Json) -> Json`
-  - `filter_array(json: Json, pred: fn(Json) -> bool) -> Json`
+**Files:** `src/json.ki`
 
-- [x] Test transformers with complex nested structures
+---
 
-## Phase 5: Documentation & Demo
+## Phase 4: Error Handling Improvements
 
-Create comprehensive examples and documentation.
+### 4.1 Structured Error Types
+- [ ] Create error variant type:
+  ```kira
+  type JsonError =
+      | UnexpectedToken { expected: string, found: string, line: i32, col: i32 }
+      | UnterminatedString { line: i32, col: i32 }
+      | InvalidNumber { value: string, line: i32, col: i32 }
+      | InvalidEscape { sequence: string, line: i32, col: i32 }
+      | MaxDepthExceeded { depth: i32 }
+      | DuplicateKey { key: string, line: i32, col: i32 }
+  ```
 
-- [x] Create `examples/json_demo.ki` with usage examples
-  - Parsing JSON from strings
-  - Building JSON programmatically
-  - Transforming JSON structures
-  - Merging JSON objects
-  - Pretty printing output
+**Files:** `src/json.ki`
 
-- [x] Add inline documentation comments to all public functions
+### 4.2 Error Context
+- [ ] Include snippet of input around error location
+- [ ] Show column indicator (e.g., `  ^--- here`)
+- [ ] `format_error(input, error)` → `string`
 
-- [x] Test full round-trip: parse -> transform -> stringify
+**Files:** `src/json.ki`
 
-## Notes
+---
 
-### Design Decisions
-- All functions are pure (`fn`, not `effect fn`) except I/O demos
-- Option types for safe access (no panics on missing keys)
-- Result types for parsing with line/column error info
-- Immutable transforms (all functions return new values)
-- List-based objects for simplicity (O(n) lookup is acceptable)
-- Explicit type parameters for all generic operations
+## Phase 5: Testing & Validation
 
-### File Structure
-```
-src/
-  json.ki          # Main library with all types and functions
-examples/
-  json_demo.ki     # Usage examples and demonstrations
-tests/
-  test_json.ki     # Comprehensive test suite (97 tests)
-```
+### 5.1 JSON Test Suite
+- [ ] Run against [JSONTestSuite](https://github.com/nst/JSONTestSuite)
+- [ ] Categorize: must accept, must reject, implementation-defined
+- [ ] Document any deviations from spec
+
+**New file:** `tests/test_json_suite.ki`
+
+### 5.2 Property-Based Tests
+- [ ] Roundtrip: `parse(stringify(json)) == json`
+- [ ] Stringify determinism: same input → same output
+- [ ] Parse consistency: valid JSON never crashes
+
+**Files:** `tests/test_json.ki`
+
+### 5.3 Edge Case Tests
+- [ ] Empty input
+- [ ] Whitespace-only input
+- [ ] Maximum nesting depth
+- [ ] Very long strings (>1MB)
+- [ ] Very long arrays (>10000 elements)
+- [ ] Unicode edge cases (BOM, surrogates, RTL)
+
+**Files:** `tests/test_json.ki`
+
+### 5.4 Fuzzing
+- [ ] Create fuzz test harness
+- [ ] Run against parser to find crashes
+- [ ] Document any issues found
+
+**New file:** `tests/fuzz_json.ki`
+
+---
+
+## Phase 6: Documentation
+
+### 6.1 API Reference
+- [ ] Document all public functions with examples
+- [ ] Document error conditions
+- [ ] Document performance characteristics
+
+**New file:** `docs/api.md`
+
+### 6.2 Usage Guide
+- [ ] Getting started example
+- [ ] Parsing examples
+- [ ] Building JSON programmatically
+- [ ] Transformation examples
+- [ ] Error handling examples
+
+**New file:** `docs/guide.md`
+
+### 6.3 Performance Guide
+- [ ] When to use HashMap objects
+- [ ] Memory considerations
+- [ ] Streaming large files
+
+**New file:** `docs/performance.md`
+
+---
+
+## Priority Order
+
+1. **Phase 2.2** - Parser string building (quick win, measurable improvement)
+2. **Phase 1.2** - Number edge cases (spec compliance)
+3. **Phase 1.3** - String validation (spec compliance)
+4. **Phase 3.2** - Equality (commonly needed)
+5. **Phase 4.1** - Structured errors (better DX)
+6. **Phase 3.1** - Path access (common use case)
+7. **Phase 2.3** - Stack safety (robustness)
+8. **Phase 1.1** - Surrogate pairs (full Unicode)
+9. **Phase 5.1** - Test suite (validation)
+10. **Phase 2.1** - HashMap objects (if perf needed)
+
+---
+
+## Non-Goals (Out of Scope)
+
+- Streaming/incremental parsing (requires different architecture)
+- JSON5 or JSONC support (non-standard)
+- Binary JSON formats (BSON, MessagePack)
+- JSON-LD or JSON-API specifics
