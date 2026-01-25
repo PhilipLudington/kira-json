@@ -3,7 +3,7 @@
 
 module test_json
 
-import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, parse_with_max_depth, default_max_depth, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error }
+import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, default_max_depth, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error }
 
 // =============================================================================
 // Test Utilities
@@ -2707,6 +2707,189 @@ let test_error_column_max_depth_exceeded: fn() -> void = fn() -> void {
 }
 
 // =============================================================================
+// Duplicate Key Handling Tests
+// =============================================================================
+
+let test_parse_duplicate_keys_first_wins: fn() -> void = fn() -> void {
+    // Arrange - regular parse uses first-wins behavior (get_field returns first match)
+    let input: string = "{\"a\": 1, \"a\": 2}"
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    match result {
+        Ok(json) => {
+            match get_field(json, "a") {
+                Some(val) => {
+                    match as_number(val) {
+                        Some(n) => { assert_f64_eq(n, 1.0, "get_field returns first occurrence (first-wins)") }
+                        None => { assert(false, "expected number value") }
+                    }
+                }
+                None => { assert(false, "expected field 'a' to exist") }
+            }
+        }
+        Err(e) => { assert(false, "parse should succeed with duplicate keys") }
+    }
+    return
+}
+
+let test_parse_strict_rejects_duplicate_keys: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "{\"a\": 1, \"a\": 2}"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_strict(input)
+
+    // Assert
+    match result {
+        Ok(_) => { assert(false, "parse_strict should reject duplicate keys") }
+        Err(e) => {
+            match e {
+                DuplicateKey { key: k, line: _, col: _ } => {
+                    assert(std.string.equals(k, "a"), "error should contain duplicate key name")
+                }
+                _ => { assert(false, "expected DuplicateKey error") }
+            }
+        }
+    }
+    return
+}
+
+let test_parse_strict_error_position: fn() -> void = fn() -> void {
+    // Arrange - second "a" is at column 10 (after '{"a": 1, ')
+    let input: string = "{\"a\": 1, \"a\": 2}"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_strict(input)
+
+    // Assert
+    match result {
+        Err(DuplicateKey { key: k, line: l, col: c }) => {
+            assert(std.string.equals(k, "a"), "error should contain key name")
+            assert_i32_eq(l, 1, "error should be on line 1")
+            assert_i32_eq(c, 10, "error should be at column 10")
+        }
+        _ => { assert(false, "expected DuplicateKey error with position") }
+    }
+    return
+}
+
+let test_parse_strict_nested_object_duplicates: fn() -> void = fn() -> void {
+    // Arrange - nested object with duplicate keys
+    let input: string = "{\"outer\": {\"inner\": 1, \"inner\": 2}}"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_strict(input)
+
+    // Assert
+    match result {
+        Ok(_) => { assert(false, "parse_strict should reject nested duplicate keys") }
+        Err(DuplicateKey { key: k, line: _, col: _ }) => {
+            assert(std.string.equals(k, "inner"), "error should contain nested duplicate key name")
+        }
+        _ => { assert(false, "expected DuplicateKey error") }
+    }
+    return
+}
+
+let test_parse_strict_accepts_unique_keys: fn() -> void = fn() -> void {
+    // Arrange - all keys are unique
+    let input: string = "{\"a\": 1, \"b\": 2, \"c\": 3}"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_strict(input)
+
+    // Assert
+    match result {
+        Ok(json) => {
+            assert(is_object(json), "result should be an object")
+            match size(json) {
+                Some(s) => { assert_i32_eq(s, 3, "object should have 3 fields") }
+                None => { assert(false, "size should return Some for object") }
+            }
+        }
+        Err(_) => { assert(false, "parse_strict should accept unique keys") }
+    }
+    return
+}
+
+let test_parse_strict_with_max_depth: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "{\"a\": 1, \"a\": 2}"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_strict_with_max_depth(input, 10)
+
+    // Assert
+    match result {
+        Ok(_) => { assert(false, "parse_strict_with_max_depth should reject duplicate keys") }
+        Err(DuplicateKey { key: _, line: _, col: _ }) => {
+            assert(true, "got expected DuplicateKey error")
+        }
+        _ => { assert(false, "expected DuplicateKey error") }
+    }
+    return
+}
+
+let test_format_error_duplicate_key: fn() -> void = fn() -> void {
+    // Arrange
+    let err: JsonError = DuplicateKey { key: "foo", line: 2, col: 5 }
+
+    // Act
+    let msg: string = format_error(err)
+
+    // Assert
+    assert(std.string.contains(msg, "Duplicate key"), "message should mention duplicate key")
+    assert(std.string.contains(msg, "foo"), "message should contain key name")
+    assert(std.string.contains(msg, "line 2"), "message should contain line number")
+    assert(std.string.contains(msg, "column 5"), "message should contain column number")
+    return
+}
+
+let test_error_line_duplicate_key: fn() -> void = fn() -> void {
+    // Arrange
+    let err: JsonError = DuplicateKey { key: "bar", line: 5, col: 10 }
+
+    // Act
+    let line: i32 = error_line(err)
+
+    // Assert
+    assert_i32_eq(line, 5, "error_line should return line from DuplicateKey")
+    return
+}
+
+let test_error_column_duplicate_key: fn() -> void = fn() -> void {
+    // Arrange
+    let err: JsonError = DuplicateKey { key: "bar", line: 5, col: 10 }
+
+    // Act
+    let col: i32 = error_column(err)
+
+    // Assert
+    assert_i32_eq(col, 10, "error_column should return column from DuplicateKey")
+    return
+}
+
+let test_parse_strict_multiple_duplicates_first_reported: fn() -> void = fn() -> void {
+    // Arrange - multiple duplicates, first duplicate should be reported
+    let input: string = "{\"a\": 1, \"b\": 2, \"a\": 3, \"b\": 4}"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_strict(input)
+
+    // Assert
+    match result {
+        Err(DuplicateKey { key: k, line: _, col: _ }) => {
+            assert(std.string.equals(k, "a"), "first duplicate key should be reported")
+        }
+        _ => { assert(false, "expected DuplicateKey error") }
+    }
+    return
+}
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -2965,6 +3148,19 @@ effect fn main() -> IO[void] {
     run_test("test_format_error_max_depth_exceeded", test_format_error_max_depth_exceeded)
     run_test("test_error_line_max_depth_exceeded", test_error_line_max_depth_exceeded)
     run_test("test_error_column_max_depth_exceeded", test_error_column_max_depth_exceeded)
+    std.io.println("")
+
+    std.io.println("Duplicate Key Handling:")
+    run_test("test_parse_duplicate_keys_first_wins", test_parse_duplicate_keys_first_wins)
+    run_test("test_parse_strict_rejects_duplicate_keys", test_parse_strict_rejects_duplicate_keys)
+    run_test("test_parse_strict_error_position", test_parse_strict_error_position)
+    run_test("test_parse_strict_nested_object_duplicates", test_parse_strict_nested_object_duplicates)
+    run_test("test_parse_strict_accepts_unique_keys", test_parse_strict_accepts_unique_keys)
+    run_test("test_parse_strict_with_max_depth", test_parse_strict_with_max_depth)
+    run_test("test_format_error_duplicate_key", test_format_error_duplicate_key)
+    run_test("test_error_line_duplicate_key", test_error_line_duplicate_key)
+    run_test("test_error_column_duplicate_key", test_error_column_duplicate_key)
+    run_test("test_parse_strict_multiple_duplicates_first_reported", test_parse_strict_multiple_duplicates_first_reported)
     std.io.println("")
 
     std.io.println("==========================")

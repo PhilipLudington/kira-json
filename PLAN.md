@@ -43,12 +43,13 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 **Files:** `src/json.ki` (parse_string_contents_builder, is_control_char_str)
 
-### 1.4 Duplicate Key Handling
-- [ ] Define behavior for duplicate keys (last-wins or error)
-- [ ] Add `parse_strict` that rejects duplicates
-- [ ] Document the behavior
+### 1.4 Duplicate Key Handling ✓
+- [x] Define behavior for duplicate keys (first-wins for `parse`, error for `parse_strict`)
+- [x] Add `parse_strict` that rejects duplicates (`DuplicateKey` error)
+- [x] Add `parse_strict_with_max_depth` for custom depth limits
+- [x] Document the behavior (see tests for examples)
 
-**Files:** `src/json.ki` (parse_object_fields)
+**Files:** `src/json.ki` (parse_object_fields, parse_strict, parse_strict_with_max_depth, DuplicateKey error variant)
 
 ---
 
@@ -223,8 +224,9 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 6. ~~**Phase 3.1** - Path access~~ ✓
 7. ~~**Phase 2.3** - Stack safety~~ ✓
 8. ~~**Phase 1.1** - Surrogate pairs (full Unicode)~~ ✓
-9. **Phase 5.1** - Test suite (validation)
-10. **Phase 2.1** - HashMap objects (if perf needed)
+9. ~~**Phase 1.4** - Duplicate key handling~~ ✓
+10. **Phase 5.1** - Test suite (validation)
+11. **Phase 2.1** - HashMap objects (if perf needed)
 
 ---
 

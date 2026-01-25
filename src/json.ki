@@ -47,10 +47,14 @@ pub type JsonError =
     | InvalidNumber { value: string, reason: string, line: i32, col: i32 }
     | TrailingContent { found: string, line: i32, col: i32 }
     | MaxDepthExceeded { depth: i32, max_depth: i32, line: i32, col: i32 }
+    | DuplicateKey { key: string, line: i32, col: i32 }
 
 /// Converts a JsonError to a human-readable string.
 pub let format_error: fn(JsonError) -> string = fn(err: JsonError) -> string {
     match err {
+        DuplicateKey { key: k, line: l, col: c } => {
+            return std.string.concat("Duplicate key '", std.string.concat(k, std.string.concat("' at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))))
+        }
         InvalidNumber { value: val, reason: rsn, line: l, col: c } => {
             return std.string.concat("Invalid number '", std.string.concat(val, std.string.concat("' at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": ", rsn)))))))
         }
@@ -81,6 +85,7 @@ pub let format_error: fn(JsonError) -> string = fn(err: JsonError) -> string {
 /// Returns the line number from a JsonError.
 pub let error_line: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
     match err {
+        DuplicateKey { key: _, line: l, col: _ } => { return l }
         InvalidNumber { value: _, reason: _, line: l, col: _ } => { return l }
         InvalidEscape { sequence: _, reason: _, line: l, col: _ } => { return l }
         UnexpectedEof { expected: _, context: _, line: l, col: _ } => { return l }
@@ -95,6 +100,7 @@ pub let error_line: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
 /// Returns the column number from a JsonError.
 pub let error_column: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
     match err {
+        DuplicateKey { key: _, line: _, col: c } => { return c }
         InvalidNumber { value: _, reason: _, line: _, col: c } => { return c }
         InvalidEscape { sequence: _, reason: _, line: _, col: c } => { return c }
         UnexpectedEof { expected: _, context: _, line: _, col: c } => { return c }
@@ -120,7 +126,8 @@ type ParserState = {
     line: i32,
     column: i32,
     depth: i32,
-    max_depth: i32
+    max_depth: i32,
+    strict: bool
 }
 
 /// Result of a parse operation - either success with value and new state,
@@ -659,7 +666,8 @@ let init_state: fn(string) -> ParserState = fn(input: string) -> ParserState {
         line: 1,
         column: 1,
         depth: 0,
-        max_depth: default_max_depth()
+        max_depth: default_max_depth(),
+        strict: false
     }
 }
 
@@ -671,7 +679,21 @@ let init_state_with_depth: fn(string, i32) -> ParserState = fn(input: string, ma
         line: 1,
         column: 1,
         depth: 0,
-        max_depth: max_depth
+        max_depth: max_depth,
+        strict: false
+    }
+}
+
+/// Creates an initial parser state with strict mode and custom max depth.
+let init_state_strict: fn(string, i32, bool) -> ParserState = fn(input: string, max_depth: i32, strict: bool) -> ParserState {
+    return ParserState {
+        input: input,
+        pos: 0,
+        line: 1,
+        column: 1,
+        depth: 0,
+        max_depth: max_depth,
+        strict: strict
     }
 }
 
@@ -687,7 +709,8 @@ let increment_depth: fn(ParserState) -> Option[ParserState] = fn(state: ParserSt
         line: state.line,
         column: state.column,
         depth: new_depth,
-        max_depth: state.max_depth
+        max_depth: state.max_depth,
+        strict: state.strict
     })
 }
 
@@ -699,7 +722,8 @@ let decrement_depth: fn(ParserState) -> ParserState = fn(state: ParserState) -> 
         line: state.line,
         column: state.column,
         depth: state.depth - 1,
-        max_depth: state.max_depth
+        max_depth: state.max_depth,
+        strict: state.strict
     }
 }
 
@@ -754,7 +778,8 @@ let advance: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserSt
         line: new_line,
         column: new_column,
         depth: state.depth,
-        max_depth: state.max_depth
+        max_depth: state.max_depth,
+        strict: state.strict
     }
 }
 
@@ -1253,6 +1278,19 @@ let list_reverse_acc[T]: fn(List[T], List[T]) -> List[T] = fn(list: List[T], acc
     }
 }
 
+/// Checks if a key already exists in a list of JSON fields.
+let list_has_key: fn(List[JsonField], string) -> bool = fn(fields: List[JsonField], key: string) -> bool {
+    match fields {
+        Nil => { return false }
+        Cons(field, rest) => {
+            if std.string.equals(field.key, key) {
+                return true
+            }
+            return list_has_key(rest, key)
+        }
+    }
+}
+
 // =============================================================================
 // Parser - Compound Parsers
 // =============================================================================
@@ -1386,11 +1424,19 @@ let parse_object: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
 /// Parses object fields.
 let parse_object_fields: fn(ParserState, List[JsonField]) -> ParseResult[Json] =
     fn(state: ParserState, acc: List[JsonField]) -> ParseResult[Json] {
-        // Parse key
+        // Parse key (save position for error reporting)
+        let key_line: i32 = state.line
+        let key_col: i32 = state.column
         let key_result: ParseResult[string] = parse_string(state)
         match key_result {
             ParseErr(e) => { return ParseErr(e) }
             ParseOk(key, after_key) => {
+                // Check for duplicate key in strict mode
+                if after_key.strict {
+                    if list_has_key(acc, key) {
+                        return ParseErr(DuplicateKey { key: key, line: key_line, col: key_col })
+                    }
+                }
                 let after_key_ws: ParserState = skip_whitespace(after_key)
                 // Expect colon
                 match peek_str(after_key_ws) {
@@ -1495,6 +1541,43 @@ pub let parse_with_max_depth: fn(string, i32) -> Result[Json, JsonError] = fn(in
 /// Uses the default maximum nesting depth (512 levels).
 pub let parse: fn(string) -> Result[Json, JsonError] = fn(input: string) -> Result[Json, JsonError] {
     return parse_with_max_depth(input, default_max_depth())
+}
+
+/// Internal: Parses a JSON string with custom options.
+let parse_internal: fn(string, i32, bool) -> Result[Json, JsonError] = fn(input: string, max_depth: i32, strict: bool) -> Result[Json, JsonError] {
+    var effective_max: i32 = max_depth
+    if max_depth <= 0 {
+        effective_max = 2147483647
+    }
+    let state: ParserState = init_state_strict(input, effective_max, strict)
+    let result: ParseResult[Json] = parse_value(state)
+    match result {
+        ParseOk(json, final_state) => {
+            let after_ws: ParserState = skip_whitespace(final_state)
+            if is_eof(after_ws) {
+                return Ok(json)
+            }
+            match peek_str(after_ws) {
+                Some(c) => { return Err(TrailingContent { found: c, line: after_ws.line, col: after_ws.column }) }
+                None => { return Ok(json) }
+            }
+        }
+        ParseErr(e) => { return Err(e) }
+    }
+}
+
+/// Parses a JSON string in strict mode with a custom maximum nesting depth.
+/// Strict mode rejects duplicate keys in objects with a DuplicateKey error.
+/// Use this for applications that require RFC 8259 strict compliance.
+pub let parse_strict_with_max_depth: fn(string, i32) -> Result[Json, JsonError] = fn(input: string, max_depth: i32) -> Result[Json, JsonError] {
+    return parse_internal(input, max_depth, true)
+}
+
+/// Parses a JSON string in strict mode.
+/// Strict mode rejects duplicate keys in objects with a DuplicateKey error.
+/// Uses the default maximum nesting depth (512 levels).
+pub let parse_strict: fn(string) -> Result[Json, JsonError] = fn(input: string) -> Result[Json, JsonError] {
+    return parse_strict_with_max_depth(input, default_max_depth())
 }
 
 // =============================================================================
