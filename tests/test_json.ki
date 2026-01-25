@@ -1023,6 +1023,129 @@ let test_parse_error_position_tracking: fn() -> void = fn() -> void {
     return
 }
 
+// Number Edge Case Tests
+
+let test_parse_number_leading_zero_rejected: fn() -> void = fn() -> void {
+    // Leading zeros are invalid in JSON (except for "0" itself)
+    let result: Result[Json, ParseError] = parse("007")
+    assert_err[Json, ParseError](result, "parse '007' should fail - leading zeros not allowed")
+    return
+}
+
+let test_parse_number_leading_zero_negative_rejected: fn() -> void = fn() -> void {
+    // Leading zeros also invalid with negative sign
+    let result: Result[Json, ParseError] = parse("-007")
+    assert_err[Json, ParseError](result, "parse '-007' should fail - leading zeros not allowed")
+    return
+}
+
+let test_parse_number_zero_alone_valid: fn() -> void = fn() -> void {
+    // Single zero is valid
+    let result: Result[Json, ParseError] = parse("0")
+    match result {
+        Ok(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 0.0, "parse '0' should produce 0.0") }
+                None => { assert(false, "parse '0' should produce number") }
+            }
+        }
+        Err(_) => { assert(false, "parse '0' should succeed") }
+    }
+    return
+}
+
+let test_parse_number_zero_decimal_valid: fn() -> void = fn() -> void {
+    // Zero with decimal is valid
+    let result: Result[Json, ParseError] = parse("0.5")
+    match result {
+        Ok(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 0.5, "parse '0.5' should produce 0.5") }
+                None => { assert(false, "parse '0.5' should produce number") }
+            }
+        }
+        Err(_) => { assert(false, "parse '0.5' should succeed") }
+    }
+    return
+}
+
+let test_parse_number_zero_exponent_valid: fn() -> void = fn() -> void {
+    // Zero with exponent is valid
+    let result: Result[Json, ParseError] = parse("0e5")
+    match result {
+        Ok(v) => { assert_true(is_number(v), "parse '0e5' should produce number") }
+        Err(_) => { assert(false, "parse '0e5' should succeed") }
+    }
+    return
+}
+
+let test_parse_number_very_large_overflow: fn() -> void = fn() -> void {
+    // Very large exponent should fail (infinity not allowed)
+    let result: Result[Json, ParseError] = parse("1e999")
+    assert_err[Json, ParseError](result, "parse '1e999' should fail - infinity not allowed")
+    return
+}
+
+let test_parse_number_very_small_underflow: fn() -> void = fn() -> void {
+    // Very small exponent underflows to zero, which is valid
+    let result: Result[Json, ParseError] = parse("1e-999")
+    match result {
+        Ok(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 0.0, "parse '1e-999' should underflow to 0.0") }
+                None => { assert(false, "parse '1e-999' should produce number") }
+            }
+        }
+        Err(_) => { assert(false, "parse '1e-999' should succeed (underflow to 0)") }
+    }
+    return
+}
+
+let test_parse_number_negative_very_large: fn() -> void = fn() -> void {
+    // Negative very large should also fail
+    let result: Result[Json, ParseError] = parse("-1e999")
+    assert_err[Json, ParseError](result, "parse '-1e999' should fail - infinity not allowed")
+    return
+}
+
+let test_parse_number_scientific_notation_valid: fn() -> void = fn() -> void {
+    // Normal scientific notation should work
+    let result: Result[Json, ParseError] = parse("1.5e10")
+    match result {
+        Ok(v) => {
+            match as_number(v) {
+                Some(n) => {
+                    // 1.5e10 = 15000000000.0
+                    let expected: f64 = 15000000000.0
+                    assert_f64_eq(n, expected, "parse '1.5e10' should work")
+                }
+                None => { assert(false, "parse '1.5e10' should produce number") }
+            }
+        }
+        Err(_) => { assert(false, "parse '1.5e10' should succeed") }
+    }
+    return
+}
+
+let test_parse_number_negative_exponent_valid: fn() -> void = fn() -> void {
+    // Negative exponent should work
+    let result: Result[Json, ParseError] = parse("1.5e-5")
+    match result {
+        Ok(v) => {
+            match as_number(v) {
+                Some(n) => {
+                    // 1.5e-5 = 0.000015
+                    let expected: f64 = 0.000015
+                    assert_f64_eq(n, expected, "parse '1.5e-5' should work")
+                }
+                None => { assert(false, "parse '1.5e-5' should produce number") }
+            }
+        }
+        Err(_) => { assert(false, "parse '1.5e-5' should succeed") }
+    }
+    return
+}
+
 // =============================================================================
 // Transformer Tests
 // =============================================================================
@@ -1467,6 +1590,19 @@ effect fn main() -> IO[void] {
     run_test("test_parse_error_trailing_content", test_parse_error_trailing_content)
     run_test("test_parse_error_missing_colon", test_parse_error_missing_colon)
     run_test("test_parse_error_position_tracking", test_parse_error_position_tracking)
+    std.io.println("")
+
+    std.io.println("Number Edge Cases:")
+    run_test("test_parse_number_leading_zero_rejected", test_parse_number_leading_zero_rejected)
+    run_test("test_parse_number_leading_zero_negative_rejected", test_parse_number_leading_zero_negative_rejected)
+    run_test("test_parse_number_zero_alone_valid", test_parse_number_zero_alone_valid)
+    run_test("test_parse_number_zero_decimal_valid", test_parse_number_zero_decimal_valid)
+    run_test("test_parse_number_zero_exponent_valid", test_parse_number_zero_exponent_valid)
+    run_test("test_parse_number_very_large_overflow", test_parse_number_very_large_overflow)
+    run_test("test_parse_number_very_small_underflow", test_parse_number_very_small_underflow)
+    run_test("test_parse_number_negative_very_large", test_parse_number_negative_very_large)
+    run_test("test_parse_number_scientific_notation_valid", test_parse_number_scientific_notation_valid)
+    run_test("test_parse_number_negative_exponent_valid", test_parse_number_negative_exponent_valid)
     std.io.println("")
 
     std.io.println("Transformers:")

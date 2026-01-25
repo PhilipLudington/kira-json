@@ -789,6 +789,16 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
         Some(c) => {
             if std.string.equals(c, "0") {
                 current_state = advance(current_state)
+                // Check for leading zeros (invalid in JSON)
+                // After a leading 0, only '.', 'e', 'E', or end of number is valid
+                match peek_str(current_state) {
+                    Some(next) => {
+                        if is_digit_str(next) {
+                            return ParseErr(make_error(current_state, "Leading zeros are not allowed"))
+                        }
+                    }
+                    None => {}
+                }
             } else if is_digit_str(c) {
                 current_state = consume_digits_str(current_state)
             } else {
@@ -848,7 +858,16 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
 
     let num_str: string = std.string.substring(state.input, start_pos, current_state.pos)
     match std.float.parse(num_str) {
-        Some(n) => { return ParseOk(JNumber(n), current_state) }
+        Some(n) => {
+            // Reject NaN and Infinity (not valid JSON values)
+            if std.float.is_nan(n) {
+                return ParseErr(make_error(state, "NaN is not a valid JSON number"))
+            }
+            if std.float.is_infinite(n) {
+                return ParseErr(make_error(state, "Infinity is not a valid JSON number"))
+            }
+            return ParseOk(JNumber(n), current_state)
+        }
         None => { return ParseErr(make_error(state, "Invalid number")) }
     }
 }

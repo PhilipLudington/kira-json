@@ -27,11 +27,11 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 **Files:** `src/json.ki` (parse_unicode_escape_str)
 
 ### 1.2 Number Handling Edge Cases
-- [ ] Reject leading zeros (e.g., `007` is invalid JSON)
-- [ ] Handle very large numbers (overflow to infinity)
-- [ ] Handle very small numbers (underflow to zero)
-- [ ] Reject `NaN` and `Infinity` in parsing
-- [ ] Test scientific notation edge cases (`1e999`, `1e-999`)
+- [x] Reject leading zeros (e.g., `007` is invalid JSON)
+- [x] Handle very large numbers (overflow to infinity - rejected)
+- [x] Handle very small numbers (underflow to zero - allowed)
+- [x] Reject `NaN` and `Infinity` in parsing
+- [x] Test scientific notation edge cases (`1e999`, `1e-999`)
 
 **Files:** `src/json.ki` (parse_number)
 
