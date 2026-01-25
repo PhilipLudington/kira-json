@@ -36,11 +36,11 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 **Files:** `src/json.ki` (parse_number)
 
 ### 1.3 String Validation
-- [ ] Reject unescaped control characters (0x00-0x1F) in input
-- [ ] Validate UTF-8 sequences in input strings
-- [ ] Handle bare `\` at end of string as error
+- [x] Reject unescaped control characters (0x00-0x1F) in input
+- [x] Validate UTF-8 sequences in input strings (handled by Kira's string type)
+- [x] Handle bare `\` at end of string as error
 
-**Files:** `src/json.ki` (parse_string_contents_str)
+**Files:** `src/json.ki` (parse_string_contents_builder, is_control_char_str)
 
 ### 1.4 Duplicate Key Handling
 - [ ] Define behavior for duplicate keys (last-wins or error)

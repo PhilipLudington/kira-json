@@ -1146,6 +1146,121 @@ let test_parse_number_negative_exponent_valid: fn() -> void = fn() -> void {
     return
 }
 
+// String Validation Tests
+
+let test_parse_string_with_escaped_tab_valid: fn() -> void = fn() -> void {
+    // Escaped tab is valid
+    let result: Result[Json, ParseError] = parse("\"hello\\tworld\"")
+    match result {
+        Ok(v) => {
+            match as_string(v) {
+                Some(s) => { assert_str_eq(s, "hello\tworld", "parse escaped tab should work") }
+                None => { assert(false, "should produce string") }
+            }
+        }
+        Err(_) => { assert(false, "parse escaped tab should succeed") }
+    }
+    return
+}
+
+let test_parse_string_with_escaped_backspace_valid: fn() -> void = fn() -> void {
+    // Escaped backspace is valid
+    let result: Result[Json, ParseError] = parse("\"hello\\bworld\"")
+    match result {
+        Ok(v) => {
+            match as_string(v) {
+                Some(s) => { assert_str_eq(s, "hello\bworld", "parse escaped backspace should work") }
+                None => { assert(false, "should produce string") }
+            }
+        }
+        Err(_) => { assert(false, "parse escaped backspace should succeed") }
+    }
+    return
+}
+
+let test_parse_string_with_escaped_formfeed_valid: fn() -> void = fn() -> void {
+    // Escaped form feed is valid
+    let result: Result[Json, ParseError] = parse("\"hello\\fworld\"")
+    match result {
+        Ok(v) => {
+            match as_string(v) {
+                Some(s) => { assert_str_eq(s, "hello\fworld", "parse escaped formfeed should work") }
+                None => { assert(false, "should produce string") }
+            }
+        }
+        Err(_) => { assert(false, "parse escaped formfeed should succeed") }
+    }
+    return
+}
+
+let test_parse_string_with_escaped_carriage_return_valid: fn() -> void = fn() -> void {
+    // Escaped carriage return is valid
+    let result: Result[Json, ParseError] = parse("\"hello\\rworld\"")
+    match result {
+        Ok(v) => {
+            match as_string(v) {
+                Some(s) => { assert_str_eq(s, "hello\rworld", "parse escaped carriage return should work") }
+                None => { assert(false, "should produce string") }
+            }
+        }
+        Err(_) => { assert(false, "parse escaped carriage return should succeed") }
+    }
+    return
+}
+
+let test_parse_string_with_unicode_escape_null_valid: fn() -> void = fn() -> void {
+    // Unicode escape for null character is valid (produces the actual character)
+    let result: Result[Json, ParseError] = parse("\"hello\\u0000world\"")
+    assert_ok[Json, ParseError](result, "parse unicode escape for null should succeed")
+    return
+}
+
+let test_parse_string_with_unicode_escape_control_valid: fn() -> void = fn() -> void {
+    // Unicode escape for control characters is valid
+    let result: Result[Json, ParseError] = parse("\"hello\\u001Fworld\"")
+    assert_ok[Json, ParseError](result, "parse unicode escape for control char should succeed")
+    return
+}
+
+let test_parse_string_unescaped_tab_rejected: fn() -> void = fn() -> void {
+    // Unescaped tab (0x09) should be rejected
+    // Tab is ASCII 9, which is a control character
+    let input: string = "\"hello\tworld\""
+    let result: Result[Json, ParseError] = parse(input)
+    assert_err[Json, ParseError](result, "parse unescaped tab should fail")
+    return
+}
+
+let test_parse_string_unescaped_newline_rejected: fn() -> void = fn() -> void {
+    // Unescaped newline (0x0A) should be rejected
+    let input: string = "\"hello\nworld\""
+    let result: Result[Json, ParseError] = parse(input)
+    assert_err[Json, ParseError](result, "parse unescaped newline should fail")
+    return
+}
+
+let test_parse_string_unescaped_carriage_return_rejected: fn() -> void = fn() -> void {
+    // Unescaped carriage return (0x0D) should be rejected
+    let input: string = "\"hello\rworld\""
+    let result: Result[Json, ParseError] = parse(input)
+    assert_err[Json, ParseError](result, "parse unescaped carriage return should fail")
+    return
+}
+
+let test_parse_string_invalid_escape_rejected: fn() -> void = fn() -> void {
+    // Invalid escape sequence should be rejected
+    let result: Result[Json, ParseError] = parse("\"hello\\xworld\"")
+    assert_err[Json, ParseError](result, "parse invalid escape \\x should fail")
+    return
+}
+
+let test_parse_string_bare_backslash_rejected: fn() -> void = fn() -> void {
+    // Bare backslash at end of string should be rejected
+    let result: Result[Json, ParseError] = parse("\"hello\\")
+    assert_err[Json, ParseError](result, "parse bare backslash at end should fail")
+    return
+}
+
 // =============================================================================
 // Transformer Tests
 // =============================================================================
@@ -1603,6 +1718,20 @@ effect fn main() -> IO[void] {
     run_test("test_parse_number_negative_very_large", test_parse_number_negative_very_large)
     run_test("test_parse_number_scientific_notation_valid", test_parse_number_scientific_notation_valid)
     run_test("test_parse_number_negative_exponent_valid", test_parse_number_negative_exponent_valid)
+    std.io.println("")
+
+    std.io.println("String Validation:")
+    run_test("test_parse_string_with_escaped_tab_valid", test_parse_string_with_escaped_tab_valid)
+    run_test("test_parse_string_with_escaped_backspace_valid", test_parse_string_with_escaped_backspace_valid)
+    run_test("test_parse_string_with_escaped_formfeed_valid", test_parse_string_with_escaped_formfeed_valid)
+    run_test("test_parse_string_with_escaped_carriage_return_valid", test_parse_string_with_escaped_carriage_return_valid)
+    run_test("test_parse_string_with_unicode_escape_null_valid", test_parse_string_with_unicode_escape_null_valid)
+    run_test("test_parse_string_with_unicode_escape_control_valid", test_parse_string_with_unicode_escape_control_valid)
+    run_test("test_parse_string_unescaped_tab_rejected", test_parse_string_unescaped_tab_rejected)
+    run_test("test_parse_string_unescaped_newline_rejected", test_parse_string_unescaped_newline_rejected)
+    run_test("test_parse_string_unescaped_carriage_return_rejected", test_parse_string_unescaped_carriage_return_rejected)
+    run_test("test_parse_string_invalid_escape_rejected", test_parse_string_invalid_escape_rejected)
+    run_test("test_parse_string_bare_backslash_rejected", test_parse_string_bare_backslash_rejected)
     std.io.println("")
 
     std.io.println("Transformers:")

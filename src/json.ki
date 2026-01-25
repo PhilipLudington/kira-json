@@ -678,6 +678,19 @@ let is_hex_digit_str: fn(string) -> bool = fn(c: string) -> bool {
            std.string.equals(c, "E") or std.string.equals(c, "F")
 }
 
+/// Returns true if the string (single char) is a control character (0x00-0x1F).
+/// These must be escaped in JSON strings.
+let is_control_char_str: fn(string) -> bool = fn(c: string) -> bool {
+    let chars: List[Char] = std.string.chars(c)
+    match chars {
+        Cons(ch, Nil) => {
+            let code: i32 = std.char.to_i32(ch)
+            return code >= 0 and code <= 31
+        }
+        _ => { return false }
+    }
+}
+
 /// Converts a hex digit string to its integer value.
 let hex_digit_value_str: fn(string) -> i32 = fn(c: string) -> i32 {
     if std.string.equals(c, "0") { return 0 }
@@ -929,6 +942,10 @@ let parse_string_contents_builder: fn(ParserState, StringBuilder) -> ParseResult
                         }
                         ParseErr(e) => { return ParseErr(e) }
                     }
+                }
+                // Reject unescaped control characters (0x00-0x1F) per JSON spec
+                if is_control_char_str(c) {
+                    return ParseErr(make_error(state, "Unescaped control character in string"))
                 }
                 // Regular character - add to builder
                 let new_builder: StringBuilder = std.builder.append(builder, c)
