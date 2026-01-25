@@ -3,7 +3,7 @@
 
 module test_json
 
-import src.json.{ Json, JsonField, ParseError, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field }
+import src.json.{ Json, JsonField, ParseError, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals }
 
 // =============================================================================
 // Test Utilities
@@ -1590,6 +1590,303 @@ let test_roundtrip_object: fn() -> void = fn() -> void {
 }
 
 // =============================================================================
+// Equality Tests
+// =============================================================================
+
+let test_equals_null_null: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JNull
+    let b: Json = JNull
+
+    // Act & Assert
+    assert_true(equals(a, b), "null should equal null")
+    return
+}
+
+let test_equals_null_non_null: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JNull
+    let b: Json = JBool(false)
+
+    // Act & Assert
+    assert_true(not equals(a, b), "null should not equal false")
+    return
+}
+
+let test_equals_bool_same: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JBool(true)
+    let b: Json = JBool(true)
+
+    // Act & Assert
+    assert_true(equals(a, b), "true should equal true")
+    return
+}
+
+let test_equals_bool_different: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JBool(true)
+    let b: Json = JBool(false)
+
+    // Act & Assert
+    assert_true(not equals(a, b), "true should not equal false")
+    return
+}
+
+let test_equals_number_same: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JNumber(42.0)
+    let b: Json = JNumber(42.0)
+
+    // Act & Assert
+    assert_true(equals(a, b), "42.0 should equal 42.0")
+    return
+}
+
+let test_equals_number_different: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JNumber(42.0)
+    let b: Json = JNumber(43.0)
+
+    // Act & Assert
+    assert_true(not equals(a, b), "42.0 should not equal 43.0")
+    return
+}
+
+let test_equals_number_precision: fn() -> void = fn() -> void {
+    // Numbers that differ only by floating point precision should be equal
+    // For example, 0.1 + 0.2 is not exactly 0.3 in IEEE 754
+    let a: Json = JNumber(0.30000000000000004)
+    let b: Json = JNumber(0.3)
+
+    // Act & Assert
+    assert_true(equals(a, b), "0.30000000000000004 should equal 0.3 (precision tolerance)")
+    return
+}
+
+let test_equals_number_zero: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JNumber(0.0)
+    let b: Json = JNumber(0.0)
+
+    // Act & Assert
+    assert_true(equals(a, b), "0.0 should equal 0.0")
+    return
+}
+
+let test_equals_string_same: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JString("hello")
+    let b: Json = JString("hello")
+
+    // Act & Assert
+    assert_true(equals(a, b), "\"hello\" should equal \"hello\"")
+    return
+}
+
+let test_equals_string_different: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JString("hello")
+    let b: Json = JString("world")
+
+    // Act & Assert
+    assert_true(not equals(a, b), "\"hello\" should not equal \"world\"")
+    return
+}
+
+let test_equals_string_empty: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JString("")
+    let b: Json = JString("")
+
+    // Act & Assert
+    assert_true(equals(a, b), "empty strings should be equal")
+    return
+}
+
+let test_equals_array_same: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Nil)))
+    let b: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Nil)))
+
+    // Act & Assert
+    assert_true(equals(a, b), "[1, 2] should equal [1, 2]")
+    return
+}
+
+let test_equals_array_different_order: fn() -> void = fn() -> void {
+    // Arrange - arrays ARE order-dependent
+    let a: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Nil)))
+    let b: Json = JArray(Cons(JNumber(2.0), Cons(JNumber(1.0), Nil)))
+
+    // Act & Assert
+    assert_true(not equals(a, b), "[1, 2] should not equal [2, 1] (order matters)")
+    return
+}
+
+let test_equals_array_different_length: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JArray(Cons(JNumber(1.0), Nil))
+    let b: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Nil)))
+
+    // Act & Assert
+    assert_true(not equals(a, b), "[1] should not equal [1, 2]")
+    return
+}
+
+let test_equals_array_empty: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JArray(Nil)
+    let b: Json = JArray(Nil)
+
+    // Act & Assert
+    assert_true(equals(a, b), "[] should equal []")
+    return
+}
+
+let test_equals_object_same: fn() -> void = fn() -> void {
+    // Arrange
+    let field_a: JsonField = JsonField { key: "x", value: JNumber(1.0) }
+    let a: Json = JObject(Cons(field_a, Nil))
+    let field_b: JsonField = JsonField { key: "x", value: JNumber(1.0) }
+    let b: Json = JObject(Cons(field_b, Nil))
+
+    // Act & Assert
+    assert_true(equals(a, b), "{\"x\": 1} should equal {\"x\": 1}")
+    return
+}
+
+let test_equals_object_different_value: fn() -> void = fn() -> void {
+    // Arrange
+    let field_a: JsonField = JsonField { key: "x", value: JNumber(1.0) }
+    let a: Json = JObject(Cons(field_a, Nil))
+    let field_b: JsonField = JsonField { key: "x", value: JNumber(2.0) }
+    let b: Json = JObject(Cons(field_b, Nil))
+
+    // Act & Assert
+    assert_true(not equals(a, b), "{\"x\": 1} should not equal {\"x\": 2}")
+    return
+}
+
+let test_equals_object_different_key: fn() -> void = fn() -> void {
+    // Arrange
+    let field_a: JsonField = JsonField { key: "x", value: JNumber(1.0) }
+    let a: Json = JObject(Cons(field_a, Nil))
+    let field_b: JsonField = JsonField { key: "y", value: JNumber(1.0) }
+    let b: Json = JObject(Cons(field_b, Nil))
+
+    // Act & Assert
+    assert_true(not equals(a, b), "{\"x\": 1} should not equal {\"y\": 1}")
+    return
+}
+
+let test_equals_object_key_order_independent: fn() -> void = fn() -> void {
+    // Arrange - same keys/values, different order in list
+    let field_a1: JsonField = JsonField { key: "x", value: JNumber(1.0) }
+    let field_a2: JsonField = JsonField { key: "y", value: JNumber(2.0) }
+    let a: Json = JObject(Cons(field_a1, Cons(field_a2, Nil)))
+
+    let field_b1: JsonField = JsonField { key: "y", value: JNumber(2.0) }
+    let field_b2: JsonField = JsonField { key: "x", value: JNumber(1.0) }
+    let b: Json = JObject(Cons(field_b1, Cons(field_b2, Nil)))
+
+    // Act & Assert
+    assert_true(equals(a, b), "{\"x\": 1, \"y\": 2} should equal {\"y\": 2, \"x\": 1}")
+    return
+}
+
+let test_equals_object_empty: fn() -> void = fn() -> void {
+    // Arrange
+    let a: Json = JObject(Nil)
+    let b: Json = JObject(Nil)
+
+    // Act & Assert
+    assert_true(equals(a, b), "{} should equal {}")
+    return
+}
+
+let test_equals_nested_objects: fn() -> void = fn() -> void {
+    // Arrange
+    let inner_field: JsonField = JsonField { key: "inner", value: JNumber(42.0) }
+    let inner: Json = JObject(Cons(inner_field, Nil))
+    let outer_field: JsonField = JsonField { key: "outer", value: inner }
+
+    let a: Json = JObject(Cons(outer_field, Nil))
+
+    let inner_field2: JsonField = JsonField { key: "inner", value: JNumber(42.0) }
+    let inner2: Json = JObject(Cons(inner_field2, Nil))
+    let outer_field2: JsonField = JsonField { key: "outer", value: inner2 }
+
+    let b: Json = JObject(Cons(outer_field2, Nil))
+
+    // Act & Assert
+    assert_true(equals(a, b), "nested objects should be deeply compared")
+    return
+}
+
+let test_equals_nested_arrays: fn() -> void = fn() -> void {
+    // Arrange
+    let inner_a: Json = JArray(Cons(JNumber(1.0), Nil))
+    let a: Json = JArray(Cons(inner_a, Nil))
+
+    let inner_b: Json = JArray(Cons(JNumber(1.0), Nil))
+    let b: Json = JArray(Cons(inner_b, Nil))
+
+    // Act & Assert
+    assert_true(equals(a, b), "[[1]] should equal [[1]]")
+    return
+}
+
+let test_equals_mixed_nested: fn() -> void = fn() -> void {
+    // Arrange - object containing array containing objects
+    let inner_field: JsonField = JsonField { key: "v", value: JNumber(1.0) }
+    let inner_obj: Json = JObject(Cons(inner_field, Nil))
+    let arr: Json = JArray(Cons(inner_obj, Nil))
+    let outer_field: JsonField = JsonField { key: "items", value: arr }
+    let a: Json = JObject(Cons(outer_field, Nil))
+
+    let inner_field2: JsonField = JsonField { key: "v", value: JNumber(1.0) }
+    let inner_obj2: Json = JObject(Cons(inner_field2, Nil))
+    let arr2: Json = JArray(Cons(inner_obj2, Nil))
+    let outer_field2: JsonField = JsonField { key: "items", value: arr2 }
+    let b: Json = JObject(Cons(outer_field2, Nil))
+
+    // Act & Assert
+    assert_true(equals(a, b), "deeply nested mixed structures should be compared correctly")
+    return
+}
+
+let test_equals_different_types: fn() -> void = fn() -> void {
+    // Arrange
+    let num: Json = JNumber(1.0)
+    let str: Json = JString("1")
+    let arr: Json = JArray(Nil)
+    let obj: Json = JObject(Nil)
+
+    // Act & Assert
+    assert_true(not equals(num, str), "number should not equal string")
+    assert_true(not equals(arr, obj), "array should not equal object")
+    assert_true(not equals(num, JNull), "number should not equal null")
+    return
+}
+
+let test_equals_roundtrip: fn() -> void = fn() -> void {
+    // Property: parse(stringify(x)) equals x
+    let field1: JsonField = JsonField { key: "name", value: JString("Alice") }
+    let field2: JsonField = JsonField { key: "age", value: JNumber(30.0) }
+    let original: Json = JObject(Cons(field1, Cons(field2, Nil)))
+
+    let json_str: string = stringify(original)
+    let parsed: Result[Json, ParseError] = parse(json_str)
+
+    match parsed {
+        Ok(v) => { assert_true(equals(original, v), "parse(stringify(x)) should equal x") }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+    return
+}
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -1756,6 +2053,34 @@ effect fn main() -> IO[void] {
     run_test("test_roundtrip_string", test_roundtrip_string)
     run_test("test_roundtrip_array", test_roundtrip_array)
     run_test("test_roundtrip_object", test_roundtrip_object)
+    std.io.println("")
+
+    std.io.println("Equality:")
+    run_test("test_equals_null_null", test_equals_null_null)
+    run_test("test_equals_null_non_null", test_equals_null_non_null)
+    run_test("test_equals_bool_same", test_equals_bool_same)
+    run_test("test_equals_bool_different", test_equals_bool_different)
+    run_test("test_equals_number_same", test_equals_number_same)
+    run_test("test_equals_number_different", test_equals_number_different)
+    run_test("test_equals_number_precision", test_equals_number_precision)
+    run_test("test_equals_number_zero", test_equals_number_zero)
+    run_test("test_equals_string_same", test_equals_string_same)
+    run_test("test_equals_string_different", test_equals_string_different)
+    run_test("test_equals_string_empty", test_equals_string_empty)
+    run_test("test_equals_array_same", test_equals_array_same)
+    run_test("test_equals_array_different_order", test_equals_array_different_order)
+    run_test("test_equals_array_different_length", test_equals_array_different_length)
+    run_test("test_equals_array_empty", test_equals_array_empty)
+    run_test("test_equals_object_same", test_equals_object_same)
+    run_test("test_equals_object_different_value", test_equals_object_different_value)
+    run_test("test_equals_object_different_key", test_equals_object_different_key)
+    run_test("test_equals_object_key_order_independent", test_equals_object_key_order_independent)
+    run_test("test_equals_object_empty", test_equals_object_empty)
+    run_test("test_equals_nested_objects", test_equals_nested_objects)
+    run_test("test_equals_nested_arrays", test_equals_nested_arrays)
+    run_test("test_equals_mixed_nested", test_equals_mixed_nested)
+    run_test("test_equals_different_types", test_equals_different_types)
+    run_test("test_equals_roundtrip", test_equals_roundtrip)
     std.io.println("")
 
     std.io.println("==========================")

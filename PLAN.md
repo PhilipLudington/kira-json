@@ -89,9 +89,9 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 **New file:** `src/json_path.ki`
 
 ### 3.2 Equality and Comparison
-- [ ] `equals(a, b)` → `bool` (deep structural equality)
-- [ ] Handle object key order (should be order-independent)
-- [ ] Handle number comparison (floating point issues)
+- [x] `equals(a, b)` → `bool` (deep structural equality)
+- [x] Handle object key order (should be order-independent)
+- [x] Handle number comparison (floating point issues)
 
 **Files:** `src/json.ki`
 

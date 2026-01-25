@@ -1463,3 +1463,103 @@ let filter_list[T]: fn(List[T], fn(T) -> bool) -> List[T] = fn(list: List[T], pr
     }
 }
 
+// =============================================================================
+// Equality - Deep Structural Comparison
+// =============================================================================
+
+/// Compares two JSON values for deep structural equality.
+/// Objects are compared by key-value pairs, independent of key order.
+/// Numbers are compared with tolerance for floating point precision issues.
+pub let equals: fn(Json, Json) -> bool = fn(a: Json, b: Json) -> bool {
+    match (a, b) {
+        (JNull, JNull) => { return true }
+        (JBool(a_val), JBool(b_val)) => { return a_val == b_val }
+        (JNumber(a_val), JNumber(b_val)) => { return numbers_equal(a_val, b_val) }
+        (JString(a_val), JString(b_val)) => { return std.string.equals(a_val, b_val) }
+        (JArray(a_arr), JArray(b_arr)) => { return arrays_equal(a_arr, b_arr) }
+        (JObject(a_fields), JObject(b_fields)) => { return objects_equal(a_fields, b_fields) }
+        _ => { return false }
+    }
+}
+
+/// Compares two floating-point numbers for equality.
+/// Uses exact comparison for integers and special values, with relative tolerance for decimals.
+let numbers_equal: fn(f64, f64) -> bool = fn(a: f64, b: f64) -> bool {
+    // Handle exact equality first (includes both being the same infinity)
+    if a == b {
+        return true
+    }
+
+    // Handle NaN - NaN != NaN in IEEE 754, but for JSON equality we consider them equal
+    if std.float.is_nan(a) and std.float.is_nan(b) {
+        return true
+    }
+
+    // Handle infinity cases - if one is infinite and they're not equal, they differ
+    if std.float.is_infinite(a) or std.float.is_infinite(b) {
+        return false
+    }
+
+    // For finite numbers, use relative epsilon comparison
+    // This handles floating point precision issues for parsed numbers
+    let diff: f64 = std.float.abs(a - b)
+    let max_val: f64 = std.float.max(std.float.abs(a), std.float.abs(b))
+
+    // Use relative epsilon relative to the larger magnitude
+    // For very small numbers close to zero, use absolute epsilon
+    let small_threshold: f64 = 0.0000000001  // 1e-10
+    let abs_epsilon: f64 = 0.000000000000001  // 1e-15
+    let rel_epsilon: f64 = 0.00000000000001   // 1e-14
+
+    if max_val < small_threshold {
+        return diff < abs_epsilon
+    }
+    return diff < max_val * rel_epsilon
+}
+
+/// Compares two JSON arrays for equality (order-dependent).
+let arrays_equal: fn(List[Json], List[Json]) -> bool = fn(a: List[Json], b: List[Json]) -> bool {
+    match (a, b) {
+        (Nil, Nil) => { return true }
+        (Cons(a_head, a_tail), Cons(b_head, b_tail)) => {
+            if equals(a_head, b_head) {
+                return arrays_equal(a_tail, b_tail)
+            }
+            return false
+        }
+        _ => { return false }
+    }
+}
+
+/// Compares two JSON objects for equality (key-order independent).
+/// Two objects are equal if they have the same keys with equal values.
+let objects_equal: fn(List[JsonField], List[JsonField]) -> bool =
+    fn(a_fields: List[JsonField], b_fields: List[JsonField]) -> bool {
+        // First check if they have the same number of fields
+        if list_length[JsonField](a_fields) != list_length[JsonField](b_fields) {
+            return false
+        }
+
+        // Check that every field in 'a' exists in 'b' with equal value
+        return all_fields_match(a_fields, b_fields)
+    }
+
+/// Checks if all fields in the first list have matching values in the second list.
+let all_fields_match: fn(List[JsonField], List[JsonField]) -> bool =
+    fn(a_fields: List[JsonField], b_fields: List[JsonField]) -> bool {
+        match a_fields {
+            Nil => { return true }
+            Cons(a_field, rest) => {
+                match find_field(b_fields, a_field.key) {
+                    Some(b_value) => {
+                        if equals(a_field.value, b_value) {
+                            return all_fields_match(rest, b_fields)
+                        }
+                        return false
+                    }
+                    None => { return false }
+                }
+            }
+        }
+    }
+
