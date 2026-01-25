@@ -135,11 +135,12 @@ pub let as_number: fn(Json) -> Option[f64] = fn(json: Json) -> Option[f64] {
 }
 
 /// Extracts the number as an integer if the JSON is a number.
-/// Note: Float-to-int conversion not available in current std library.
-/// This function is stubbed and always returns None.
+/// Truncates the number towards zero.
 pub let as_int: fn(Json) -> Option[i64] = fn(json: Json) -> Option[i64] {
-    // Cannot implement: std.math.trunc_to_i64 not available
-    return None
+    match json {
+        JNumber(n) => { return Some(std.math.trunc_to_i64(n)) }
+        _ => { return None }
+    }
 }
 
 /// Extracts the boolean value if the JSON is a boolean.
@@ -275,42 +276,90 @@ let extract_values: fn(List[JsonField]) -> List[Json] = fn(fields: List[JsonFiel
 // =============================================================================
 
 /// Escapes a string for JSON output.
-/// Uses index-based iteration to avoid unavailable std.string.to_chars.
+/// Uses std.string.chars for proper character iteration.
 let escape_string: fn(string) -> string = fn(s: string) -> string {
-    return escape_string_from(s, 0, std.string.length(s))
+    let chars: List[Char] = std.string.chars(s)
+    let builder: StringBuilder = escape_chars_to_builder(chars, std.builder.new())
+    return std.builder.build(builder)
 }
 
-/// Helper to escape string from index to length.
-let escape_string_from: fn(string, i32, i32) -> string =
-    fn(s: string, index: i32, len: i32) -> string {
-        if index >= len {
-            return ""
+/// Helper to escape characters into a StringBuilder.
+let escape_chars_to_builder: fn(List[Char], StringBuilder) -> StringBuilder =
+    fn(chars: List[Char], builder: StringBuilder) -> StringBuilder {
+        match chars {
+            Nil => { return builder }
+            Cons(c, rest) => {
+                let escaped_builder: StringBuilder = escape_char(c, builder)
+                return escape_chars_to_builder(rest, escaped_builder)
+            }
         }
-        let char_str: string = std.string.substring(s, index, index + 1)
-        let escaped: string = escape_char_str(char_str)
-        return std.string.concat(escaped, escape_string_from(s, index + 1, len))
     }
 
-/// Escapes a single character (as string) for JSON.
-let escape_char_str: fn(string) -> string = fn(c: string) -> string {
-    if std.string.equals(c, "\"") {
-        return "\\\""
+/// Escapes a single character into a StringBuilder.
+/// Properly handles control characters using std.char.to_i32.
+let escape_char: fn(Char, StringBuilder) -> StringBuilder = fn(c: Char, builder: StringBuilder) -> StringBuilder {
+    let code: i32 = std.char.to_i32(c)
+
+    // Check for characters that need escaping
+    if code == 34 {  // Double quote "
+        return std.builder.append(builder, "\\\"")
     }
-    if std.string.equals(c, "\\") {
-        return "\\\\"
+    if code == 92 {  // Backslash \
+        return std.builder.append(builder, "\\\\")
     }
-    if std.string.equals(c, "\n") {
-        return "\\n"
+    if code == 8 {   // Backspace \b
+        return std.builder.append(builder, "\\b")
     }
-    if std.string.equals(c, "\r") {
-        return "\\r"
+    if code == 12 {  // Form feed \f
+        return std.builder.append(builder, "\\f")
     }
-    if std.string.equals(c, "\t") {
-        return "\\t"
+    if code == 10 {  // Newline \n
+        return std.builder.append(builder, "\\n")
     }
-    // For other characters, return as-is
-    // Note: Control character escaping not supported without std.char.to_i32
-    return c
+    if code == 13 {  // Carriage return \r
+        return std.builder.append(builder, "\\r")
+    }
+    if code == 9 {   // Tab \t
+        return std.builder.append(builder, "\\t")
+    }
+
+    // Escape other control characters (0x00-0x1F) as \uXXXX
+    if code < 32 {
+        return append_unicode_escape(builder, code)
+    }
+
+    // Regular character - append as-is
+    return std.builder.append_char(builder, c)
+}
+
+/// Appends a \uXXXX escape sequence to the builder.
+let append_unicode_escape: fn(StringBuilder, i32) -> StringBuilder = fn(builder: StringBuilder, code: i32) -> StringBuilder {
+    let b1: StringBuilder = std.builder.append(builder, "\\u")
+    let b2: StringBuilder = std.builder.append(b1, hex_digit_char((code / 4096) % 16))
+    let b3: StringBuilder = std.builder.append(b2, hex_digit_char((code / 256) % 16))
+    let b4: StringBuilder = std.builder.append(b3, hex_digit_char((code / 16) % 16))
+    let b5: StringBuilder = std.builder.append(b4, hex_digit_char(code % 16))
+    return b5
+}
+
+/// Converts a hex digit value (0-15) to its character representation.
+let hex_digit_char: fn(i32) -> string = fn(n: i32) -> string {
+    if n == 0 { return "0" }
+    if n == 1 { return "1" }
+    if n == 2 { return "2" }
+    if n == 3 { return "3" }
+    if n == 4 { return "4" }
+    if n == 5 { return "5" }
+    if n == 6 { return "6" }
+    if n == 7 { return "7" }
+    if n == 8 { return "8" }
+    if n == 9 { return "9" }
+    if n == 10 { return "a" }
+    if n == 11 { return "b" }
+    if n == 12 { return "c" }
+    if n == 13 { return "d" }
+    if n == 14 { return "e" }
+    return "f"
 }
 
 /// Pads a string on the left to the specified length.
@@ -327,180 +376,194 @@ let pad_left_str: fn(string, i32, string) -> string = fn(s: string, len: i32, pa
 // =============================================================================
 
 /// Converts a JSON value to a compact string representation.
+/// Uses StringBuilder for efficient string building.
 pub let stringify: fn(Json) -> string = fn(json: Json) -> string {
+    let builder: StringBuilder = stringify_to_builder(json, std.builder.new())
+    return std.builder.build(builder)
+}
+
+/// Stringifies a JSON value into a StringBuilder.
+let stringify_to_builder: fn(Json, StringBuilder) -> StringBuilder = fn(json: Json, builder: StringBuilder) -> StringBuilder {
     match json {
-        JNull => { return "null" }
+        JNull => { return std.builder.append(builder, "null") }
         JBool(b) => {
             if b {
-                return "true"
+                return std.builder.append(builder, "true")
             }
-            return "false"
+            return std.builder.append(builder, "false")
         }
-        JNumber(n) => { return std.float.to_string(n) }
+        JNumber(n) => { return std.builder.append(builder, std.float.to_string(n)) }
         JString(s) => {
-            return std.string.concat("\"", std.string.concat(escape_string(s), "\""))
+            let b1: StringBuilder = std.builder.append(builder, "\"")
+            let b2: StringBuilder = std.builder.append(b1, escape_string(s))
+            return std.builder.append(b2, "\"")
         }
-        JArray(arr) => { return stringify_array(arr) }
-        JObject(fields) => { return stringify_object(fields) }
+        JArray(arr) => { return stringify_array_to_builder(arr, builder) }
+        JObject(fields) => { return stringify_object_to_builder(fields, builder) }
     }
 }
 
-/// Stringifies an array.
-let stringify_array: fn(List[Json]) -> string = fn(arr: List[Json]) -> string {
-    let contents: string = stringify_array_contents(arr, true)
-    return std.string.concat("[", std.string.concat(contents, "]"))
+/// Stringifies an array into a StringBuilder.
+let stringify_array_to_builder: fn(List[Json], StringBuilder) -> StringBuilder = fn(arr: List[Json], builder: StringBuilder) -> StringBuilder {
+    let b1: StringBuilder = std.builder.append(builder, "[")
+    let b2: StringBuilder = stringify_array_contents_to_builder(arr, b1, true)
+    return std.builder.append(b2, "]")
 }
 
-/// Stringifies array contents with comma separation.
-let stringify_array_contents: fn(List[Json], bool) -> string =
-    fn(arr: List[Json], is_first: bool) -> string {
+/// Stringifies array contents with comma separation into a StringBuilder.
+let stringify_array_contents_to_builder: fn(List[Json], StringBuilder, bool) -> StringBuilder =
+    fn(arr: List[Json], builder: StringBuilder, is_first: bool) -> StringBuilder {
         match arr {
-            Nil => { return "" }
+            Nil => { return builder }
             Cons(elem, rest) => {
-                let elem_str: string = stringify(elem)
-                var prefix: string = ""
+                var b: StringBuilder = builder
                 if not is_first {
-                    prefix = ","
+                    b = std.builder.append(b, ",")
                 }
-                let this_part: string = std.string.concat(prefix, elem_str)
-                return std.string.concat(this_part, stringify_array_contents(rest, false))
+                let b2: StringBuilder = stringify_to_builder(elem, b)
+                return stringify_array_contents_to_builder(rest, b2, false)
             }
         }
     }
 
-/// Stringifies an object.
-let stringify_object: fn(List[JsonField]) -> string = fn(fields: List[JsonField]) -> string {
-    let contents: string = stringify_object_contents(fields, true)
-    return std.string.concat("{", std.string.concat(contents, "}"))
+/// Stringifies an object into a StringBuilder.
+let stringify_object_to_builder: fn(List[JsonField], StringBuilder) -> StringBuilder = fn(fields: List[JsonField], builder: StringBuilder) -> StringBuilder {
+    let b1: StringBuilder = std.builder.append(builder, "{")
+    let b2: StringBuilder = stringify_object_contents_to_builder(fields, b1, true)
+    return std.builder.append(b2, "}")
 }
 
-/// Stringifies object contents with comma separation.
-let stringify_object_contents: fn(List[JsonField], bool) -> string =
-    fn(fields: List[JsonField], is_first: bool) -> string {
+/// Stringifies object contents with comma separation into a StringBuilder.
+let stringify_object_contents_to_builder: fn(List[JsonField], StringBuilder, bool) -> StringBuilder =
+    fn(fields: List[JsonField], builder: StringBuilder, is_first: bool) -> StringBuilder {
         match fields {
-            Nil => { return "" }
+            Nil => { return builder }
             Cons(field, rest) => {
-                let key_str: string = std.string.concat("\"", std.string.concat(escape_string(field.key), "\""))
-                let value_str: string = stringify(field.value)
-                let pair: string = std.string.concat(key_str, std.string.concat(":", value_str))
-                var prefix: string = ""
+                var b: StringBuilder = builder
                 if not is_first {
-                    prefix = ","
+                    b = std.builder.append(b, ",")
                 }
-                let this_part: string = std.string.concat(prefix, pair)
-                return std.string.concat(this_part, stringify_object_contents(rest, false))
+                let b1: StringBuilder = std.builder.append(b, "\"")
+                let b2: StringBuilder = std.builder.append(b1, escape_string(field.key))
+                let b3: StringBuilder = std.builder.append(b2, "\":")
+                let b4: StringBuilder = stringify_to_builder(field.value, b3)
+                return stringify_object_contents_to_builder(rest, b4, false)
             }
         }
     }
 
 /// Converts a JSON value to a pretty-printed string with 2-space indentation.
+/// Uses StringBuilder for efficient string building.
 pub let stringify_pretty: fn(Json) -> string = fn(json: Json) -> string {
     return stringify_pretty_with(json, 2)
 }
 
 /// Converts a JSON value to a pretty-printed string with custom indentation.
 pub let stringify_pretty_with: fn(Json, i32) -> string = fn(json: Json, indent_size: i32) -> string {
-    return stringify_indent(json, 0, indent_size)
+    let builder: StringBuilder = stringify_indent_to_builder(json, 0, indent_size, std.builder.new())
+    return std.builder.build(builder)
 }
 
-/// Stringifies with indentation at the current level.
-let stringify_indent: fn(Json, i32, i32) -> string = fn(json: Json, level: i32, indent_size: i32) -> string {
-    match json {
-        JNull => { return "null" }
-        JBool(b) => {
-            if b {
-                return "true"
+/// Stringifies with indentation at the current level into a StringBuilder.
+let stringify_indent_to_builder: fn(Json, i32, i32, StringBuilder) -> StringBuilder =
+    fn(json: Json, level: i32, indent_size: i32, builder: StringBuilder) -> StringBuilder {
+        match json {
+            JNull => { return std.builder.append(builder, "null") }
+            JBool(b) => {
+                if b {
+                    return std.builder.append(builder, "true")
+                }
+                return std.builder.append(builder, "false")
             }
-            return "false"
+            JNumber(n) => { return std.builder.append(builder, std.float.to_string(n)) }
+            JString(s) => {
+                let b1: StringBuilder = std.builder.append(builder, "\"")
+                let b2: StringBuilder = std.builder.append(b1, escape_string(s))
+                return std.builder.append(b2, "\"")
+            }
+            JArray(arr) => { return stringify_array_pretty_to_builder(arr, level, indent_size, builder) }
+            JObject(fields) => { return stringify_object_pretty_to_builder(fields, level, indent_size, builder) }
         }
-        JNumber(n) => { return std.float.to_string(n) }
-        JString(s) => {
-            return std.string.concat("\"", std.string.concat(escape_string(s), "\""))
-        }
-        JArray(arr) => { return stringify_array_pretty(arr, level, indent_size) }
-        JObject(fields) => { return stringify_object_pretty(fields, level, indent_size) }
     }
-}
 
-/// Creates an indentation string for the given level.
-let make_indent: fn(i32, i32) -> string = fn(level: i32, indent_size: i32) -> string {
-    let total_spaces: i32 = level * indent_size
-    return repeat_string(" ", total_spaces)
-}
+/// Appends indentation (spaces) to a StringBuilder.
+let append_indent: fn(StringBuilder, i32, i32) -> StringBuilder =
+    fn(builder: StringBuilder, level: i32, indent_size: i32) -> StringBuilder {
+        let total_spaces: i32 = level * indent_size
+        return append_spaces(builder, total_spaces)
+    }
 
-/// Repeats a string n times.
-let repeat_string: fn(string, i32) -> string = fn(s: string, n: i32) -> string {
+/// Appends n spaces to a StringBuilder.
+let append_spaces: fn(StringBuilder, i32) -> StringBuilder = fn(builder: StringBuilder, n: i32) -> StringBuilder {
     if n <= 0 {
-        return ""
+        return builder
     }
-    return std.string.concat(s, repeat_string(s, n - 1))
+    return append_spaces(std.builder.append(builder, " "), n - 1)
 }
 
-/// Pretty-prints an array.
-let stringify_array_pretty: fn(List[Json], i32, i32) -> string =
-    fn(arr: List[Json], level: i32, indent_size: i32) -> string {
+/// Pretty-prints an array into a StringBuilder.
+let stringify_array_pretty_to_builder: fn(List[Json], i32, i32, StringBuilder) -> StringBuilder =
+    fn(arr: List[Json], level: i32, indent_size: i32, builder: StringBuilder) -> StringBuilder {
         match arr {
-            Nil => { return "[]" }
+            Nil => { return std.builder.append(builder, "[]") }
             _ => {
-                let inner_indent: string = make_indent(level + 1, indent_size)
-                let outer_indent: string = make_indent(level, indent_size)
-                let contents: string = stringify_array_contents_pretty(arr, level + 1, indent_size, true)
-                return std.string.concat("[\n",
-                    std.string.concat(contents,
-                        std.string.concat("\n", std.string.concat(outer_indent, "]"))))
+                let b1: StringBuilder = std.builder.append(builder, "[\n")
+                let b2: StringBuilder = stringify_array_contents_pretty_to_builder(arr, level + 1, indent_size, b1, true)
+                let b3: StringBuilder = std.builder.append(b2, "\n")
+                let b4: StringBuilder = append_indent(b3, level, indent_size)
+                return std.builder.append(b4, "]")
             }
         }
     }
 
-/// Pretty-prints array contents.
-let stringify_array_contents_pretty: fn(List[Json], i32, i32, bool) -> string =
-    fn(arr: List[Json], level: i32, indent_size: i32, is_first: bool) -> string {
+/// Pretty-prints array contents into a StringBuilder.
+let stringify_array_contents_pretty_to_builder: fn(List[Json], i32, i32, StringBuilder, bool) -> StringBuilder =
+    fn(arr: List[Json], level: i32, indent_size: i32, builder: StringBuilder, is_first: bool) -> StringBuilder {
         match arr {
-            Nil => { return "" }
+            Nil => { return builder }
             Cons(elem, rest) => {
-                let indent: string = make_indent(level, indent_size)
-                let elem_str: string = stringify_indent(elem, level, indent_size)
-                var prefix: string = ""
+                var b: StringBuilder = builder
                 if not is_first {
-                    prefix = ",\n"
+                    b = std.builder.append(b, ",\n")
                 }
-                let this_part: string = std.string.concat(prefix, std.string.concat(indent, elem_str))
-                return std.string.concat(this_part, stringify_array_contents_pretty(rest, level, indent_size, false))
+                let b1: StringBuilder = append_indent(b, level, indent_size)
+                let b2: StringBuilder = stringify_indent_to_builder(elem, level, indent_size, b1)
+                return stringify_array_contents_pretty_to_builder(rest, level, indent_size, b2, false)
             }
         }
     }
 
-/// Pretty-prints an object.
-let stringify_object_pretty: fn(List[JsonField], i32, i32) -> string =
-    fn(fields: List[JsonField], level: i32, indent_size: i32) -> string {
+/// Pretty-prints an object into a StringBuilder.
+let stringify_object_pretty_to_builder: fn(List[JsonField], i32, i32, StringBuilder) -> StringBuilder =
+    fn(fields: List[JsonField], level: i32, indent_size: i32, builder: StringBuilder) -> StringBuilder {
         match fields {
-            Nil => { return "{}" }
+            Nil => { return std.builder.append(builder, "{}") }
             _ => {
-                let outer_indent: string = make_indent(level, indent_size)
-                let contents: string = stringify_object_contents_pretty(fields, level + 1, indent_size, true)
-                return std.string.concat("{\n",
-                    std.string.concat(contents,
-                        std.string.concat("\n", std.string.concat(outer_indent, "}"))))
+                let b1: StringBuilder = std.builder.append(builder, "{\n")
+                let b2: StringBuilder = stringify_object_contents_pretty_to_builder(fields, level + 1, indent_size, b1, true)
+                let b3: StringBuilder = std.builder.append(b2, "\n")
+                let b4: StringBuilder = append_indent(b3, level, indent_size)
+                return std.builder.append(b4, "}")
             }
         }
     }
 
-/// Pretty-prints object contents.
-let stringify_object_contents_pretty: fn(List[JsonField], i32, i32, bool) -> string =
-    fn(fields: List[JsonField], level: i32, indent_size: i32, is_first: bool) -> string {
+/// Pretty-prints object contents into a StringBuilder.
+let stringify_object_contents_pretty_to_builder: fn(List[JsonField], i32, i32, StringBuilder, bool) -> StringBuilder =
+    fn(fields: List[JsonField], level: i32, indent_size: i32, builder: StringBuilder, is_first: bool) -> StringBuilder {
         match fields {
-            Nil => { return "" }
+            Nil => { return builder }
             Cons(field, rest) => {
-                let indent: string = make_indent(level, indent_size)
-                let key_str: string = std.string.concat("\"", std.string.concat(escape_string(field.key), "\""))
-                let value_str: string = stringify_indent(field.value, level, indent_size)
-                let pair: string = std.string.concat(key_str, std.string.concat(": ", value_str))
-                var prefix: string = ""
+                var b: StringBuilder = builder
                 if not is_first {
-                    prefix = ",\n"
+                    b = std.builder.append(b, ",\n")
                 }
-                let this_part: string = std.string.concat(prefix, std.string.concat(indent, pair))
-                return std.string.concat(this_part, stringify_object_contents_pretty(rest, level, indent_size, false))
+                let b1: StringBuilder = append_indent(b, level, indent_size)
+                let b2: StringBuilder = std.builder.append(b1, "\"")
+                let b3: StringBuilder = std.builder.append(b2, escape_string(field.key))
+                let b4: StringBuilder = std.builder.append(b3, "\": ")
+                let b5: StringBuilder = stringify_indent_to_builder(field.value, level, indent_size, b4)
+                return stringify_object_contents_pretty_to_builder(rest, level, indent_size, b5, false)
             }
         }
     }
@@ -869,12 +932,12 @@ let parse_escape_sequence_str: fn(ParserState) -> ParseResult[string] = fn(state
 }
 
 /// Parses a \uXXXX unicode escape sequence.
-/// Note: Full unicode support not available without std.char.from_i32.
-/// This implementation parses the hex digits but returns "?" for the character.
+/// Converts the hex code point to a character using std.char.from_i32.
 let parse_unicode_escape_str: fn(ParserState) -> ParseResult[string] = fn(state: ParserState) -> ParseResult[string] {
     var current_state: ParserState = state
+    var code_point: i32 = 0
 
-    // Read 4 hex digits
+    // Read 4 hex digits and compute code point
     var i: i32 = 0
     while i < 4 {
         match peek_str(current_state) {
@@ -883,15 +946,26 @@ let parse_unicode_escape_str: fn(ParserState) -> ParseResult[string] = fn(state:
                 if not is_hex_digit_str(c) {
                     return ParseErr(make_error(current_state, "Invalid hex digit in unicode escape"))
                 }
+                code_point = code_point * 16 + hex_digit_value_str(c)
                 current_state = advance(current_state)
             }
         }
         i = i + 1
     }
 
-    // Cannot convert code point to char without std.char.from_i32
-    // Return replacement character
-    return ParseOk("?", current_state)
+    // Convert code point to character
+    match std.char.from_i32(code_point) {
+        Some(ch) => {
+            // Convert char to single-character string using builder
+            let b: StringBuilder = std.builder.new()
+            let b2: StringBuilder = std.builder.append_char(b, ch)
+            return ParseOk(std.builder.build(b2), current_state)
+        }
+        None => {
+            // Invalid Unicode code point, use replacement character
+            return ParseOk("\uFFFD", current_state)
+        }
+    }
 }
 
 // =============================================================================

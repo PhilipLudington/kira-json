@@ -326,9 +326,10 @@ let test_as_int_with_integer: fn() -> void = fn() -> void {
     let result: Option[i64] = as_int(value)
 
     // Assert
-    // Note: as_int is stubbed out because std.math.trunc_to_i64 doesn't exist
-    // It always returns None in the current implementation
-    assert_none[i64](result, "as_int returns None (stubbed due to missing std.math.trunc_to_i64)")
+    match result {
+        Some(n) => { assert(n == 42, "as_int should extract 42") }
+        None => { assert(false, "as_int should return Some for JNumber") }
+    }
     return
 }
 
@@ -339,9 +340,11 @@ let test_as_int_truncates_decimal: fn() -> void = fn() -> void {
     // Act
     let result: Option[i64] = as_int(value)
 
-    // Assert
-    // Note: as_int is stubbed out because std.math.trunc_to_i64 doesn't exist
-    assert_none[i64](result, "as_int returns None (stubbed due to missing std.math.trunc_to_i64)")
+    // Assert - should truncate towards zero
+    match result {
+        Some(n) => { assert(n == 3, "as_int should truncate 3.7 to 3") }
+        None => { assert(false, "as_int should return Some for JNumber") }
+    }
     return
 }
 
