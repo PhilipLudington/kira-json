@@ -2364,3 +2364,242 @@ let remove_at_index: fn(List[Json], i32) -> List[Json] =
         }
     }
 
+// =============================================================================
+// Convenience Constructors
+// =============================================================================
+
+/// Creates a JSON null value.
+pub let json_null: fn() -> Json = fn() -> Json {
+    return JNull
+}
+
+/// Creates a JSON boolean value.
+pub let json_bool: fn(bool) -> Json = fn(b: bool) -> Json {
+    return JBool(b)
+}
+
+/// Creates a JSON number value from a float.
+pub let json_number: fn(f64) -> Json = fn(n: f64) -> Json {
+    return JNumber(n)
+}
+
+/// Creates a JSON number value from an integer.
+pub let json_int: fn(i64) -> Json = fn(n: i64) -> Json {
+    return JNumber(std.float.from_int(n))
+}
+
+/// Creates a JSON string value.
+pub let json_string: fn(string) -> Json = fn(s: string) -> Json {
+    return JString(s)
+}
+
+/// Creates a JSON array from a list of JSON values.
+pub let json_array: fn(List[Json]) -> Json = fn(items: List[Json]) -> Json {
+    return JArray(items)
+}
+
+/// Creates an empty JSON array.
+pub let json_array_empty: fn() -> Json = fn() -> Json {
+    return JArray(Nil)
+}
+
+/// Creates a JSON object from a list of fields.
+pub let json_object: fn(List[JsonField]) -> Json = fn(fields: List[JsonField]) -> Json {
+    return JObject(fields)
+}
+
+/// Creates an empty JSON object.
+pub let json_object_empty: fn() -> Json = fn() -> Json {
+    return JObject(Nil)
+}
+
+// =============================================================================
+// Builder Pattern
+// =============================================================================
+
+/// A builder for constructing JSON objects fluently.
+pub type JsonBuilder = {
+    fields: List[JsonField]
+}
+
+/// Creates a new empty JSON object builder.
+pub let builder: fn() -> JsonBuilder = fn() -> JsonBuilder {
+    return JsonBuilder { fields: Nil }
+}
+
+/// Adds a field to the builder.
+pub let with_field: fn(JsonBuilder, string, Json) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, value: Json) -> JsonBuilder {
+        return JsonBuilder { fields: Cons(JsonField { key: key, value: value }, b.fields) }
+    }
+
+/// Adds a string field to the builder.
+pub let with_string: fn(JsonBuilder, string, string) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, value: string) -> JsonBuilder {
+        return with_field(b, key, JString(value))
+    }
+
+/// Adds a number field to the builder.
+pub let with_number: fn(JsonBuilder, string, f64) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, value: f64) -> JsonBuilder {
+        return with_field(b, key, JNumber(value))
+    }
+
+/// Adds an integer field to the builder.
+pub let with_int: fn(JsonBuilder, string, i64) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, value: i64) -> JsonBuilder {
+        return with_field(b, key, JNumber(std.float.from_int(value)))
+    }
+
+/// Adds a boolean field to the builder.
+pub let with_bool: fn(JsonBuilder, string, bool) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, value: bool) -> JsonBuilder {
+        return with_field(b, key, JBool(value))
+    }
+
+/// Adds a null field to the builder.
+pub let with_null: fn(JsonBuilder, string) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string) -> JsonBuilder {
+        return with_field(b, key, JNull)
+    }
+
+/// Adds an array field to the builder.
+pub let with_array: fn(JsonBuilder, string, List[Json]) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, items: List[Json]) -> JsonBuilder {
+        return with_field(b, key, JArray(items))
+    }
+
+/// Adds an object field to the builder (from another builder).
+pub let with_object: fn(JsonBuilder, string, JsonBuilder) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, nested: JsonBuilder) -> JsonBuilder {
+        return with_field(b, key, build(nested))
+    }
+
+/// Builds the final JSON object from the builder.
+/// Fields are in reverse order of addition (last added is first).
+pub let build: fn(JsonBuilder) -> Json = fn(b: JsonBuilder) -> Json {
+    return JObject(reverse_fields(b.fields))
+}
+
+/// Reverses a list of fields to maintain insertion order.
+let reverse_fields: fn(List[JsonField]) -> List[JsonField] =
+    fn(fields: List[JsonField]) -> List[JsonField] {
+        return reverse_fields_acc(fields, Nil)
+    }
+
+let reverse_fields_acc: fn(List[JsonField], List[JsonField]) -> List[JsonField] =
+    fn(fields: List[JsonField], acc: List[JsonField]) -> List[JsonField] {
+        match fields {
+            Nil => { return acc }
+            Cons(head, tail) => { return reverse_fields_acc(tail, Cons(head, acc)) }
+        }
+    }
+
+// =============================================================================
+// Error Context Formatting
+// =============================================================================
+
+/// Formats an error with context from the input string.
+/// Shows the line where the error occurred with a column indicator.
+pub let format_error_with_context: fn(string, JsonError) -> string =
+    fn(input: string, err: JsonError) -> string {
+        let line_num: i32 = error_line(err)
+        let col_num: i32 = error_column(err)
+        let error_msg: string = format_error(err)
+
+        // Get the line content
+        let line_content: string = get_line_at(input, line_num)
+
+        // Build the column indicator
+        let indicator: string = build_indicator(col_num)
+
+        // Combine everything
+        let sb: StringBuilder = std.builder.new()
+        let sb2: StringBuilder = std.builder.append(sb, error_msg)
+        let sb3: StringBuilder = std.builder.append(sb2, "\n")
+        let sb4: StringBuilder = std.builder.append(sb3, line_content)
+        let sb5: StringBuilder = std.builder.append(sb4, "\n")
+        let sb6: StringBuilder = std.builder.append(sb5, indicator)
+        return std.builder.build(sb6)
+    }
+
+/// Gets a specific line from the input (1-indexed).
+let get_line_at: fn(string, i32) -> string = fn(input: string, target_line: i32) -> string {
+    let lines: List[string] = split_lines(input)
+    return get_nth_line(lines, target_line, 1)
+}
+
+let get_nth_line: fn(List[string], i32, i32) -> string =
+    fn(lines: List[string], target: i32, current: i32) -> string {
+        match lines {
+            Nil => { return "" }
+            Cons(line, rest) => {
+                if current == target {
+                    return line
+                }
+                return get_nth_line(rest, target, current + 1)
+            }
+        }
+    }
+
+/// Splits a string into lines.
+let split_lines: fn(string) -> List[string] = fn(input: string) -> List[string] {
+    return split_lines_acc(input, 0, std.builder.new())
+}
+
+let split_lines_acc: fn(string, i32, StringBuilder) -> List[string] =
+    fn(input: string, pos: i32, current: StringBuilder) -> List[string] {
+        let len: i32 = std.string.length(input)
+        if pos >= len {
+            let final_line: string = std.builder.build(current)
+            if std.string.length(final_line) > 0 {
+                return Cons(final_line, Nil)
+            }
+            return Nil
+        }
+        let c: string = std.string.substring(input, pos, pos + 1)
+        if std.string.equals(c, "\n") {
+            let line: string = std.builder.build(current)
+            return Cons(line, split_lines_acc(input, pos + 1, std.builder.new()))
+        }
+        if std.string.equals(c, "\r") {
+            // Handle \r\n
+            let next_pos: i32 = pos + 1
+            if next_pos < len {
+                let next_c: string = std.string.substring(input, next_pos, next_pos + 1)
+                if std.string.equals(next_c, "\n") {
+                    let line: string = std.builder.build(current)
+                    return Cons(line, split_lines_acc(input, pos + 2, std.builder.new()))
+                }
+            }
+            let line: string = std.builder.build(current)
+            return Cons(line, split_lines_acc(input, pos + 1, std.builder.new()))
+        }
+        let new_current: StringBuilder = std.builder.append(current, c)
+        return split_lines_acc(input, pos + 1, new_current)
+    }
+
+/// Builds a column indicator string (spaces followed by ^).
+let build_indicator: fn(i32) -> string = fn(col: i32) -> string {
+    let spaces: string = repeat_char(" ", col - 1)
+    return std.string.concat(spaces, "^")
+}
+
+/// Repeats a character n times.
+let repeat_char: fn(string, i32) -> string = fn(c: string, n: i32) -> string {
+    if n <= 0 {
+        return ""
+    }
+    let sb: StringBuilder = std.builder.new()
+    return repeat_char_acc(sb, c, n)
+}
+
+let repeat_char_acc: fn(StringBuilder, string, i32) -> string =
+    fn(sb: StringBuilder, c: string, n: i32) -> string {
+        if n <= 0 {
+            return std.builder.build(sb)
+        }
+        let new_sb: StringBuilder = std.builder.append(sb, c)
+        return repeat_char_acc(new_sb, c, n - 1)
+    }
+

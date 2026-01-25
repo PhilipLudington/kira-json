@@ -1,0 +1,552 @@
+/// JSON Test Suite
+/// Based on JSONTestSuite (https://github.com/nst/JSONTestSuite)
+/// Categorized as: must accept, must reject, implementation-defined
+
+module test_json_suite
+
+import src.json.{ Json, JsonError, DuplicateKey, parse, parse_strict, default_max_depth, get_field, as_string, as_number, as_int }
+
+// =============================================================================
+// Test Utilities
+// =============================================================================
+
+/// Asserts that parsing succeeds
+let expect_accept: fn(string) -> bool = fn(input: string) -> bool {
+    match parse(input) {
+        Ok(_) => { return true }
+        Err(_) => { return false }
+    }
+}
+
+/// Asserts that parsing fails
+let expect_reject: fn(string) -> bool = fn(input: string) -> bool {
+    match parse(input) {
+        Ok(_) => { return false }
+        Err(_) => { return true }
+    }
+}
+
+// =============================================================================
+// Must Accept: Valid JSON structures
+// =============================================================================
+
+let test_accept_empty_array: fn() -> bool = fn() -> bool {
+    return expect_accept("[]")
+}
+
+let test_accept_empty_object: fn() -> bool = fn() -> bool {
+    return expect_accept("{}")
+}
+
+let test_accept_null: fn() -> bool = fn() -> bool {
+    return expect_accept("null")
+}
+
+let test_accept_true: fn() -> bool = fn() -> bool {
+    return expect_accept("true")
+}
+
+let test_accept_false: fn() -> bool = fn() -> bool {
+    return expect_accept("false")
+}
+
+let test_accept_integer: fn() -> bool = fn() -> bool {
+    return expect_accept("42")
+}
+
+let test_accept_negative_integer: fn() -> bool = fn() -> bool {
+    return expect_accept("-17")
+}
+
+let test_accept_zero: fn() -> bool = fn() -> bool {
+    return expect_accept("0")
+}
+
+let test_accept_negative_zero: fn() -> bool = fn() -> bool {
+    return expect_accept("-0")
+}
+
+let test_accept_decimal: fn() -> bool = fn() -> bool {
+    return expect_accept("3.14159")
+}
+
+let test_accept_exponent_lowercase: fn() -> bool = fn() -> bool {
+    return expect_accept("1e10")
+}
+
+let test_accept_exponent_uppercase: fn() -> bool = fn() -> bool {
+    return expect_accept("1E10")
+}
+
+let test_accept_exponent_plus: fn() -> bool = fn() -> bool {
+    return expect_accept("1e+10")
+}
+
+let test_accept_exponent_minus: fn() -> bool = fn() -> bool {
+    return expect_accept("1e-10")
+}
+
+let test_accept_decimal_exponent: fn() -> bool = fn() -> bool {
+    return expect_accept("3.14e10")
+}
+
+let test_accept_empty_string: fn() -> bool = fn() -> bool {
+    return expect_accept("\"\"")
+}
+
+let test_accept_simple_string: fn() -> bool = fn() -> bool {
+    return expect_accept("\"hello world\"")
+}
+
+let test_accept_escaped_quote: fn() -> bool = fn() -> bool {
+    return expect_accept("\"hello \\\"world\\\"\"")
+}
+
+let test_accept_escaped_backslash: fn() -> bool = fn() -> bool {
+    return expect_accept("\"back\\\\slash\"")
+}
+
+let test_accept_escaped_solidus: fn() -> bool = fn() -> bool {
+    return expect_accept("\"path\\/to\"")
+}
+
+let test_accept_escaped_backspace: fn() -> bool = fn() -> bool {
+    return expect_accept("\"back\\bspace\"")
+}
+
+let test_accept_escaped_formfeed: fn() -> bool = fn() -> bool {
+    return expect_accept("\"form\\ffeed\"")
+}
+
+let test_accept_escaped_newline: fn() -> bool = fn() -> bool {
+    return expect_accept("\"new\\nline\"")
+}
+
+let test_accept_escaped_carriage_return: fn() -> bool = fn() -> bool {
+    return expect_accept("\"carriage\\rreturn\"")
+}
+
+let test_accept_escaped_tab: fn() -> bool = fn() -> bool {
+    return expect_accept("\"tab\\there\"")
+}
+
+let test_accept_unicode_escape: fn() -> bool = fn() -> bool {
+    return expect_accept("\"\\u0041\"")
+}
+
+let test_accept_unicode_escape_lower: fn() -> bool = fn() -> bool {
+    return expect_accept("\"\\u0061\"")
+}
+
+let test_accept_unicode_null: fn() -> bool = fn() -> bool {
+    return expect_accept("\"\\u0000\"")
+}
+
+let test_accept_surrogate_pair_emoji: fn() -> bool = fn() -> bool {
+    return expect_accept("\"\\uD83D\\uDE00\"")
+}
+
+let test_accept_array_single_element: fn() -> bool = fn() -> bool {
+    return expect_accept("[1]")
+}
+
+let test_accept_array_multiple_elements: fn() -> bool = fn() -> bool {
+    return expect_accept("[1, 2, 3]")
+}
+
+let test_accept_array_mixed_types: fn() -> bool = fn() -> bool {
+    return expect_accept("[null, true, 1, \"str\", [], {}]")
+}
+
+let test_accept_nested_arrays: fn() -> bool = fn() -> bool {
+    return expect_accept("[[[]]]")
+}
+
+let test_accept_object_single_field: fn() -> bool = fn() -> bool {
+    return expect_accept("{\"key\": \"value\"}")
+}
+
+let test_accept_object_multiple_fields: fn() -> bool = fn() -> bool {
+    return expect_accept("{\"a\": 1, \"b\": 2}")
+}
+
+let test_accept_nested_objects: fn() -> bool = fn() -> bool {
+    return expect_accept("{\"outer\": {\"inner\": {}}}")
+}
+
+let test_accept_whitespace_around_value: fn() -> bool = fn() -> bool {
+    return expect_accept("  null  ")
+}
+
+let test_accept_whitespace_in_array: fn() -> bool = fn() -> bool {
+    return expect_accept("[ 1 , 2 , 3 ]")
+}
+
+let test_accept_whitespace_in_object: fn() -> bool = fn() -> bool {
+    return expect_accept("{ \"a\" : 1 }")
+}
+
+let test_accept_tab_whitespace: fn() -> bool = fn() -> bool {
+    return expect_accept("[\t1\t]")
+}
+
+let test_accept_newline_whitespace: fn() -> bool = fn() -> bool {
+    return expect_accept("[\n1\n]")
+}
+
+let test_accept_carriage_return_whitespace: fn() -> bool = fn() -> bool {
+    return expect_accept("[\r1\r]")
+}
+
+// =============================================================================
+// Must Reject: Invalid JSON structures
+// =============================================================================
+
+let test_reject_empty: fn() -> bool = fn() -> bool {
+    return expect_reject("")
+}
+
+let test_reject_whitespace_only: fn() -> bool = fn() -> bool {
+    return expect_reject("   ")
+}
+
+let test_reject_bare_word: fn() -> bool = fn() -> bool {
+    return expect_reject("undefined")
+}
+
+let test_reject_nan: fn() -> bool = fn() -> bool {
+    return expect_reject("NaN")
+}
+
+let test_reject_infinity: fn() -> bool = fn() -> bool {
+    return expect_reject("Infinity")
+}
+
+let test_reject_negative_infinity: fn() -> bool = fn() -> bool {
+    return expect_reject("-Infinity")
+}
+
+let test_reject_leading_zero: fn() -> bool = fn() -> bool {
+    return expect_reject("007")
+}
+
+let test_reject_leading_zero_negative: fn() -> bool = fn() -> bool {
+    return expect_reject("-007")
+}
+
+let test_reject_plus_number: fn() -> bool = fn() -> bool {
+    return expect_reject("+1")
+}
+
+let test_reject_number_with_hex: fn() -> bool = fn() -> bool {
+    return expect_reject("0x1")
+}
+
+let test_reject_number_trailing_decimal: fn() -> bool = fn() -> bool {
+    return expect_reject("1.")
+}
+
+let test_reject_number_leading_decimal: fn() -> bool = fn() -> bool {
+    return expect_reject(".1")
+}
+
+let test_reject_number_trailing_e: fn() -> bool = fn() -> bool {
+    return expect_reject("1e")
+}
+
+let test_reject_number_double_exponent: fn() -> bool = fn() -> bool {
+    return expect_reject("1e1e1")
+}
+
+let test_reject_single_quote_string: fn() -> bool = fn() -> bool {
+    return expect_reject("'hello'")
+}
+
+let test_reject_unterminated_string: fn() -> bool = fn() -> bool {
+    return expect_reject("\"hello")
+}
+
+let test_reject_string_with_literal_newline: fn() -> bool = fn() -> bool {
+    return expect_reject("\"hello\nworld\"")
+}
+
+let test_reject_string_with_literal_tab: fn() -> bool = fn() -> bool {
+    return expect_reject("\"hello\tworld\"")
+}
+
+let test_reject_invalid_escape_sequence: fn() -> bool = fn() -> bool {
+    return expect_reject("\"hello\\x00world\"")
+}
+
+let test_reject_incomplete_unicode_escape: fn() -> bool = fn() -> bool {
+    return expect_reject("\"\\u00\"")
+}
+
+let test_reject_invalid_unicode_escape: fn() -> bool = fn() -> bool {
+    return expect_reject("\"\\uGGGG\"")
+}
+
+let test_reject_bare_backslash_end: fn() -> bool = fn() -> bool {
+    return expect_reject("\"hello\\\"")
+}
+
+let test_reject_unclosed_array: fn() -> bool = fn() -> bool {
+    return expect_reject("[1, 2")
+}
+
+let test_reject_unclosed_object: fn() -> bool = fn() -> bool {
+    return expect_reject("{\"a\": 1")
+}
+
+let test_reject_extra_closing_bracket: fn() -> bool = fn() -> bool {
+    return expect_reject("[]]")
+}
+
+let test_reject_extra_closing_brace: fn() -> bool = fn() -> bool {
+    return expect_reject("{}}")
+}
+
+let test_reject_trailing_comma_array: fn() -> bool = fn() -> bool {
+    return expect_reject("[1,]")
+}
+
+let test_reject_trailing_comma_object: fn() -> bool = fn() -> bool {
+    return expect_reject("{\"a\": 1,}")
+}
+
+let test_reject_leading_comma_array: fn() -> bool = fn() -> bool {
+    return expect_reject("[,1]")
+}
+
+let test_reject_double_comma_array: fn() -> bool = fn() -> bool {
+    return expect_reject("[1,,2]")
+}
+
+let test_reject_missing_colon_object: fn() -> bool = fn() -> bool {
+    return expect_reject("{\"a\" 1}")
+}
+
+let test_reject_missing_value_object: fn() -> bool = fn() -> bool {
+    return expect_reject("{\"a\":}")
+}
+
+let test_reject_non_string_key: fn() -> bool = fn() -> bool {
+    return expect_reject("{1: \"value\"}")
+}
+
+let test_reject_multiple_values: fn() -> bool = fn() -> bool {
+    return expect_reject("1 2")
+}
+
+let test_reject_array_as_key: fn() -> bool = fn() -> bool {
+    return expect_reject("{[]: 1}")
+}
+
+let test_reject_object_as_key: fn() -> bool = fn() -> bool {
+    return expect_reject("{{}: 1}")
+}
+
+// =============================================================================
+// Implementation-Defined Behavior
+// =============================================================================
+
+let test_impl_duplicate_keys_first_wins: fn() -> bool = fn() -> bool {
+    let input: string = "{\"a\": 1, \"a\": 2}"
+    match parse(input) {
+        Ok(json) => {
+            match get_field(json, "a") {
+                Some(v) => {
+                    match as_int(v) {
+                        Some(n) => { return n == 1 }
+                        None => { return false }
+                    }
+                }
+                None => { return false }
+            }
+        }
+        Err(_) => { return false }
+    }
+}
+
+let test_impl_duplicate_keys_strict_rejects: fn() -> bool = fn() -> bool {
+    let input: string = "{\"a\": 1, \"a\": 2}"
+    match parse_strict(input) {
+        Ok(_) => { return false }
+        Err(DuplicateKey { key: k, line: _, col: _ }) => {
+            return std.string.equals(k, "a")
+        }
+        _ => { return false }
+    }
+}
+
+let test_impl_lone_surrogate_replaced: fn() -> bool = fn() -> bool {
+    let input: string = "\"\\uD800\""
+    match parse(input) {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => { return std.string.length(s) > 0 }
+                None => { return false }
+            }
+        }
+        Err(_) => { return false }
+    }
+}
+
+let test_impl_max_depth_512: fn() -> bool = fn() -> bool {
+    return default_max_depth() == 512
+}
+
+let test_impl_very_large_number_rejected: fn() -> bool = fn() -> bool {
+    let input: string = "1e999"
+    match parse(input) {
+        Ok(_) => { return false }
+        Err(_) => { return true }
+    }
+}
+
+let test_impl_very_small_number_accepted: fn() -> bool = fn() -> bool {
+    let input: string = "1e-999"
+    match parse(input) {
+        Ok(json) => {
+            match as_number(json) {
+                Some(n) => { return n == 0.0 }
+                None => { return false }
+            }
+        }
+        Err(_) => { return false }
+    }
+}
+
+// =============================================================================
+// Test Runner
+// =============================================================================
+
+effect fn run_suite_test(name: string, test_fn: fn() -> bool) -> IO[bool] {
+    std.io.print("  ")
+    std.io.print(name)
+    std.io.print(" ... ")
+    let result: bool = test_fn()
+    if result {
+        std.io.println("ok")
+    } else {
+        std.io.println("FAIL")
+    }
+    return result
+}
+
+effect fn main() -> IO[void] {
+    std.io.println("JSON Test Suite")
+    std.io.println("================")
+    std.io.println("")
+
+    var passed: i32 = 0
+    var failed: i32 = 0
+
+    std.io.println("Must Accept (valid JSON):")
+    if run_suite_test("empty_array", test_accept_empty_array) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("empty_object", test_accept_empty_object) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("null", test_accept_null) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("true", test_accept_true) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("false", test_accept_false) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("integer", test_accept_integer) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("negative_integer", test_accept_negative_integer) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("zero", test_accept_zero) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("negative_zero", test_accept_negative_zero) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("decimal", test_accept_decimal) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("exponent_lowercase", test_accept_exponent_lowercase) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("exponent_uppercase", test_accept_exponent_uppercase) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("exponent_plus", test_accept_exponent_plus) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("exponent_minus", test_accept_exponent_minus) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("decimal_exponent", test_accept_decimal_exponent) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("empty_string", test_accept_empty_string) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("simple_string", test_accept_simple_string) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("escaped_quote", test_accept_escaped_quote) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("escaped_backslash", test_accept_escaped_backslash) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("escaped_solidus", test_accept_escaped_solidus) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("escaped_backspace", test_accept_escaped_backspace) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("escaped_formfeed", test_accept_escaped_formfeed) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("escaped_newline", test_accept_escaped_newline) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("escaped_carriage_return", test_accept_escaped_carriage_return) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("escaped_tab", test_accept_escaped_tab) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("unicode_escape", test_accept_unicode_escape) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("unicode_escape_lower", test_accept_unicode_escape_lower) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("unicode_null", test_accept_unicode_null) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("surrogate_pair_emoji", test_accept_surrogate_pair_emoji) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("array_single_element", test_accept_array_single_element) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("array_multiple_elements", test_accept_array_multiple_elements) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("array_mixed_types", test_accept_array_mixed_types) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("nested_arrays", test_accept_nested_arrays) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("object_single_field", test_accept_object_single_field) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("object_multiple_fields", test_accept_object_multiple_fields) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("nested_objects", test_accept_nested_objects) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("whitespace_around_value", test_accept_whitespace_around_value) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("whitespace_in_array", test_accept_whitespace_in_array) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("whitespace_in_object", test_accept_whitespace_in_object) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("tab_whitespace", test_accept_tab_whitespace) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("newline_whitespace", test_accept_newline_whitespace) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("carriage_return_whitespace", test_accept_carriage_return_whitespace) { passed = passed + 1 } else { failed = failed + 1 }
+    std.io.println("")
+
+    std.io.println("Must Reject (invalid JSON):")
+    if run_suite_test("empty", test_reject_empty) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("whitespace_only", test_reject_whitespace_only) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("bare_word", test_reject_bare_word) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("nan", test_reject_nan) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("infinity", test_reject_infinity) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("negative_infinity", test_reject_negative_infinity) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("leading_zero", test_reject_leading_zero) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("leading_zero_negative", test_reject_leading_zero_negative) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("plus_number", test_reject_plus_number) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("hex_number", test_reject_number_with_hex) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("trailing_decimal", test_reject_number_trailing_decimal) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("leading_decimal", test_reject_number_leading_decimal) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("trailing_e", test_reject_number_trailing_e) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("double_exponent", test_reject_number_double_exponent) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("single_quote_string", test_reject_single_quote_string) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("unterminated_string", test_reject_unterminated_string) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("literal_newline", test_reject_string_with_literal_newline) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("literal_tab", test_reject_string_with_literal_tab) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("invalid_escape_x", test_reject_invalid_escape_sequence) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("incomplete_unicode", test_reject_incomplete_unicode_escape) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("invalid_unicode", test_reject_invalid_unicode_escape) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("bare_backslash_end", test_reject_bare_backslash_end) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("unclosed_array", test_reject_unclosed_array) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("unclosed_object", test_reject_unclosed_object) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("extra_closing_bracket", test_reject_extra_closing_bracket) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("extra_closing_brace", test_reject_extra_closing_brace) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("trailing_comma_array", test_reject_trailing_comma_array) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("trailing_comma_object", test_reject_trailing_comma_object) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("leading_comma_array", test_reject_leading_comma_array) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("double_comma_array", test_reject_double_comma_array) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("missing_colon_object", test_reject_missing_colon_object) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("missing_value_object", test_reject_missing_value_object) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("non_string_key", test_reject_non_string_key) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("multiple_values", test_reject_multiple_values) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("array_as_key", test_reject_array_as_key) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("object_as_key", test_reject_object_as_key) { passed = passed + 1 } else { failed = failed + 1 }
+    std.io.println("")
+
+    std.io.println("Implementation-Defined Behavior:")
+    if run_suite_test("duplicate_keys_first_wins", test_impl_duplicate_keys_first_wins) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("duplicate_keys_strict_rejects", test_impl_duplicate_keys_strict_rejects) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("lone_surrogate_replaced", test_impl_lone_surrogate_replaced) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("max_depth_512", test_impl_max_depth_512) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("very_large_number_rejected", test_impl_very_large_number_rejected) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("very_small_number_accepted", test_impl_very_small_number_accepted) { passed = passed + 1 } else { failed = failed + 1 }
+    std.io.println("")
+
+    std.io.println("================")
+    std.io.print("Results: ")
+    std.io.print(std.int.to_string(passed))
+    std.io.print(" passed, ")
+    std.io.print(std.int.to_string(failed))
+    std.io.println(" failed")
+
+    if failed == 0 {
+        std.io.println("All tests passed!")
+    } else {
+        std.io.println("Some tests failed.")
+    }
+
+    return
+}

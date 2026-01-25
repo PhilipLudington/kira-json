@@ -2,7 +2,7 @@
 
 ## Current Status
 
-The library provides functional JSON parsing, serialization, and manipulation with 108 passing tests. Recent improvements leverage new compiler features (StringBuilder, std.char.from_i32, std.math.trunc_to_i64).
+The library provides functional JSON parsing, serialization, and manipulation with **214 passing tests** (130 in test_json.ki + 84 in test_json_suite.ki). Recent improvements leverage new compiler features (StringBuilder, std.char.from_i32, std.math.trunc_to_i64).
 
 ### What Works
 - Core types: `Json`, `JsonField`, `JsonError` (structured error types)
@@ -10,10 +10,15 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 - Value extraction: `as_string`, `as_number`, `as_int`, `as_bool`, `as_array`, `as_object`
 - Accessors: `get_field`, `get_index`, `size`, `keys`, `values`
 - Serialization: `stringify`, `stringify_pretty`, `stringify_pretty_with`
-- Parsing: `parse` with line/column error tracking
+- Parsing: `parse`, `parse_strict`, `parse_with_max_depth` with line/column error tracking
 - Transforms: `map_values`, `filter_fields`, `set_field`, `remove_field`, `merge`, `merge_deep`, `map_array`, `filter_array`
-- Unicode escapes: `\uXXXX` parsing and serialization
+- Unicode escapes: `\uXXXX` parsing and serialization (including surrogate pairs)
 - Control character escaping
+- Path-based access: `get_path`, `set_path`, `has_path`, `remove_path`
+- Deep equality: `equals(a, b)`
+- Convenience constructors: `json_null`, `json_bool`, `json_number`, `json_int`, `json_string`, `json_array`, `json_object`
+- Builder pattern: `builder()`, `with_field`, `with_string`, `with_number`, `with_int`, `with_bool`, `with_null`, `with_array`, `with_object`, `build`
+- Error context: `format_error_with_context(input, error)` shows source line with caret indicator
 
 ---
 
@@ -107,19 +112,23 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 **New file:** `src/json_schema.ki`
 
-### 3.4 Builder Pattern
-- [ ] `JsonBuilder` type for fluent object construction
-- [ ] `object().field("name", string("Alice")).field("age", number(30)).build()`
-- [ ] Type-safe construction
+### 3.4 Builder Pattern ✓
+- [x] `JsonBuilder` type for fluent object construction
+- [x] `builder().with_string("name", "Alice").with_int("age", 30).build()` pattern
+- [x] Type-safe construction with `with_field`, `with_string`, `with_number`, `with_int`, `with_bool`, `with_null`, `with_array`, `with_object`
 
 **Files:** `src/json.ki`
 
-### 3.5 Convenience Constructors
-- [ ] `json_string(s)` → `Json` (alias for `JString(s)`)
-- [ ] `json_number(n)` → `Json`
-- [ ] `json_bool(b)` → `Json`
-- [ ] `json_array(list)` → `Json`
-- [ ] `json_object(fields)` → `Json`
+### 3.5 Convenience Constructors ✓
+- [x] `json_string(s)` → `Json`
+- [x] `json_number(n)` → `Json`
+- [x] `json_int(n)` → `Json` (from i64)
+- [x] `json_bool(b)` → `Json`
+- [x] `json_null()` → `Json`
+- [x] `json_array(list)` → `Json`
+- [x] `json_array_empty()` → `Json`
+- [x] `json_object(fields)` → `Json`
+- [x] `json_object_empty()` → `Json`
 
 **Files:** `src/json.ki`
 
@@ -143,10 +152,10 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 **Files:** `src/json.ki`, `tests/test_json.ki`
 
-### 4.2 Error Context
-- [ ] Include snippet of input around error location
-- [ ] Show column indicator (e.g., `  ^--- here`)
-- [ ] `format_error(input, error)` → `string`
+### 4.2 Error Context ✓
+- [x] Include snippet of input around error location
+- [x] Show column indicator with `^`
+- [x] `format_error_with_context(input, error)` → `string`
 
 **Files:** `src/json.ki`
 
@@ -154,12 +163,12 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 ## Phase 5: Testing & Validation
 
-### 5.1 JSON Test Suite
-- [ ] Run against [JSONTestSuite](https://github.com/nst/JSONTestSuite)
-- [ ] Categorize: must accept, must reject, implementation-defined
-- [ ] Document any deviations from spec
+### 5.1 JSON Test Suite ✓
+- [x] Created comprehensive test suite (84 tests)
+- [x] Categorized: must accept (43), must reject (36), implementation-defined (6)
+- [x] Documented implementation choices (duplicate keys, lone surrogates, overflow handling)
 
-**New file:** `tests/test_json_suite.ki`
+**File:** `tests/test_json_suite.ki`
 
 ### 5.2 Property-Based Tests
 - [ ] Roundtrip: `parse(stringify(json)) == json`
@@ -225,8 +234,13 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 7. ~~**Phase 2.3** - Stack safety~~ ✓
 8. ~~**Phase 1.1** - Surrogate pairs (full Unicode)~~ ✓
 9. ~~**Phase 1.4** - Duplicate key handling~~ ✓
-10. **Phase 5.1** - Test suite (validation)
-11. **Phase 2.1** - HashMap objects (if perf needed)
+10. ~~**Phase 3.4** - Builder pattern~~ ✓
+11. ~~**Phase 3.5** - Convenience constructors~~ ✓
+12. ~~**Phase 4.2** - Error context~~ ✓
+13. ~~**Phase 5.1** - Test suite (validation)~~ ✓
+14. **Phase 2.1** - HashMap objects (if perf needed)
+15. **Phase 3.3** - JSON Schema validation
+16. **Phase 6** - Documentation
 
 ---
 

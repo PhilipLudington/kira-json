@@ -2890,6 +2890,395 @@ let test_parse_strict_multiple_duplicates_first_reported: fn() -> void = fn() ->
 }
 
 // =============================================================================
+// Convenience Constructors Tests
+// =============================================================================
+
+let test_json_null: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_null()
+
+    // Assert
+    assert(is_null(j), "json_null should create JNull")
+    return
+}
+
+let test_json_bool_true: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_bool(true)
+
+    // Assert
+    assert(is_bool(j), "json_bool should create JBool")
+    match as_bool(j) {
+        Some(v) => { assert(v, "value should be true") }
+        None => { assert(false, "as_bool should return Some") }
+    }
+    return
+}
+
+let test_json_bool_false: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_bool(false)
+
+    // Assert
+    match as_bool(j) {
+        Some(v) => { assert(not v, "value should be false") }
+        None => { assert(false, "as_bool should return Some") }
+    }
+    return
+}
+
+let test_json_number: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_number(3.14)
+
+    // Assert
+    assert(is_number(j), "json_number should create JNumber")
+    match as_number(j) {
+        Some(v) => { assert(v > 3.13, "value should be close to 3.14") }
+        None => { assert(false, "as_number should return Some") }
+    }
+    return
+}
+
+let test_json_int: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_int(42)
+
+    // Assert
+    assert(is_number(j), "json_int should create JNumber")
+    match as_int(j) {
+        Some(v) => { assert(v == 42, "value should be 42") }
+        None => { assert(false, "as_int should return Some") }
+    }
+    return
+}
+
+let test_json_string: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_string("hello")
+
+    // Assert
+    assert(is_string(j), "json_string should create JString")
+    match as_string(j) {
+        Some(v) => { assert(std.string.equals(v, "hello"), "value should be 'hello'") }
+        None => { assert(false, "as_string should return Some") }
+    }
+    return
+}
+
+let test_json_array: fn() -> void = fn() -> void {
+    // Arrange
+    let items: List[Json] = Cons(json_int(1), Cons(json_int(2), Nil))
+
+    // Act
+    let j: Json = json_array(items)
+
+    // Assert
+    assert(is_array(j), "json_array should create JArray")
+    match size(j) {
+        Some(s) => { assert_i32_eq(s, 2, "array should have 2 elements") }
+        None => { assert(false, "size should return Some") }
+    }
+    return
+}
+
+let test_json_array_empty: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_array_empty()
+
+    // Assert
+    assert(is_array(j), "json_array_empty should create JArray")
+    match size(j) {
+        Some(s) => { assert_i32_eq(s, 0, "array should be empty") }
+        None => { assert(false, "size should return Some") }
+    }
+    return
+}
+
+let test_json_object: fn() -> void = fn() -> void {
+    // Arrange
+    let fields: List[JsonField] = Cons(
+        make_field("name", json_string("Alice")),
+        Nil
+    )
+
+    // Act
+    let j: Json = json_object(fields)
+
+    // Assert
+    assert(is_object(j), "json_object should create JObject")
+    match get_field(j, "name") {
+        Some(v) => {
+            match as_string(v) {
+                Some(s) => { assert(std.string.equals(s, "Alice"), "name should be Alice") }
+                None => { assert(false, "name should be a string") }
+            }
+        }
+        None => { assert(false, "object should have name field") }
+    }
+    return
+}
+
+let test_json_object_empty: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_object_empty()
+
+    // Assert
+    assert(is_object(j), "json_object_empty should create JObject")
+    match size(j) {
+        Some(s) => { assert_i32_eq(s, 0, "object should be empty") }
+        None => { assert(false, "size should return Some") }
+    }
+    return
+}
+
+// =============================================================================
+// Builder Pattern Tests
+// =============================================================================
+
+let test_builder_empty: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(builder())
+
+    // Assert
+    assert(is_object(j), "builder should create an object")
+    match size(j) {
+        Some(s) => { assert_i32_eq(s, 0, "object should be empty") }
+        None => { assert(false, "size should return Some") }
+    }
+    return
+}
+
+let test_builder_with_string: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(with_string(builder(), "name", "Bob"))
+
+    // Assert
+    match get_field(j, "name") {
+        Some(v) => {
+            match as_string(v) {
+                Some(s) => { assert(std.string.equals(s, "Bob"), "name should be Bob") }
+                None => { assert(false, "value should be a string") }
+            }
+        }
+        None => { assert(false, "object should have name field") }
+    }
+    return
+}
+
+let test_builder_with_number: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(with_number(builder(), "price", 19.99))
+
+    // Assert
+    match get_field(j, "price") {
+        Some(v) => {
+            match as_number(v) {
+                Some(n) => { assert(n > 19.0, "price should be close to 19.99") }
+                None => { assert(false, "value should be a number") }
+            }
+        }
+        None => { assert(false, "object should have price field") }
+    }
+    return
+}
+
+let test_builder_with_int: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(with_int(builder(), "count", 100))
+
+    // Assert
+    match get_field(j, "count") {
+        Some(v) => {
+            match as_int(v) {
+                Some(n) => { assert(n == 100, "count should be 100") }
+                None => { assert(false, "value should be a number") }
+            }
+        }
+        None => { assert(false, "object should have count field") }
+    }
+    return
+}
+
+let test_builder_with_bool: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(with_bool(builder(), "active", true))
+
+    // Assert
+    match get_field(j, "active") {
+        Some(v) => {
+            match as_bool(v) {
+                Some(b) => { assert(b, "active should be true") }
+                None => { assert(false, "value should be a boolean") }
+            }
+        }
+        None => { assert(false, "object should have active field") }
+    }
+    return
+}
+
+let test_builder_with_null: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(with_null(builder(), "deleted"))
+
+    // Assert
+    match get_field(j, "deleted") {
+        Some(v) => { assert(is_null(v), "deleted should be null") }
+        None => { assert(false, "object should have deleted field") }
+    }
+    return
+}
+
+let test_builder_chained: fn() -> void = fn() -> void {
+    // Act
+    let b1: JsonBuilder = builder()
+    let b2: JsonBuilder = with_string(b1, "name", "Charlie")
+    let b3: JsonBuilder = with_int(b2, "age", 30)
+    let b4: JsonBuilder = with_bool(b3, "active", true)
+    let j: Json = build(b4)
+
+    // Assert
+    match size(j) {
+        Some(s) => { assert_i32_eq(s, 3, "object should have 3 fields") }
+        None => { assert(false, "size should return Some") }
+    }
+    match get_field(j, "name") {
+        Some(v) => {
+            match as_string(v) {
+                Some(s) => { assert(std.string.equals(s, "Charlie"), "name should be Charlie") }
+                None => { assert(false, "name should be a string") }
+            }
+        }
+        None => { assert(false, "object should have name field") }
+    }
+    return
+}
+
+let test_builder_preserves_order: fn() -> void = fn() -> void {
+    // Act - add fields in order: a, b, c
+    let b1: JsonBuilder = builder()
+    let b2: JsonBuilder = with_string(b1, "a", "first")
+    let b3: JsonBuilder = with_string(b2, "b", "second")
+    let b4: JsonBuilder = with_string(b3, "c", "third")
+    let j: Json = build(b4)
+
+    // Assert - stringify and check order
+    let s: string = stringify(j)
+    // Should have a before b before c
+    let a_pos: i32 = find_substring(s, "\"a\"")
+    let b_pos: i32 = find_substring(s, "\"b\"")
+    let c_pos: i32 = find_substring(s, "\"c\"")
+    assert(a_pos < b_pos, "a should come before b")
+    assert(b_pos < c_pos, "b should come before c")
+    return
+}
+
+let test_builder_nested_object: fn() -> void = fn() -> void {
+    // Act
+    let inner: JsonBuilder = with_string(builder(), "city", "NYC")
+    let outer: JsonBuilder = with_object(builder(), "address", inner)
+    let j: Json = build(outer)
+
+    // Assert
+    match get_field(j, "address") {
+        Some(addr) => {
+            assert(is_object(addr), "address should be an object")
+            match get_field(addr, "city") {
+                Some(city) => {
+                    match as_string(city) {
+                        Some(s) => { assert(std.string.equals(s, "NYC"), "city should be NYC") }
+                        None => { assert(false, "city should be a string") }
+                    }
+                }
+                None => { assert(false, "address should have city field") }
+            }
+        }
+        None => { assert(false, "object should have address field") }
+    }
+    return
+}
+
+/// Helper to find substring position (returns -1 if not found)
+let find_substring: fn(string, string) -> i32 = fn(haystack: string, needle: string) -> i32 {
+    let hlen: i32 = std.string.length(haystack)
+    let nlen: i32 = std.string.length(needle)
+    if nlen > hlen {
+        return -1
+    }
+    return find_substring_at(haystack, needle, 0, hlen - nlen + 1)
+}
+
+let find_substring_at: fn(string, string, i32, i32) -> i32 =
+    fn(haystack: string, needle: string, pos: i32, limit: i32) -> i32 {
+        if pos >= limit {
+            return -1
+        }
+        let sub: string = std.string.substring(haystack, pos, pos + std.string.length(needle))
+        if std.string.equals(sub, needle) {
+            return pos
+        }
+        return find_substring_at(haystack, needle, pos + 1, limit)
+    }
+
+// =============================================================================
+// Error Context Tests
+// =============================================================================
+
+let test_format_error_with_context_single_line: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "{\"key\": value}"
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Act & Assert
+    match result {
+        Err(e) => {
+            let msg: string = format_error_with_context(input, e)
+            // Should contain the line content
+            assert(std.string.contains(msg, "{\"key\": value}"), "should contain input line")
+            // Should contain a caret indicator
+            assert(std.string.contains(msg, "^"), "should contain caret indicator")
+        }
+        Ok(_) => { assert(false, "parse should fail") }
+    }
+    return
+}
+
+let test_format_error_with_context_multiline: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "{\n  \"key\": value\n}"
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Act & Assert
+    match result {
+        Err(e) => {
+            let msg: string = format_error_with_context(input, e)
+            // Should contain the error line content (the line with "value")
+            assert(std.string.contains(msg, "\"key\": value"), "should contain error line")
+            assert(std.string.contains(msg, "^"), "should contain caret indicator")
+        }
+        Ok(_) => { assert(false, "parse should fail") }
+    }
+    return
+}
+
+let test_format_error_with_context_unterminated_string: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "{\"key\": \"unterminated"
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Act & Assert
+    match result {
+        Err(e) => {
+            let msg: string = format_error_with_context(input, e)
+            assert(std.string.contains(msg, "Unterminated"), "should mention unterminated")
+            assert(std.string.contains(msg, "^"), "should contain caret indicator")
+        }
+        Ok(_) => { assert(false, "parse should fail") }
+    }
+    return
+}
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -3161,6 +3550,37 @@ effect fn main() -> IO[void] {
     run_test("test_error_line_duplicate_key", test_error_line_duplicate_key)
     run_test("test_error_column_duplicate_key", test_error_column_duplicate_key)
     run_test("test_parse_strict_multiple_duplicates_first_reported", test_parse_strict_multiple_duplicates_first_reported)
+    std.io.println("")
+
+    std.io.println("Convenience Constructors:")
+    run_test("test_json_null", test_json_null)
+    run_test("test_json_bool_true", test_json_bool_true)
+    run_test("test_json_bool_false", test_json_bool_false)
+    run_test("test_json_number", test_json_number)
+    run_test("test_json_int", test_json_int)
+    run_test("test_json_string", test_json_string)
+    run_test("test_json_array", test_json_array)
+    run_test("test_json_array_empty", test_json_array_empty)
+    run_test("test_json_object", test_json_object)
+    run_test("test_json_object_empty", test_json_object_empty)
+    std.io.println("")
+
+    std.io.println("Builder Pattern:")
+    run_test("test_builder_empty", test_builder_empty)
+    run_test("test_builder_with_string", test_builder_with_string)
+    run_test("test_builder_with_number", test_builder_with_number)
+    run_test("test_builder_with_int", test_builder_with_int)
+    run_test("test_builder_with_bool", test_builder_with_bool)
+    run_test("test_builder_with_null", test_builder_with_null)
+    run_test("test_builder_chained", test_builder_chained)
+    run_test("test_builder_preserves_order", test_builder_preserves_order)
+    run_test("test_builder_nested_object", test_builder_nested_object)
+    std.io.println("")
+
+    std.io.println("Error Context:")
+    run_test("test_format_error_with_context_single_line", test_format_error_with_context_single_line)
+    run_test("test_format_error_with_context_multiline", test_format_error_with_context_multiline)
+    run_test("test_format_error_with_context_unterminated_string", test_format_error_with_context_unterminated_string)
     std.io.println("")
 
     std.io.println("==========================")
