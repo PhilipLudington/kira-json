@@ -1222,6 +1222,171 @@ let test_parse_string_with_unicode_escape_control_valid: fn() -> void = fn() -> 
     return
 }
 
+// =============================================================================
+// UTF-16 Surrogate Pair Tests
+// =============================================================================
+
+let test_parse_surrogate_pair_emoji_grinning_face: fn() -> void = fn() -> void {
+    // \uD83D\uDE00 is the UTF-16 surrogate pair for grinning face emoji (U+1F600)
+    let result: Result[Json, JsonError] = parse("\"\\uD83D\\uDE00\"")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    // The grinning face emoji should be a 4-byte UTF-8 sequence
+                    assert(std.string.length(s) == 4, "emoji should be 4 bytes in UTF-8")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "parse surrogate pair should succeed") }
+    }
+    return
+}
+
+let test_parse_surrogate_pair_pile_of_poo: fn() -> void = fn() -> void {
+    // \uD83D\uDCA9 is the UTF-16 surrogate pair for pile of poo emoji (U+1F4A9)
+    let result: Result[Json, JsonError] = parse("\"\\uD83D\\uDCA9\"")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    assert(std.string.length(s) == 4, "emoji should be 4 bytes in UTF-8")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "parse surrogate pair should succeed") }
+    }
+    return
+}
+
+let test_parse_surrogate_pair_in_context: fn() -> void = fn() -> void {
+    // Surrogate pair with surrounding text
+    let result: Result[Json, JsonError] = parse("\"Hello \\uD83D\\uDE00 World\"")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    // "Hello " (6) + emoji (4) + " World" (6) = 16 bytes
+                    assert(std.string.length(s) == 16, "string with emoji should be 16 bytes")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "parse surrogate pair in context should succeed") }
+    }
+    return
+}
+
+let test_parse_lone_high_surrogate_replaced: fn() -> void = fn() -> void {
+    // A high surrogate not followed by a low surrogate should be replaced with U+FFFD
+    let result: Result[Json, JsonError] = parse("\"\\uD83Dhello\"")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    // U+FFFD is 3 bytes in UTF-8, plus "hello" (5 bytes) = 8 bytes
+                    assert(std.string.length(s) == 8, "lone high surrogate + hello should be 8 bytes")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "parse lone high surrogate should succeed with replacement") }
+    }
+    return
+}
+
+let test_parse_lone_low_surrogate_replaced: fn() -> void = fn() -> void {
+    // A low surrogate not preceded by a high surrogate should be replaced with U+FFFD
+    let result: Result[Json, JsonError] = parse("\"\\uDE00hello\"")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    // U+FFFD is 3 bytes in UTF-8, plus "hello" (5 bytes) = 8 bytes
+                    assert(std.string.length(s) == 8, "lone low surrogate + hello should be 8 bytes")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "parse lone low surrogate should succeed with replacement") }
+    }
+    return
+}
+
+let test_parse_high_surrogate_at_end_replaced: fn() -> void = fn() -> void {
+    // A high surrogate at the very end of the string should be replaced with U+FFFD
+    let result: Result[Json, JsonError] = parse("\"hello\\uD83D\"")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    // "hello" (5 bytes) + U+FFFD (3 bytes) = 8 bytes
+                    assert(std.string.length(s) == 8, "hello + lone high surrogate should be 8 bytes")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "parse high surrogate at end should succeed with replacement") }
+    }
+    return
+}
+
+let test_parse_high_surrogate_followed_by_non_surrogate: fn() -> void = fn() -> void {
+    // High surrogate followed by a regular escape (not a low surrogate)
+    let result: Result[Json, JsonError] = parse("\"\\uD83D\\u0041\"")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    // U+FFFD (3 bytes) + "A" (1 byte) = 4 bytes
+                    assert(std.string.length(s) == 4, "high surrogate + A should be 4 bytes")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "parse high surrogate + non-surrogate should succeed") }
+    }
+    return
+}
+
+let test_parse_multiple_surrogate_pairs: fn() -> void = fn() -> void {
+    // Multiple emoji in a row
+    let result: Result[Json, JsonError] = parse("\"\\uD83D\\uDE00\\uD83D\\uDCA9\"")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    // Two emoji, each 4 bytes = 8 bytes
+                    assert(std.string.length(s) == 8, "two emoji should be 8 bytes")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "parse multiple surrogate pairs should succeed") }
+    }
+    return
+}
+
+let test_parse_surrogate_pair_musical_symbol: fn() -> void = fn() -> void {
+    // \uD834\uDD1E is G clef (U+1D11E), a common test case for surrogates
+    let result: Result[Json, JsonError] = parse("\"\\uD834\\uDD1E\"")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    // Musical symbols are 4 bytes in UTF-8
+                    assert(std.string.length(s) == 4, "G clef should be 4 bytes in UTF-8")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "parse G clef surrogate pair should succeed") }
+    }
+    return
+}
+
 let test_parse_string_unescaped_tab_rejected: fn() -> void = fn() -> void {
     // Unescaped tab (0x09) should be rejected
     // Tab is ASCII 9, which is a control character
@@ -2679,6 +2844,21 @@ effect fn main() -> IO[void] {
     run_test("test_parse_string_with_escaped_carriage_return_valid", test_parse_string_with_escaped_carriage_return_valid)
     run_test("test_parse_string_with_unicode_escape_null_valid", test_parse_string_with_unicode_escape_null_valid)
     run_test("test_parse_string_with_unicode_escape_control_valid", test_parse_string_with_unicode_escape_control_valid)
+    std.io.println("")
+
+    std.io.println("UTF-16 Surrogate Pairs:")
+    run_test("test_parse_surrogate_pair_emoji_grinning_face", test_parse_surrogate_pair_emoji_grinning_face)
+    run_test("test_parse_surrogate_pair_pile_of_poo", test_parse_surrogate_pair_pile_of_poo)
+    run_test("test_parse_surrogate_pair_in_context", test_parse_surrogate_pair_in_context)
+    run_test("test_parse_lone_high_surrogate_replaced", test_parse_lone_high_surrogate_replaced)
+    run_test("test_parse_lone_low_surrogate_replaced", test_parse_lone_low_surrogate_replaced)
+    run_test("test_parse_high_surrogate_at_end_replaced", test_parse_high_surrogate_at_end_replaced)
+    run_test("test_parse_high_surrogate_followed_by_non_surrogate", test_parse_high_surrogate_followed_by_non_surrogate)
+    run_test("test_parse_multiple_surrogate_pairs", test_parse_multiple_surrogate_pairs)
+    run_test("test_parse_surrogate_pair_musical_symbol", test_parse_surrogate_pair_musical_symbol)
+    std.io.println("")
+
+    std.io.println("Control Character Rejection:")
     run_test("test_parse_string_unescaped_tab_rejected", test_parse_string_unescaped_tab_rejected)
     run_test("test_parse_string_unescaped_newline_rejected", test_parse_string_unescaped_newline_rejected)
     run_test("test_parse_string_unescaped_carriage_return_rejected", test_parse_string_unescaped_carriage_return_rejected)

@@ -19,12 +19,13 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 ## Phase 1: JSON Specification Compliance
 
-### 1.1 UTF-16 Surrogate Pair Support
-- [ ] Handle surrogate pairs in unicode escapes (`\uD800`-`\uDFFF`)
-- [ ] Parse `\uD83D\uDE00` as single emoji character
-- [ ] Add tests for emoji and extended Unicode
+### 1.1 UTF-16 Surrogate Pair Support ✓
+- [x] Handle surrogate pairs in unicode escapes (`\uD800`-`\uDFFF`)
+- [x] Parse `\uD83D\uDE00` as single emoji character
+- [x] Add tests for emoji and extended Unicode
+- [x] Lone surrogates replaced with U+FFFD (replacement character)
 
-**Files:** `src/json.ki` (parse_unicode_escape_str)
+**Files:** `src/json.ki` (parse_unicode_escape_str, is_high_surrogate, is_low_surrogate, combine_surrogates, parse_4_hex_digits)
 
 ### 1.2 Number Handling Edge Cases
 - [x] Reject leading zeros (e.g., `007` is invalid JSON)
@@ -221,7 +222,7 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 5. ~~**Phase 4.1** - Structured errors~~ ✓
 6. ~~**Phase 3.1** - Path access~~ ✓
 7. ~~**Phase 2.3** - Stack safety~~ ✓
-8. **Phase 1.1** - Surrogate pairs (full Unicode)
+8. ~~**Phase 1.1** - Surrogate pairs (full Unicode)~~ ✓
 9. **Phase 5.1** - Test suite (validation)
 10. **Phase 2.1** - HashMap objects (if perf needed)
 
