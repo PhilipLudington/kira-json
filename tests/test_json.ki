@@ -3,7 +3,7 @@
 
 module test_json
 
-import src.json.{ Json, JsonField, ParseError, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals }
+import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals }
 
 // =============================================================================
 // Test Utilities
@@ -707,7 +707,7 @@ let test_stringify_pretty_indentation: fn() -> void = fn() -> void {
 // =============================================================================
 
 let test_parse_null: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("null")
+    let result: Result[Json, JsonError] = parse("null")
     match result {
         Ok(v) => { assert_true(is_null(v), "parse 'null' should produce JNull") }
         Err(_) => { assert(false, "parse 'null' should succeed") }
@@ -716,7 +716,7 @@ let test_parse_null: fn() -> void = fn() -> void {
 }
 
 let test_parse_true: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("true")
+    let result: Result[Json, JsonError] = parse("true")
     match result {
         Ok(v) => {
             match as_bool(v) {
@@ -730,7 +730,7 @@ let test_parse_true: fn() -> void = fn() -> void {
 }
 
 let test_parse_false: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("false")
+    let result: Result[Json, JsonError] = parse("false")
     match result {
         Ok(v) => {
             match as_bool(v) {
@@ -744,7 +744,7 @@ let test_parse_false: fn() -> void = fn() -> void {
 }
 
 let test_parse_integer: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("42")
+    let result: Result[Json, JsonError] = parse("42")
     match result {
         Ok(v) => {
             match as_number(v) {
@@ -758,7 +758,7 @@ let test_parse_integer: fn() -> void = fn() -> void {
 }
 
 let test_parse_negative_number: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("-17")
+    let result: Result[Json, JsonError] = parse("-17")
     match result {
         Ok(v) => {
             match as_number(v) {
@@ -772,7 +772,7 @@ let test_parse_negative_number: fn() -> void = fn() -> void {
 }
 
 let test_parse_decimal: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("3.14")
+    let result: Result[Json, JsonError] = parse("3.14")
     match result {
         Ok(v) => {
             match as_number(v) {
@@ -786,7 +786,7 @@ let test_parse_decimal: fn() -> void = fn() -> void {
 }
 
 let test_parse_exponent: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("1e10")
+    let result: Result[Json, JsonError] = parse("1e10")
     match result {
         Ok(v) => { assert_true(is_number(v), "parse '1e10' should produce number") }
         Err(_) => { assert(false, "parse '1e10' should succeed") }
@@ -795,7 +795,7 @@ let test_parse_exponent: fn() -> void = fn() -> void {
 }
 
 let test_parse_string_simple: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("\"hello\"")
+    let result: Result[Json, JsonError] = parse("\"hello\"")
     match result {
         Ok(v) => {
             match as_string(v) {
@@ -809,7 +809,7 @@ let test_parse_string_simple: fn() -> void = fn() -> void {
 }
 
 let test_parse_string_empty: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("\"\"")
+    let result: Result[Json, JsonError] = parse("\"\"")
     match result {
         Ok(v) => {
             match as_string(v) {
@@ -823,7 +823,7 @@ let test_parse_string_empty: fn() -> void = fn() -> void {
 }
 
 let test_parse_string_escaped_quote: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("\"hello \\\"world\\\"\"")
+    let result: Result[Json, JsonError] = parse("\"hello \\\"world\\\"\"")
     match result {
         Ok(v) => {
             match as_string(v) {
@@ -837,7 +837,7 @@ let test_parse_string_escaped_quote: fn() -> void = fn() -> void {
 }
 
 let test_parse_string_escaped_newline: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("\"line1\\nline2\"")
+    let result: Result[Json, JsonError] = parse("\"line1\\nline2\"")
     match result {
         Ok(v) => {
             match as_string(v) {
@@ -851,7 +851,7 @@ let test_parse_string_escaped_newline: fn() -> void = fn() -> void {
 }
 
 let test_parse_array_empty: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("[]")
+    let result: Result[Json, JsonError] = parse("[]")
     match result {
         Ok(v) => {
             assert_true(is_array(v), "parse '[]' should produce array")
@@ -866,7 +866,7 @@ let test_parse_array_empty: fn() -> void = fn() -> void {
 }
 
 let test_parse_array_with_elements: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("[1, 2, 3]")
+    let result: Result[Json, JsonError] = parse("[1, 2, 3]")
     match result {
         Ok(v) => {
             assert_true(is_array(v), "parse '[1,2,3]' should produce array")
@@ -881,7 +881,7 @@ let test_parse_array_with_elements: fn() -> void = fn() -> void {
 }
 
 let test_parse_array_mixed_types: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("[1, \"hello\", true, null]")
+    let result: Result[Json, JsonError] = parse("[1, \"hello\", true, null]")
     match result {
         Ok(v) => {
             assert_true(is_array(v), "parse mixed array should produce array")
@@ -896,7 +896,7 @@ let test_parse_array_mixed_types: fn() -> void = fn() -> void {
 }
 
 let test_parse_object_empty: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("{}")
+    let result: Result[Json, JsonError] = parse("{}")
     match result {
         Ok(v) => {
             assert_true(is_object(v), "parse '{}' should produce object")
@@ -911,7 +911,7 @@ let test_parse_object_empty: fn() -> void = fn() -> void {
 }
 
 let test_parse_object_single_field: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("{\"name\": \"Alice\"}")
+    let result: Result[Json, JsonError] = parse("{\"name\": \"Alice\"}")
     match result {
         Ok(v) => {
             assert_true(is_object(v), "parse object should produce object")
@@ -931,7 +931,7 @@ let test_parse_object_single_field: fn() -> void = fn() -> void {
 }
 
 let test_parse_object_multiple_fields: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("{\"name\": \"Alice\", \"age\": 30}")
+    let result: Result[Json, JsonError] = parse("{\"name\": \"Alice\", \"age\": 30}")
     match result {
         Ok(v) => {
             assert_true(is_object(v), "parse object should produce object")
@@ -946,7 +946,7 @@ let test_parse_object_multiple_fields: fn() -> void = fn() -> void {
 }
 
 let test_parse_nested_object: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("{\"user\": {\"name\": \"Alice\"}}")
+    let result: Result[Json, JsonError] = parse("{\"user\": {\"name\": \"Alice\"}}")
     match result {
         Ok(v) => {
             assert_true(is_object(v), "parse nested object should produce object")
@@ -963,7 +963,7 @@ let test_parse_nested_object: fn() -> void = fn() -> void {
 }
 
 let test_parse_with_whitespace: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("  { \"name\" : \"Alice\" }  ")
+    let result: Result[Json, JsonError] = parse("  { \"name\" : \"Alice\" }  ")
     match result {
         Ok(v) => {
             assert_true(is_object(v), "parse with whitespace should produce object")
@@ -976,48 +976,48 @@ let test_parse_with_whitespace: fn() -> void = fn() -> void {
 // Parser Error Tests
 
 let test_parse_error_invalid_token: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("undefined")
-    assert_err[Json, ParseError](result, "parse 'undefined' should fail")
+    let result: Result[Json, JsonError] = parse("undefined")
+    assert_err[Json, JsonError](result, "parse 'undefined' should fail")
     return
 }
 
 let test_parse_error_unterminated_string: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("\"hello")
-    assert_err[Json, ParseError](result, "parse unterminated string should fail")
+    let result: Result[Json, JsonError] = parse("\"hello")
+    assert_err[Json, JsonError](result, "parse unterminated string should fail")
     return
 }
 
 let test_parse_error_unterminated_array: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("[1, 2")
-    assert_err[Json, ParseError](result, "parse unterminated array should fail")
+    let result: Result[Json, JsonError] = parse("[1, 2")
+    assert_err[Json, JsonError](result, "parse unterminated array should fail")
     return
 }
 
 let test_parse_error_unterminated_object: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("{\"name\": \"Alice\"")
-    assert_err[Json, ParseError](result, "parse unterminated object should fail")
+    let result: Result[Json, JsonError] = parse("{\"name\": \"Alice\"")
+    assert_err[Json, JsonError](result, "parse unterminated object should fail")
     return
 }
 
 let test_parse_error_trailing_content: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("true false")
-    assert_err[Json, ParseError](result, "parse trailing content should fail")
+    let result: Result[Json, JsonError] = parse("true false")
+    assert_err[Json, JsonError](result, "parse trailing content should fail")
     return
 }
 
 let test_parse_error_missing_colon: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("{\"name\" \"Alice\"}")
-    assert_err[Json, ParseError](result, "parse missing colon should fail")
+    let result: Result[Json, JsonError] = parse("{\"name\" \"Alice\"}")
+    assert_err[Json, JsonError](result, "parse missing colon should fail")
     return
 }
 
 let test_parse_error_position_tracking: fn() -> void = fn() -> void {
-    let result: Result[Json, ParseError] = parse("{\n  \"name\": undefined\n}")
+    let result: Result[Json, JsonError] = parse("{\n  \"name\": undefined\n}")
     match result {
         Ok(_) => { assert(false, "parse should fail") }
         Err(e) => {
             // Error should be on line 2 where "undefined" is
-            assert_i32_eq(e.line, 2, "error should be on line 2")
+            assert_i32_eq(error_line(e), 2, "error should be on line 2")
         }
     }
     return
@@ -1027,21 +1027,21 @@ let test_parse_error_position_tracking: fn() -> void = fn() -> void {
 
 let test_parse_number_leading_zero_rejected: fn() -> void = fn() -> void {
     // Leading zeros are invalid in JSON (except for "0" itself)
-    let result: Result[Json, ParseError] = parse("007")
-    assert_err[Json, ParseError](result, "parse '007' should fail - leading zeros not allowed")
+    let result: Result[Json, JsonError] = parse("007")
+    assert_err[Json, JsonError](result, "parse '007' should fail - leading zeros not allowed")
     return
 }
 
 let test_parse_number_leading_zero_negative_rejected: fn() -> void = fn() -> void {
     // Leading zeros also invalid with negative sign
-    let result: Result[Json, ParseError] = parse("-007")
-    assert_err[Json, ParseError](result, "parse '-007' should fail - leading zeros not allowed")
+    let result: Result[Json, JsonError] = parse("-007")
+    assert_err[Json, JsonError](result, "parse '-007' should fail - leading zeros not allowed")
     return
 }
 
 let test_parse_number_zero_alone_valid: fn() -> void = fn() -> void {
     // Single zero is valid
-    let result: Result[Json, ParseError] = parse("0")
+    let result: Result[Json, JsonError] = parse("0")
     match result {
         Ok(v) => {
             match as_number(v) {
@@ -1056,7 +1056,7 @@ let test_parse_number_zero_alone_valid: fn() -> void = fn() -> void {
 
 let test_parse_number_zero_decimal_valid: fn() -> void = fn() -> void {
     // Zero with decimal is valid
-    let result: Result[Json, ParseError] = parse("0.5")
+    let result: Result[Json, JsonError] = parse("0.5")
     match result {
         Ok(v) => {
             match as_number(v) {
@@ -1071,7 +1071,7 @@ let test_parse_number_zero_decimal_valid: fn() -> void = fn() -> void {
 
 let test_parse_number_zero_exponent_valid: fn() -> void = fn() -> void {
     // Zero with exponent is valid
-    let result: Result[Json, ParseError] = parse("0e5")
+    let result: Result[Json, JsonError] = parse("0e5")
     match result {
         Ok(v) => { assert_true(is_number(v), "parse '0e5' should produce number") }
         Err(_) => { assert(false, "parse '0e5' should succeed") }
@@ -1081,14 +1081,14 @@ let test_parse_number_zero_exponent_valid: fn() -> void = fn() -> void {
 
 let test_parse_number_very_large_overflow: fn() -> void = fn() -> void {
     // Very large exponent should fail (infinity not allowed)
-    let result: Result[Json, ParseError] = parse("1e999")
-    assert_err[Json, ParseError](result, "parse '1e999' should fail - infinity not allowed")
+    let result: Result[Json, JsonError] = parse("1e999")
+    assert_err[Json, JsonError](result, "parse '1e999' should fail - infinity not allowed")
     return
 }
 
 let test_parse_number_very_small_underflow: fn() -> void = fn() -> void {
     // Very small exponent underflows to zero, which is valid
-    let result: Result[Json, ParseError] = parse("1e-999")
+    let result: Result[Json, JsonError] = parse("1e-999")
     match result {
         Ok(v) => {
             match as_number(v) {
@@ -1103,14 +1103,14 @@ let test_parse_number_very_small_underflow: fn() -> void = fn() -> void {
 
 let test_parse_number_negative_very_large: fn() -> void = fn() -> void {
     // Negative very large should also fail
-    let result: Result[Json, ParseError] = parse("-1e999")
-    assert_err[Json, ParseError](result, "parse '-1e999' should fail - infinity not allowed")
+    let result: Result[Json, JsonError] = parse("-1e999")
+    assert_err[Json, JsonError](result, "parse '-1e999' should fail - infinity not allowed")
     return
 }
 
 let test_parse_number_scientific_notation_valid: fn() -> void = fn() -> void {
     // Normal scientific notation should work
-    let result: Result[Json, ParseError] = parse("1.5e10")
+    let result: Result[Json, JsonError] = parse("1.5e10")
     match result {
         Ok(v) => {
             match as_number(v) {
@@ -1129,7 +1129,7 @@ let test_parse_number_scientific_notation_valid: fn() -> void = fn() -> void {
 
 let test_parse_number_negative_exponent_valid: fn() -> void = fn() -> void {
     // Negative exponent should work
-    let result: Result[Json, ParseError] = parse("1.5e-5")
+    let result: Result[Json, JsonError] = parse("1.5e-5")
     match result {
         Ok(v) => {
             match as_number(v) {
@@ -1150,7 +1150,7 @@ let test_parse_number_negative_exponent_valid: fn() -> void = fn() -> void {
 
 let test_parse_string_with_escaped_tab_valid: fn() -> void = fn() -> void {
     // Escaped tab is valid
-    let result: Result[Json, ParseError] = parse("\"hello\\tworld\"")
+    let result: Result[Json, JsonError] = parse("\"hello\\tworld\"")
     match result {
         Ok(v) => {
             match as_string(v) {
@@ -1165,7 +1165,7 @@ let test_parse_string_with_escaped_tab_valid: fn() -> void = fn() -> void {
 
 let test_parse_string_with_escaped_backspace_valid: fn() -> void = fn() -> void {
     // Escaped backspace is valid
-    let result: Result[Json, ParseError] = parse("\"hello\\bworld\"")
+    let result: Result[Json, JsonError] = parse("\"hello\\bworld\"")
     match result {
         Ok(v) => {
             match as_string(v) {
@@ -1180,7 +1180,7 @@ let test_parse_string_with_escaped_backspace_valid: fn() -> void = fn() -> void 
 
 let test_parse_string_with_escaped_formfeed_valid: fn() -> void = fn() -> void {
     // Escaped form feed is valid
-    let result: Result[Json, ParseError] = parse("\"hello\\fworld\"")
+    let result: Result[Json, JsonError] = parse("\"hello\\fworld\"")
     match result {
         Ok(v) => {
             match as_string(v) {
@@ -1195,7 +1195,7 @@ let test_parse_string_with_escaped_formfeed_valid: fn() -> void = fn() -> void {
 
 let test_parse_string_with_escaped_carriage_return_valid: fn() -> void = fn() -> void {
     // Escaped carriage return is valid
-    let result: Result[Json, ParseError] = parse("\"hello\\rworld\"")
+    let result: Result[Json, JsonError] = parse("\"hello\\rworld\"")
     match result {
         Ok(v) => {
             match as_string(v) {
@@ -1210,15 +1210,15 @@ let test_parse_string_with_escaped_carriage_return_valid: fn() -> void = fn() ->
 
 let test_parse_string_with_unicode_escape_null_valid: fn() -> void = fn() -> void {
     // Unicode escape for null character is valid (produces the actual character)
-    let result: Result[Json, ParseError] = parse("\"hello\\u0000world\"")
-    assert_ok[Json, ParseError](result, "parse unicode escape for null should succeed")
+    let result: Result[Json, JsonError] = parse("\"hello\\u0000world\"")
+    assert_ok[Json, JsonError](result, "parse unicode escape for null should succeed")
     return
 }
 
 let test_parse_string_with_unicode_escape_control_valid: fn() -> void = fn() -> void {
     // Unicode escape for control characters is valid
-    let result: Result[Json, ParseError] = parse("\"hello\\u001Fworld\"")
-    assert_ok[Json, ParseError](result, "parse unicode escape for control char should succeed")
+    let result: Result[Json, JsonError] = parse("\"hello\\u001Fworld\"")
+    assert_ok[Json, JsonError](result, "parse unicode escape for control char should succeed")
     return
 }
 
@@ -1226,38 +1226,38 @@ let test_parse_string_unescaped_tab_rejected: fn() -> void = fn() -> void {
     // Unescaped tab (0x09) should be rejected
     // Tab is ASCII 9, which is a control character
     let input: string = "\"hello\tworld\""
-    let result: Result[Json, ParseError] = parse(input)
-    assert_err[Json, ParseError](result, "parse unescaped tab should fail")
+    let result: Result[Json, JsonError] = parse(input)
+    assert_err[Json, JsonError](result, "parse unescaped tab should fail")
     return
 }
 
 let test_parse_string_unescaped_newline_rejected: fn() -> void = fn() -> void {
     // Unescaped newline (0x0A) should be rejected
     let input: string = "\"hello\nworld\""
-    let result: Result[Json, ParseError] = parse(input)
-    assert_err[Json, ParseError](result, "parse unescaped newline should fail")
+    let result: Result[Json, JsonError] = parse(input)
+    assert_err[Json, JsonError](result, "parse unescaped newline should fail")
     return
 }
 
 let test_parse_string_unescaped_carriage_return_rejected: fn() -> void = fn() -> void {
     // Unescaped carriage return (0x0D) should be rejected
     let input: string = "\"hello\rworld\""
-    let result: Result[Json, ParseError] = parse(input)
-    assert_err[Json, ParseError](result, "parse unescaped carriage return should fail")
+    let result: Result[Json, JsonError] = parse(input)
+    assert_err[Json, JsonError](result, "parse unescaped carriage return should fail")
     return
 }
 
 let test_parse_string_invalid_escape_rejected: fn() -> void = fn() -> void {
     // Invalid escape sequence should be rejected
-    let result: Result[Json, ParseError] = parse("\"hello\\xworld\"")
-    assert_err[Json, ParseError](result, "parse invalid escape \\x should fail")
+    let result: Result[Json, JsonError] = parse("\"hello\\xworld\"")
+    assert_err[Json, JsonError](result, "parse invalid escape \\x should fail")
     return
 }
 
 let test_parse_string_bare_backslash_rejected: fn() -> void = fn() -> void {
     // Bare backslash at end of string should be rejected
-    let result: Result[Json, ParseError] = parse("\"hello\\")
-    assert_err[Json, ParseError](result, "parse bare backslash at end should fail")
+    let result: Result[Json, JsonError] = parse("\"hello\\")
+    assert_err[Json, JsonError](result, "parse bare backslash at end should fail")
     return
 }
 
@@ -1490,7 +1490,7 @@ let test_roundtrip_null: fn() -> void = fn() -> void {
     // Property: parse(stringify(x)) == x for null
     let original: Json = JNull
     let json_str: string = stringify(original)
-    let parsed: Result[Json, ParseError] = parse(json_str)
+    let parsed: Result[Json, JsonError] = parse(json_str)
     match parsed {
         Ok(v) => { assert_true(is_null(v), "roundtrip null should preserve null") }
         Err(_) => { assert(false, "roundtrip should succeed") }
@@ -1501,7 +1501,7 @@ let test_roundtrip_null: fn() -> void = fn() -> void {
 let test_roundtrip_bool: fn() -> void = fn() -> void {
     let original: Json = JBool(true)
     let json_str: string = stringify(original)
-    let parsed: Result[Json, ParseError] = parse(json_str)
+    let parsed: Result[Json, JsonError] = parse(json_str)
     match parsed {
         Ok(v) => {
             match as_bool(v) {
@@ -1517,7 +1517,7 @@ let test_roundtrip_bool: fn() -> void = fn() -> void {
 let test_roundtrip_number: fn() -> void = fn() -> void {
     let original: Json = JNumber(42.5)
     let json_str: string = stringify(original)
-    let parsed: Result[Json, ParseError] = parse(json_str)
+    let parsed: Result[Json, JsonError] = parse(json_str)
     match parsed {
         Ok(v) => {
             match as_number(v) {
@@ -1533,7 +1533,7 @@ let test_roundtrip_number: fn() -> void = fn() -> void {
 let test_roundtrip_string: fn() -> void = fn() -> void {
     let original: Json = JString("hello world")
     let json_str: string = stringify(original)
-    let parsed: Result[Json, ParseError] = parse(json_str)
+    let parsed: Result[Json, JsonError] = parse(json_str)
     match parsed {
         Ok(v) => {
             match as_string(v) {
@@ -1552,7 +1552,7 @@ let test_roundtrip_array: fn() -> void = fn() -> void {
         Cons(JNumber(2.0), Nil)
     ))
     let json_str: string = stringify(original)
-    let parsed: Result[Json, ParseError] = parse(json_str)
+    let parsed: Result[Json, JsonError] = parse(json_str)
     match parsed {
         Ok(v) => {
             assert_true(is_array(v), "roundtrip should preserve array type")
@@ -1570,7 +1570,7 @@ let test_roundtrip_object: fn() -> void = fn() -> void {
     let field: JsonField = JsonField { key: "name", value: JString("Alice") }
     let original: Json = JObject(Cons(field, Nil))
     let json_str: string = stringify(original)
-    let parsed: Result[Json, ParseError] = parse(json_str)
+    let parsed: Result[Json, JsonError] = parse(json_str)
     match parsed {
         Ok(v) => {
             assert_true(is_object(v), "roundtrip should preserve object type")
@@ -1877,11 +1877,184 @@ let test_equals_roundtrip: fn() -> void = fn() -> void {
     let original: Json = JObject(Cons(field1, Cons(field2, Nil)))
 
     let json_str: string = stringify(original)
-    let parsed: Result[Json, ParseError] = parse(json_str)
+    let parsed: Result[Json, JsonError] = parse(json_str)
 
     match parsed {
         Ok(v) => { assert_true(equals(original, v), "parse(stringify(x)) should equal x") }
         Err(_) => { assert(false, "parse should succeed") }
+    }
+    return
+}
+
+// =============================================================================
+// Structured Error Type Tests
+// =============================================================================
+
+let test_error_pattern_match_unterminated_string: fn() -> void = fn() -> void {
+    let result: Result[Json, JsonError] = parse("\"hello")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            match e {
+                UnterminatedString { line: _, col: _ } => {
+                    // Expected error type
+                    return
+                }
+                _ => { assert(false, "expected UnterminatedString error") }
+            }
+        }
+    }
+    return
+}
+
+let test_error_pattern_match_trailing_content: fn() -> void = fn() -> void {
+    let result: Result[Json, JsonError] = parse("true false")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            match e {
+                TrailingContent { found: _, line: _, col: _ } => {
+                    // Expected error type
+                    return
+                }
+                _ => { assert(false, "expected TrailingContent error") }
+            }
+        }
+    }
+    return
+}
+
+let test_error_pattern_match_invalid_number: fn() -> void = fn() -> void {
+    let result: Result[Json, JsonError] = parse("007")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            match e {
+                InvalidNumber { value: _, reason: _, line: _, col: _ } => {
+                    // Expected error type
+                    return
+                }
+                _ => { assert(false, "expected InvalidNumber error") }
+            }
+        }
+    }
+    return
+}
+
+let test_error_pattern_match_control_char: fn() -> void = fn() -> void {
+    let input: string = "\"hello\tworld\""
+    let result: Result[Json, JsonError] = parse(input)
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            match e {
+                ControlChar { code: _, line: _, col: _ } => {
+                    // Expected error type
+                    return
+                }
+                _ => { assert(false, "expected ControlChar error") }
+            }
+        }
+    }
+    return
+}
+
+let test_error_pattern_match_invalid_escape: fn() -> void = fn() -> void {
+    let result: Result[Json, JsonError] = parse("\"hello\\xworld\"")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            match e {
+                InvalidEscape { sequence: _, reason: _, line: _, col: _ } => {
+                    // Expected error type
+                    return
+                }
+                _ => { assert(false, "expected InvalidEscape error") }
+            }
+        }
+    }
+    return
+}
+
+let test_error_pattern_match_unexpected_token: fn() -> void = fn() -> void {
+    let result: Result[Json, JsonError] = parse("undefined")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            match e {
+                UnexpectedToken { expected: _, found: _, line: _, col: _ } => {
+                    // Expected error type
+                    return
+                }
+                _ => { assert(false, "expected UnexpectedToken error") }
+            }
+        }
+    }
+    return
+}
+
+let test_error_pattern_match_unexpected_eof: fn() -> void = fn() -> void {
+    let result: Result[Json, JsonError] = parse("[1, 2")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            match e {
+                UnexpectedEof { expected: _, context: _, line: _, col: _ } => {
+                    // Expected error type
+                    return
+                }
+                _ => { assert(false, "expected UnexpectedEof error") }
+            }
+        }
+    }
+    return
+}
+
+let test_format_error_unterminated_string: fn() -> void = fn() -> void {
+    let result: Result[Json, JsonError] = parse("\"hello")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            let msg: string = format_error(e)
+            assert_true(std.string.contains(msg, "Unterminated"), "format_error should contain 'Unterminated'")
+        }
+    }
+    return
+}
+
+let test_format_error_invalid_number: fn() -> void = fn() -> void {
+    // Use a number with leading zeros which definitely triggers InvalidNumber
+    let result: Result[Json, JsonError] = parse("007")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            let msg: string = format_error(e)
+            assert_true(std.string.contains(msg, "Invalid number"), "format_error should contain 'Invalid number'")
+        }
+    }
+    return
+}
+
+let test_error_line_helper: fn() -> void = fn() -> void {
+    let result: Result[Json, JsonError] = parse("{\n  \"key\": undefined\n}")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            let line: i32 = error_line(e)
+            assert_i32_eq(line, 2, "error_line should return line 2")
+        }
+    }
+    return
+}
+
+let test_error_column_helper: fn() -> void = fn() -> void {
+    let result: Result[Json, JsonError] = parse("  undefined")
+    match result {
+        Ok(_) => { assert(false, "parse should fail") }
+        Err(e) => {
+            let col: i32 = error_column(e)
+            assert_i32_eq(col, 3, "error_column should return column 3")
+        }
     }
     return
 }
@@ -2081,6 +2254,20 @@ effect fn main() -> IO[void] {
     run_test("test_equals_mixed_nested", test_equals_mixed_nested)
     run_test("test_equals_different_types", test_equals_different_types)
     run_test("test_equals_roundtrip", test_equals_roundtrip)
+    std.io.println("")
+
+    std.io.println("Structured Error Types:")
+    run_test("test_error_pattern_match_unterminated_string", test_error_pattern_match_unterminated_string)
+    run_test("test_error_pattern_match_trailing_content", test_error_pattern_match_trailing_content)
+    run_test("test_error_pattern_match_invalid_number", test_error_pattern_match_invalid_number)
+    run_test("test_error_pattern_match_control_char", test_error_pattern_match_control_char)
+    run_test("test_error_pattern_match_invalid_escape", test_error_pattern_match_invalid_escape)
+    run_test("test_error_pattern_match_unexpected_token", test_error_pattern_match_unexpected_token)
+    run_test("test_error_pattern_match_unexpected_eof", test_error_pattern_match_unexpected_eof)
+    run_test("test_format_error_unterminated_string", test_format_error_unterminated_string)
+    run_test("test_format_error_invalid_number", test_format_error_invalid_number)
+    run_test("test_error_line_helper", test_error_line_helper)
+    run_test("test_error_column_helper", test_error_column_helper)
     std.io.println("")
 
     std.io.println("==========================")

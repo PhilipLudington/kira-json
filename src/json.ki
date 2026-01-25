@@ -29,10 +29,75 @@ pub let make_field: fn(string, Json) -> JsonField = fn(key: string, value: Json)
 }
 
 /// Error information from parsing, including position in the input.
+/// @deprecated Use JsonError for pattern matching on specific error types.
 pub type ParseError = {
     message: string,
     line: i32,
     column: i32
+}
+
+/// Structured error type for JSON parsing failures.
+/// Enables pattern matching on specific error categories.
+pub type JsonError =
+    | UnexpectedEof { expected: string, context: string, line: i32, col: i32 }
+    | UnexpectedToken { expected: string, found: string, line: i32, col: i32 }
+    | UnterminatedString { line: i32, col: i32 }
+    | InvalidEscape { sequence: string, reason: string, line: i32, col: i32 }
+    | ControlChar { code: i32, line: i32, col: i32 }
+    | InvalidNumber { value: string, reason: string, line: i32, col: i32 }
+    | TrailingContent { found: string, line: i32, col: i32 }
+
+/// Converts a JsonError to a human-readable string.
+pub let format_error: fn(JsonError) -> string = fn(err: JsonError) -> string {
+    match err {
+        InvalidNumber { value: val, reason: rsn, line: l, col: c } => {
+            return std.string.concat("Invalid number '", std.string.concat(val, std.string.concat("' at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": ", rsn)))))))
+        }
+        InvalidEscape { sequence: seq, reason: rsn, line: l, col: c } => {
+            return std.string.concat("Invalid escape sequence '", std.string.concat(seq, std.string.concat("' at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": ", rsn)))))))
+        }
+        UnexpectedEof { expected: exp, context: ctx, line: l, col: c } => {
+            return std.string.concat("Unexpected end of input at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": expected ", std.string.concat(exp, std.string.concat(" in ", ctx)))))))
+        }
+        UnexpectedToken { expected: exp, found: fnd, line: l, col: c } => {
+            return std.string.concat("Unexpected token at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": expected ", std.string.concat(exp, std.string.concat(", found '", std.string.concat(fnd, "'"))))))))
+        }
+        TrailingContent { found: fnd, line: l, col: c } => {
+            return std.string.concat("Unexpected content after JSON value at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": found '", std.string.concat(fnd, "'"))))))
+        }
+        ControlChar { code: cd, line: l, col: c } => {
+            return std.string.concat("Unescaped control character (code ", std.string.concat(std.int.to_string(cd), std.string.concat(") at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))))
+        }
+        UnterminatedString { line: l, col: c } => {
+            return std.string.concat("Unterminated string at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))
+        }
+    }
+}
+
+/// Returns the line number from a JsonError.
+pub let error_line: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
+    match err {
+        InvalidNumber { value: _, reason: _, line: l, col: _ } => { return l }
+        InvalidEscape { sequence: _, reason: _, line: l, col: _ } => { return l }
+        UnexpectedEof { expected: _, context: _, line: l, col: _ } => { return l }
+        UnexpectedToken { expected: _, found: _, line: l, col: _ } => { return l }
+        TrailingContent { found: _, line: l, col: _ } => { return l }
+        ControlChar { code: _, line: l, col: _ } => { return l }
+        UnterminatedString { line: l, col: _ } => { return l }
+    }
+}
+
+/// Returns the column number from a JsonError.
+pub let error_column: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
+    match err {
+        InvalidNumber { value: _, reason: _, line: _, col: c } => { return c }
+        InvalidEscape { sequence: _, reason: _, line: _, col: c } => { return c }
+        UnexpectedEof { expected: _, context: _, line: _, col: c } => { return c }
+        UnexpectedToken { expected: _, found: _, line: _, col: c } => { return c }
+        TrailingContent { found: _, line: _, col: c } => { return c }
+        ControlChar { code: _, line: _, col: c } => { return c }
+        UnterminatedString { line: _, col: c } => { return c }
+    }
 }
 
 
@@ -48,7 +113,7 @@ type ParserState = {
 /// or failure with an error.
 type ParseResult[T] =
     | ParseOk(T, ParserState)
-    | ParseErr(ParseError)
+    | ParseErr(JsonError)
 
 // =============================================================================
 // Type Checking Predicates
@@ -582,12 +647,12 @@ let init_state: fn(string) -> ParserState = fn(input: string) -> ParserState {
     }
 }
 
-/// Creates a parse error with the current position.
-let make_error: fn(ParserState, string) -> ParseError = fn(state: ParserState, message: string) -> ParseError {
-    return ParseError {
-        message: message,
-        line: state.line,
-        column: state.column
+/// Helper to get the character code from a single-character string.
+let get_char_code: fn(string) -> i32 = fn(s: string) -> i32 {
+    let chars: List[Char] = std.string.chars(s)
+    match chars {
+        Cons(ch, Nil) => { return std.char.to_i32(ch) }
+        _ => { return 0 }
     }
 }
 
@@ -743,9 +808,9 @@ let parse_bool: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) ->
                     ParseErr(e) => { return ParseErr(e) }
                 }
             }
-            return ParseErr(make_error(state, "Expected 'true' or 'false'"))
+            return ParseErr(UnexpectedToken { expected: "'true' or 'false'", found: c, line: state.line, col: state.column })
         }
-        None => { return ParseErr(make_error(state, "Expected 'true' or 'false'")) }
+        None => { return ParseErr(UnexpectedEof { expected: "'true' or 'false'", context: "boolean literal", line: state.line, col: state.column }) }
     }
 }
 
@@ -765,15 +830,14 @@ let expect_literal_from: fn(ParserState, string, i32, i32) -> ParseResult[string
         }
         match peek_str(state) {
             None => {
-                return ParseErr(make_error(state, "Unexpected end of input"))
+                return ParseErr(UnexpectedEof { expected: expected, context: "literal", line: state.line, col: state.column })
             }
             Some(actual) => {
                 let expected_char: string = std.string.substring(expected, index, index + 1)
                 if std.string.equals(actual, expected_char) {
                     return expect_literal_from(advance(state), expected, index + 1, len)
                 }
-                let msg: string = std.string.concat("Expected '", std.string.concat(expected_char, "'"))
-                return ParseErr(make_error(state, msg))
+                return ParseErr(UnexpectedToken { expected: expected_char, found: actual, line: state.line, col: state.column })
             }
         }
     }
@@ -807,7 +871,8 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
                 match peek_str(current_state) {
                     Some(next) => {
                         if is_digit_str(next) {
-                            return ParseErr(make_error(current_state, "Leading zeros are not allowed"))
+                            let partial: string = std.string.substring(state.input, start_pos, current_state.pos + 1)
+                            return ParseErr(InvalidNumber { value: partial, reason: "leading zeros are not allowed", line: current_state.line, col: current_state.column })
                         }
                     }
                     None => {}
@@ -815,10 +880,10 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
             } else if is_digit_str(c) {
                 current_state = consume_digits_str(current_state)
             } else {
-                return ParseErr(make_error(current_state, "Expected digit"))
+                return ParseErr(UnexpectedToken { expected: "digit", found: c, line: current_state.line, col: current_state.column })
             }
         }
-        None => { return ParseErr(make_error(current_state, "Expected digit")) }
+        None => { return ParseErr(UnexpectedEof { expected: "digit", context: "number", line: current_state.line, col: current_state.column }) }
     }
 
     // Parse optional fractional part
@@ -831,10 +896,14 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
                         if is_digit_str(d) {
                             current_state = consume_digits_str(current_state)
                         } else {
-                            return ParseErr(make_error(current_state, "Expected digit after decimal point"))
+                            let partial: string = std.string.substring(state.input, start_pos, current_state.pos)
+                            return ParseErr(InvalidNumber { value: partial, reason: "expected digit after decimal point", line: current_state.line, col: current_state.column })
                         }
                     }
-                    None => { return ParseErr(make_error(current_state, "Expected digit after decimal point")) }
+                    None => {
+                        let partial: string = std.string.substring(state.input, start_pos, current_state.pos)
+                        return ParseErr(InvalidNumber { value: partial, reason: "expected digit after decimal point", line: current_state.line, col: current_state.column })
+                    }
                 }
             }
         }
@@ -859,10 +928,14 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
                         if is_digit_str(d) {
                             current_state = consume_digits_str(current_state)
                         } else {
-                            return ParseErr(make_error(current_state, "Expected digit in exponent"))
+                            let partial: string = std.string.substring(state.input, start_pos, current_state.pos)
+                            return ParseErr(InvalidNumber { value: partial, reason: "expected digit in exponent", line: current_state.line, col: current_state.column })
                         }
                     }
-                    None => { return ParseErr(make_error(current_state, "Expected digit in exponent")) }
+                    None => {
+                        let partial: string = std.string.substring(state.input, start_pos, current_state.pos)
+                        return ParseErr(InvalidNumber { value: partial, reason: "expected digit in exponent", line: current_state.line, col: current_state.column })
+                    }
                 }
             }
         }
@@ -874,14 +947,14 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
         Some(n) => {
             // Reject NaN and Infinity (not valid JSON values)
             if std.float.is_nan(n) {
-                return ParseErr(make_error(state, "NaN is not a valid JSON number"))
+                return ParseErr(InvalidNumber { value: num_str, reason: "NaN is not valid in JSON", line: state.line, col: state.column })
             }
             if std.float.is_infinite(n) {
-                return ParseErr(make_error(state, "Infinity is not a valid JSON number"))
+                return ParseErr(InvalidNumber { value: num_str, reason: "Infinity is not valid in JSON", line: state.line, col: state.column })
             }
             return ParseOk(JNumber(n), current_state)
         }
-        None => { return ParseErr(make_error(state, "Invalid number")) }
+        None => { return ParseErr(InvalidNumber { value: num_str, reason: "invalid number format", line: state.line, col: state.column }) }
     }
 }
 
@@ -910,9 +983,9 @@ let parse_string: fn(ParserState) -> ParseResult[string] = fn(state: ParserState
                 let after_quote: ParserState = advance(state)
                 return parse_string_contents_str(after_quote, "")
             }
-            return ParseErr(make_error(state, "Expected '\"'"))
+            return ParseErr(UnexpectedToken { expected: "'\"'", found: c, line: state.line, col: state.column })
         }
-        None => { return ParseErr(make_error(state, "Expected '\"'")) }
+        None => { return ParseErr(UnexpectedEof { expected: "'\"'", context: "string", line: state.line, col: state.column }) }
     }
 }
 
@@ -928,7 +1001,7 @@ let parse_string_contents_str: fn(ParserState, string) -> ParseResult[string] =
 let parse_string_contents_builder: fn(ParserState, StringBuilder) -> ParseResult[string] =
     fn(state: ParserState, builder: StringBuilder) -> ParseResult[string] {
         match peek_str(state) {
-            None => { return ParseErr(make_error(state, "Unterminated string")) }
+            None => { return ParseErr(UnterminatedString { line: state.line, col: state.column }) }
             Some(c) => {
                 if std.string.equals(c, "\"") {
                     return ParseOk(std.builder.build(builder), advance(state))
@@ -945,7 +1018,8 @@ let parse_string_contents_builder: fn(ParserState, StringBuilder) -> ParseResult
                 }
                 // Reject unescaped control characters (0x00-0x1F) per JSON spec
                 if is_control_char_str(c) {
-                    return ParseErr(make_error(state, "Unescaped control character in string"))
+                    let code: i32 = get_char_code(c)
+                    return ParseErr(ControlChar { code: code, line: state.line, col: state.column })
                 }
                 // Regular character - add to builder
                 let new_builder: StringBuilder = std.builder.append(builder, c)
@@ -958,7 +1032,7 @@ let parse_string_contents_builder: fn(ParserState, StringBuilder) -> ParseResult
 /// Returns the escaped character as a string.
 let parse_escape_sequence_str: fn(ParserState) -> ParseResult[string] = fn(state: ParserState) -> ParseResult[string] {
     match peek_str(state) {
-        None => { return ParseErr(make_error(state, "Unterminated escape sequence")) }
+        None => { return ParseErr(InvalidEscape { sequence: "\\", reason: "unexpected end of input", line: state.line, col: state.column }) }
         Some(c) => {
             if std.string.equals(c, "\"") { return ParseOk("\"", advance(state)) }
             if std.string.equals(c, "\\") { return ParseOk("\\", advance(state)) }
@@ -969,8 +1043,8 @@ let parse_escape_sequence_str: fn(ParserState) -> ParseResult[string] = fn(state
             if std.string.equals(c, "r") { return ParseOk("\r", advance(state)) }
             if std.string.equals(c, "t") { return ParseOk("\t", advance(state)) }
             if std.string.equals(c, "u") { return parse_unicode_escape_str(advance(state)) }
-            let msg: string = std.string.concat("Invalid escape sequence: \\", c)
-            return ParseErr(make_error(state, msg))
+            let seq: string = std.string.concat("\\", c)
+            return ParseErr(InvalidEscape { sequence: seq, reason: "unknown escape character", line: state.line, col: state.column })
         }
     }
 }
@@ -985,10 +1059,11 @@ let parse_unicode_escape_str: fn(ParserState) -> ParseResult[string] = fn(state:
     var i: i32 = 0
     while i < 4 {
         match peek_str(current_state) {
-            None => { return ParseErr(make_error(current_state, "Incomplete unicode escape")) }
+            None => { return ParseErr(InvalidEscape { sequence: "\\u", reason: "incomplete unicode escape", line: current_state.line, col: current_state.column }) }
             Some(c) => {
                 if not is_hex_digit_str(c) {
-                    return ParseErr(make_error(current_state, "Invalid hex digit in unicode escape"))
+                    let seq: string = std.string.concat("\\u", c)
+                    return ParseErr(InvalidEscape { sequence: seq, reason: "invalid hex digit", line: current_state.line, col: current_state.column })
                 }
                 code_point = code_point * 16 + hex_digit_value_str(c)
                 current_state = advance(current_state)
@@ -1049,9 +1124,9 @@ let parse_array: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -
                     None => { return parse_array_elements(after_bracket, Nil) }
                 }
             }
-            return ParseErr(make_error(state, "Expected '['"))
+            return ParseErr(UnexpectedToken { expected: "'['", found: c, line: state.line, col: state.column })
         }
-        None => { return ParseErr(make_error(state, "Expected '['")) }
+        None => { return ParseErr(UnexpectedEof { expected: "'['", context: "array", line: state.line, col: state.column }) }
     }
 }
 
@@ -1073,9 +1148,9 @@ let parse_array_elements: fn(ParserState, List[Json]) -> ParseResult[Json] =
                             let after_comma: ParserState = skip_whitespace(advance(after_ws))
                             return parse_array_elements(after_comma, new_acc)
                         }
-                        return ParseErr(make_error(after_ws, "Expected ',' or ']'"))
+                        return ParseErr(UnexpectedToken { expected: "',' or ']'", found: c, line: after_ws.line, col: after_ws.column })
                     }
-                    None => { return ParseErr(make_error(after_ws, "Expected ',' or ']'")) }
+                    None => { return ParseErr(UnexpectedEof { expected: "',' or ']'", context: "array", line: after_ws.line, col: after_ws.column }) }
                 }
             }
         }
@@ -1097,9 +1172,9 @@ let parse_object: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
                     None => { return parse_object_fields(after_brace, Nil) }
                 }
             }
-            return ParseErr(make_error(state, "Expected '{'"))
+            return ParseErr(UnexpectedToken { expected: "'{'", found: c, line: state.line, col: state.column })
         }
-        None => { return ParseErr(make_error(state, "Expected '{'")) }
+        None => { return ParseErr(UnexpectedEof { expected: "'{'", context: "object", line: state.line, col: state.column }) }
     }
 }
 
@@ -1134,16 +1209,16 @@ let parse_object_fields: fn(ParserState, List[JsonField]) -> ParseResult[Json] =
                                                 let after_comma: ParserState = skip_whitespace(advance(after_ws))
                                                 return parse_object_fields(after_comma, new_acc)
                                             }
-                                            return ParseErr(make_error(after_ws, "Expected ',' or '}'"))
+                                            return ParseErr(UnexpectedToken { expected: "',' or '}'", found: c2, line: after_ws.line, col: after_ws.column })
                                         }
-                                        None => { return ParseErr(make_error(after_ws, "Expected ',' or '}'")) }
+                                        None => { return ParseErr(UnexpectedEof { expected: "',' or '}'", context: "object", line: after_ws.line, col: after_ws.column }) }
                                     }
                                 }
                             }
                         }
-                        return ParseErr(make_error(after_key_ws, "Expected ':'"))
+                        return ParseErr(UnexpectedToken { expected: "':'", found: c, line: after_key_ws.line, col: after_key_ws.column })
                     }
-                    None => { return ParseErr(make_error(after_key_ws, "Expected ':'")) }
+                    None => { return ParseErr(UnexpectedEof { expected: "':'", context: "object field", line: after_key_ws.line, col: after_key_ws.column }) }
                 }
             }
         }
@@ -1157,7 +1232,7 @@ let parse_object_fields: fn(ParserState, List[JsonField]) -> ParseResult[Json] =
 let parse_value: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -> ParseResult[Json] {
     let ws_state: ParserState = skip_whitespace(state)
     match peek_str(ws_state) {
-        None => { return ParseErr(make_error(ws_state, "Unexpected end of input")) }
+        None => { return ParseErr(UnexpectedEof { expected: "JSON value", context: "value", line: ws_state.line, col: ws_state.column }) }
         Some(c) => {
             if std.string.equals(c, "n") {
                 return parse_null(ws_state)
@@ -1181,14 +1256,13 @@ let parse_value: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -
             if std.string.equals(c, "-") or is_digit_str(c) {
                 return parse_number(ws_state)
             }
-            let msg: string = std.string.concat("Unexpected character: ", c)
-            return ParseErr(make_error(ws_state, msg))
+            return ParseErr(UnexpectedToken { expected: "JSON value", found: c, line: ws_state.line, col: ws_state.column })
         }
     }
 }
 
 /// Public API: Parses a JSON string into a Json value.
-pub let parse: fn(string) -> Result[Json, ParseError] = fn(input: string) -> Result[Json, ParseError] {
+pub let parse: fn(string) -> Result[Json, JsonError] = fn(input: string) -> Result[Json, JsonError] {
     let state: ParserState = init_state(input)
     let result: ParseResult[Json] = parse_value(state)
     match result {
@@ -1197,7 +1271,10 @@ pub let parse: fn(string) -> Result[Json, ParseError] = fn(input: string) -> Res
             if is_eof(after_ws) {
                 return Ok(json)
             }
-            return Err(make_error(after_ws, "Unexpected content after JSON value"))
+            match peek_str(after_ws) {
+                Some(c) => { return Err(TrailingContent { found: c, line: after_ws.line, col: after_ws.column }) }
+                None => { return Ok(json) }
+            }
         }
         ParseErr(e) => { return Err(e) }
     }

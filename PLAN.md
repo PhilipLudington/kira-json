@@ -2,10 +2,10 @@
 
 ## Current Status
 
-The library provides functional JSON parsing, serialization, and manipulation with ~97 passing tests. Recent improvements leverage new compiler features (StringBuilder, std.char.from_i32, std.math.trunc_to_i64).
+The library provides functional JSON parsing, serialization, and manipulation with 108 passing tests. Recent improvements leverage new compiler features (StringBuilder, std.char.from_i32, std.math.trunc_to_i64).
 
 ### What Works
-- Core types: `Json`, `JsonField`, `ParseError`
+- Core types: `Json`, `JsonField`, `JsonError` (structured error types)
 - Type predicates: `is_null`, `is_bool`, `is_number`, `is_string`, `is_array`, `is_object`
 - Value extraction: `as_string`, `as_number`, `as_int`, `as_bool`, `as_array`, `as_object`
 - Accessors: `get_field`, `get_index`, `size`, `keys`, `values`
@@ -123,19 +123,21 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 ## Phase 4: Error Handling Improvements
 
-### 4.1 Structured Error Types
-- [ ] Create error variant type:
-  ```kira
-  type JsonError =
-      | UnexpectedToken { expected: string, found: string, line: i32, col: i32 }
-      | UnterminatedString { line: i32, col: i32 }
-      | InvalidNumber { value: string, line: i32, col: i32 }
-      | InvalidEscape { sequence: string, line: i32, col: i32 }
-      | MaxDepthExceeded { depth: i32 }
-      | DuplicateKey { key: string, line: i32, col: i32 }
-  ```
+### 4.1 Structured Error Types ✓
+- [x] Create error variant type with 7 variants:
+  - `UnexpectedEof` - end of input with expected token and context
+  - `UnexpectedToken` - wrong character with expected vs found
+  - `UnterminatedString` - missing closing quote
+  - `InvalidEscape` - bad escape sequence with reason
+  - `ControlChar` - unescaped control character with code
+  - `InvalidNumber` - invalid number with value and reason
+  - `TrailingContent` - extra content after JSON value
+- [x] Add `format_error(JsonError) -> string` for human-readable messages
+- [x] Add `error_line(JsonError) -> i32` and `error_column(JsonError) -> i32` helpers
+- [x] Update parser to use structured errors throughout
+- [x] Add 11 tests for pattern matching on error variants
 
-**Files:** `src/json.ki`
+**Files:** `src/json.ki`, `tests/test_json.ki`
 
 ### 4.2 Error Context
 - [ ] Include snippet of input around error location
@@ -210,11 +212,11 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 ## Priority Order
 
-1. **Phase 2.2** - Parser string building (quick win, measurable improvement)
-2. **Phase 1.2** - Number edge cases (spec compliance)
-3. **Phase 1.3** - String validation (spec compliance)
-4. **Phase 3.2** - Equality (commonly needed)
-5. **Phase 4.1** - Structured errors (better DX)
+1. ~~**Phase 2.2** - Parser string building~~ ✓
+2. ~~**Phase 1.2** - Number edge cases~~ ✓
+3. ~~**Phase 1.3** - String validation~~ ✓
+4. ~~**Phase 3.2** - Equality~~ ✓
+5. ~~**Phase 4.1** - Structured errors~~ ✓
 6. **Phase 3.1** - Path access (common use case)
 7. **Phase 2.3** - Stack safety (robustness)
 8. **Phase 1.1** - Surrogate pairs (full Unicode)
