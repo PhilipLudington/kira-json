@@ -62,11 +62,11 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 **Files:** `src/json.ki` (new type, update accessors)
 
 ### 2.2 Parser String Building
-- [ ] Use StringBuilder in `parse_string_contents_str`
-- [ ] Currently uses recursive `std.string.concat` (O(n²))
+- [x] Use StringBuilder in `parse_string_contents_str`
+- [x] Currently uses recursive `std.string.concat` (O(n²)) - FIXED
 - [ ] Benchmark improvement
 
-**Files:** `src/json.ki` (parse_string_contents_str)
+**Files:** `src/json.ki` (parse_string_contents_str, parse_string_contents_builder)
 
 ### 2.3 Stack Safety
 - [ ] Add depth limit parameter to parser

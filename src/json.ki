@@ -885,27 +885,35 @@ let parse_string: fn(ParserState) -> ParseResult[string] = fn(state: ParserState
 }
 
 /// Parses the contents of a string until the closing quote.
-/// Accumulates result as string instead of List[char].
+/// Uses StringBuilder for O(n) string building instead of O(n²) concatenation.
 let parse_string_contents_str: fn(ParserState, string) -> ParseResult[string] =
-    fn(state: ParserState, acc: string) -> ParseResult[string] {
+    fn(state: ParserState, _acc: string) -> ParseResult[string] {
+        let builder: StringBuilder = std.builder.new()
+        return parse_string_contents_builder(state, builder)
+    }
+
+/// Internal helper that uses StringBuilder for efficient string accumulation.
+let parse_string_contents_builder: fn(ParserState, StringBuilder) -> ParseResult[string] =
+    fn(state: ParserState, builder: StringBuilder) -> ParseResult[string] {
         match peek_str(state) {
             None => { return ParseErr(make_error(state, "Unterminated string")) }
             Some(c) => {
                 if std.string.equals(c, "\"") {
-                    return ParseOk(acc, advance(state))
+                    return ParseOk(std.builder.build(builder), advance(state))
                 }
                 if std.string.equals(c, "\\") {
                     let escape_result: ParseResult[string] = parse_escape_sequence_str(advance(state))
                     match escape_result {
                         ParseOk(escaped, new_state) => {
-                            return parse_string_contents_str(new_state, std.string.concat(acc, escaped))
+                            let new_builder: StringBuilder = std.builder.append(builder, escaped)
+                            return parse_string_contents_builder(new_state, new_builder)
                         }
                         ParseErr(e) => { return ParseErr(e) }
                     }
                 }
-                // Regular character - add to accumulator
-                // Note: Control character checking not supported without std.char.to_i32
-                return parse_string_contents_str(advance(state), std.string.concat(acc, c))
+                // Regular character - add to builder
+                let new_builder: StringBuilder = std.builder.append(builder, c)
+                return parse_string_contents_builder(advance(state), new_builder)
             }
         }
     }
