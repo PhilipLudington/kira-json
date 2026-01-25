@@ -1640,3 +1640,427 @@ let all_fields_match: fn(List[JsonField], List[JsonField]) -> bool =
         }
     }
 
+// =============================================================================
+// Path-Based Access
+// =============================================================================
+
+/// Represents a single segment in a JSON path.
+/// A path like "users[0].name" has segments: Key("users"), Index(0), Key("name")
+type PathSegment =
+    | PathKey(string)
+    | PathIndex(i32)
+
+/// Error type for path parsing failures.
+pub type PathError =
+    | EmptyPath
+    | InvalidIndex { segment: string }
+    | UnterminatedBracket { position: i32 }
+    | EmptyBracket { position: i32 }
+    | UnexpectedChar { char: string, position: i32 }
+
+/// Formats a PathError to a human-readable string.
+pub let format_path_error: fn(PathError) -> string = fn(err: PathError) -> string {
+    match err {
+        EmptyPath => { return "Path cannot be empty" }
+        InvalidIndex { segment: seg } => {
+            return std.string.concat("Invalid array index: ", seg)
+        }
+        UnterminatedBracket { position: pos } => {
+            return std.string.concat("Unterminated bracket at position ", std.int.to_string(pos))
+        }
+        EmptyBracket { position: pos } => {
+            return std.string.concat("Empty bracket at position ", std.int.to_string(pos))
+        }
+        UnexpectedChar { char: c, position: pos } => {
+            return std.string.concat("Unexpected character '", std.string.concat(c, std.string.concat("' at position ", std.int.to_string(pos))))
+        }
+    }
+}
+
+/// Gets a value at the given path.
+/// Path format: "field.nested[0].key" - dots separate object keys, [n] for array indices.
+/// Returns None if the path doesn't exist or if any intermediate value is not the expected type.
+pub let get_path: fn(Json, string) -> Option[Json] = fn(json: Json, path: string) -> Option[Json] {
+    if std.string.length(path) == 0 {
+        return Some(json)
+    }
+    let segments_result: Result[List[PathSegment], PathError] = parse_path(path)
+    match segments_result {
+        Err(_) => { return None }
+        Ok(segments) => { return get_path_segments(json, segments) }
+    }
+}
+
+/// Parses a path and returns any parsing errors.
+/// Useful when you want to validate a path before using it.
+pub let parse_path: fn(string) -> Result[List[PathSegment], PathError] = fn(path: string) -> Result[List[PathSegment], PathError] {
+    if std.string.length(path) == 0 {
+        return Ok(Nil)
+    }
+    return parse_path_from(path, 0, std.string.length(path))
+}
+
+/// Internal path parser starting from a given position.
+let parse_path_from: fn(string, i32, i32) -> Result[List[PathSegment], PathError] =
+    fn(path: string, pos: i32, len: i32) -> Result[List[PathSegment], PathError] {
+        if pos >= len {
+            return Ok(Nil)
+        }
+
+        let c: string = std.string.substring(path, pos, pos + 1)
+
+        // Skip leading dot (except at start)
+        if std.string.equals(c, ".") {
+            return parse_path_from(path, pos + 1, len)
+        }
+
+        // Parse array index: [n]
+        if std.string.equals(c, "[") {
+            return parse_index_segment(path, pos + 1, len)
+        }
+
+        // Parse key segment
+        return parse_key_segment(path, pos, len)
+    }
+
+/// Parses a key segment until a dot or bracket.
+let parse_key_segment: fn(string, i32, i32) -> Result[List[PathSegment], PathError] =
+    fn(path: string, start: i32, len: i32) -> Result[List[PathSegment], PathError] {
+        let end: i32 = find_key_end(path, start, len)
+        if end == start {
+            // Empty key at start could mean we hit a special char
+            let c: string = std.string.substring(path, start, start + 1)
+            return Err(UnexpectedChar { char: c, position: start })
+        }
+        let key: string = std.string.substring(path, start, end)
+        let rest_result: Result[List[PathSegment], PathError] = parse_path_from(path, end, len)
+        match rest_result {
+            Err(e) => { return Err(e) }
+            Ok(rest) => { return Ok(Cons(PathKey(key), rest)) }
+        }
+    }
+
+/// Finds the end of a key (position of next dot, bracket, or end of string).
+let find_key_end: fn(string, i32, i32) -> i32 = fn(path: string, pos: i32, len: i32) -> i32 {
+    if pos >= len {
+        return pos
+    }
+    let c: string = std.string.substring(path, pos, pos + 1)
+    if std.string.equals(c, ".") or std.string.equals(c, "[") {
+        return pos
+    }
+    return find_key_end(path, pos + 1, len)
+}
+
+/// Parses an index segment [n].
+let parse_index_segment: fn(string, i32, i32) -> Result[List[PathSegment], PathError] =
+    fn(path: string, start: i32, len: i32) -> Result[List[PathSegment], PathError] {
+        let bracket_end: i32 = find_char(path, "]", start, len)
+        if bracket_end < 0 {
+            return Err(UnterminatedBracket { position: start - 1 })
+        }
+        if bracket_end == start {
+            return Err(EmptyBracket { position: start - 1 })
+        }
+        let index_str: string = std.string.substring(path, start, bracket_end)
+        match parse_index_value(index_str) {
+            None => { return Err(InvalidIndex { segment: index_str }) }
+            Some(idx) => {
+                let rest_result: Result[List[PathSegment], PathError] = parse_path_from(path, bracket_end + 1, len)
+                match rest_result {
+                    Err(e) => { return Err(e) }
+                    Ok(rest) => { return Ok(Cons(PathIndex(idx), rest)) }
+                }
+            }
+        }
+    }
+
+/// Finds the position of a character in a string, or -1 if not found.
+let find_char: fn(string, string, i32, i32) -> i32 = fn(s: string, target: string, pos: i32, len: i32) -> i32 {
+    if pos >= len {
+        return -1
+    }
+    let c: string = std.string.substring(s, pos, pos + 1)
+    if std.string.equals(c, target) {
+        return pos
+    }
+    return find_char(s, target, pos + 1, len)
+}
+
+/// Parses a non-negative integer from a string.
+let parse_index_value: fn(string) -> Option[i32] = fn(s: string) -> Option[i32] {
+    let len: i32 = std.string.length(s)
+    if len == 0 {
+        return None
+    }
+    // Check if all characters are digits
+    if not all_digits(s, 0, len) {
+        return None
+    }
+    // Parse the number
+    return Some(parse_int_acc(s, 0, len, 0))
+}
+
+/// Checks if all characters in the range are digits.
+let all_digits: fn(string, i32, i32) -> bool = fn(s: string, pos: i32, len: i32) -> bool {
+    if pos >= len {
+        return true
+    }
+    let c: string = std.string.substring(s, pos, pos + 1)
+    if not is_digit_str(c) {
+        return false
+    }
+    return all_digits(s, pos + 1, len)
+}
+
+/// Parses an integer with accumulator.
+let parse_int_acc: fn(string, i32, i32, i32) -> i32 = fn(s: string, pos: i32, len: i32, acc: i32) -> i32 {
+    if pos >= len {
+        return acc
+    }
+    let c: string = std.string.substring(s, pos, pos + 1)
+    let digit: i32 = digit_value(c)
+    return parse_int_acc(s, pos + 1, len, acc * 10 + digit)
+}
+
+/// Converts a digit character to its integer value.
+let digit_value: fn(string) -> i32 = fn(c: string) -> i32 {
+    if std.string.equals(c, "0") { return 0 }
+    if std.string.equals(c, "1") { return 1 }
+    if std.string.equals(c, "2") { return 2 }
+    if std.string.equals(c, "3") { return 3 }
+    if std.string.equals(c, "4") { return 4 }
+    if std.string.equals(c, "5") { return 5 }
+    if std.string.equals(c, "6") { return 6 }
+    if std.string.equals(c, "7") { return 7 }
+    if std.string.equals(c, "8") { return 8 }
+    return 9
+}
+
+/// Navigates the JSON value using parsed path segments.
+let get_path_segments: fn(Json, List[PathSegment]) -> Option[Json] =
+    fn(json: Json, segments: List[PathSegment]) -> Option[Json] {
+        match segments {
+            Nil => { return Some(json) }
+            Cons(segment, rest) => {
+                let next_value: Option[Json] = apply_segment(json, segment)
+                match next_value {
+                    None => { return None }
+                    Some(v) => { return get_path_segments(v, rest) }
+                }
+            }
+        }
+    }
+
+/// Applies a single path segment to a JSON value.
+let apply_segment: fn(Json, PathSegment) -> Option[Json] = fn(json: Json, segment: PathSegment) -> Option[Json] {
+    match segment {
+        PathKey(key) => { return get_field(json, key) }
+        PathIndex(idx) => { return get_index(json, idx) }
+    }
+}
+
+/// Sets a value at the given path, creating intermediate objects/arrays as needed.
+/// Returns the modified JSON. If the path is invalid or can't be set, returns the original JSON.
+pub let set_path: fn(Json, string, Json) -> Json = fn(json: Json, path: string, value: Json) -> Json {
+    if std.string.length(path) == 0 {
+        return value
+    }
+    let segments_result: Result[List[PathSegment], PathError] = parse_path(path)
+    match segments_result {
+        Err(_) => { return json }
+        Ok(segments) => { return set_path_segments(json, segments, value) }
+    }
+}
+
+/// Sets a value using parsed path segments.
+let set_path_segments: fn(Json, List[PathSegment], Json) -> Json =
+    fn(json: Json, segments: List[PathSegment], value: Json) -> Json {
+        match segments {
+            Nil => { return value }
+            Cons(segment, rest) => {
+                match segment {
+                    PathKey(key) => {
+                        // Ensure we have an object, or create one
+                        var obj_fields: List[JsonField] = Nil
+                        match json {
+                            JObject(fields) => { obj_fields = fields }
+                            _ => {}
+                        }
+                        // Get or create nested value
+                        let nested: Json = get_or_default_for_segment(obj_fields, key, rest)
+                        let new_value: Json = set_path_segments(nested, rest, value)
+                        return set_field_in_object(obj_fields, key, new_value)
+                    }
+                    PathIndex(idx) => {
+                        // Ensure we have an array, or create one
+                        var arr: List[Json] = Nil
+                        match json {
+                            JArray(a) => { arr = a }
+                            _ => {}
+                        }
+                        // Get or create nested value
+                        let nested: Json = get_or_default_at_index(arr, idx, rest)
+                        let new_value: Json = set_path_segments(nested, rest, value)
+                        return JArray(set_at_index(arr, idx, new_value))
+                    }
+                }
+            }
+        }
+    }
+
+/// Gets the current value at a key, or creates a default based on next segment.
+let get_or_default_for_segment: fn(List[JsonField], string, List[PathSegment]) -> Json =
+    fn(fields: List[JsonField], key: string, next_segments: List[PathSegment]) -> Json {
+        match find_field(fields, key) {
+            Some(v) => { return v }
+            None => { return default_for_next_segment(next_segments) }
+        }
+    }
+
+/// Gets the current value at an index, or creates a default based on next segment.
+let get_or_default_at_index: fn(List[Json], i32, List[PathSegment]) -> Json =
+    fn(arr: List[Json], idx: i32, next_segments: List[PathSegment]) -> Json {
+        match list_get(arr, idx) {
+            Some(v) => { return v }
+            None => { return default_for_next_segment(next_segments) }
+        }
+    }
+
+/// Returns the default value to create based on what the next segment expects.
+let default_for_next_segment: fn(List[PathSegment]) -> Json = fn(segments: List[PathSegment]) -> Json {
+    match segments {
+        Nil => { return JNull }
+        Cons(segment, _) => {
+            match segment {
+                PathKey(_) => { return JObject(Nil) }
+                PathIndex(_) => { return JArray(Nil) }
+            }
+        }
+    }
+}
+
+/// Sets a field in an object, returning a new JObject.
+let set_field_in_object: fn(List[JsonField], string, Json) -> Json =
+    fn(fields: List[JsonField], key: string, value: Json) -> Json {
+        let updated: List[JsonField] = set_field_in_list(fields, key, value, false)
+        return JObject(updated)
+    }
+
+/// Sets a value at an index in a list, extending with JNull if needed.
+let set_at_index: fn(List[Json], i32, Json) -> List[Json] =
+    fn(arr: List[Json], idx: i32, value: Json) -> List[Json] {
+        if idx < 0 {
+            return arr
+        }
+        return set_at_index_impl(arr, idx, value)
+    }
+
+/// Implementation of set_at_index.
+let set_at_index_impl: fn(List[Json], i32, Json) -> List[Json] =
+    fn(arr: List[Json], idx: i32, value: Json) -> List[Json] {
+        match arr {
+            Nil => {
+                if idx == 0 {
+                    return Cons(value, Nil)
+                }
+                // Need to extend with nulls
+                return Cons(JNull, set_at_index_impl(Nil, idx - 1, value))
+            }
+            Cons(head, tail) => {
+                if idx == 0 {
+                    return Cons(value, tail)
+                }
+                return Cons(head, set_at_index_impl(tail, idx - 1, value))
+            }
+        }
+    }
+
+/// Checks if a path exists in the JSON value.
+pub let has_path: fn(Json, string) -> bool = fn(json: Json, path: string) -> bool {
+    match get_path(json, path) {
+        Some(_) => { return true }
+        None => { return false }
+    }
+}
+
+/// Removes the value at the given path.
+/// Returns the modified JSON. If the path doesn't exist, returns the original JSON.
+pub let remove_path: fn(Json, string) -> Json = fn(json: Json, path: string) -> Json {
+    if std.string.length(path) == 0 {
+        return JNull
+    }
+    let segments_result: Result[List[PathSegment], PathError] = parse_path(path)
+    match segments_result {
+        Err(_) => { return json }
+        Ok(segments) => { return remove_path_segments(json, segments) }
+    }
+}
+
+/// Removes a value using parsed path segments.
+let remove_path_segments: fn(Json, List[PathSegment]) -> Json =
+    fn(json: Json, segments: List[PathSegment]) -> Json {
+        match segments {
+            Nil => { return json }
+            Cons(segment, rest) => {
+                match rest {
+                    Nil => {
+                        // Last segment - remove this key/index
+                        match segment {
+                            PathKey(key) => { return remove_field(json, key) }
+                            PathIndex(idx) => {
+                                match json {
+                                    JArray(arr) => { return JArray(remove_at_index(arr, idx)) }
+                                    _ => { return json }
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        // Not last segment - recurse
+                        match segment {
+                            PathKey(key) => {
+                                match get_field(json, key) {
+                                    None => { return json }
+                                    Some(nested) => {
+                                        let new_nested: Json = remove_path_segments(nested, rest)
+                                        return set_field(json, key, new_nested)
+                                    }
+                                }
+                            }
+                            PathIndex(idx) => {
+                                match get_index(json, idx) {
+                                    None => { return json }
+                                    Some(nested) => {
+                                        let new_nested: Json = remove_path_segments(nested, rest)
+                                        match json {
+                                            JArray(arr) => { return JArray(set_at_index(arr, idx, new_nested)) }
+                                            _ => { return json }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+/// Removes an element at an index from a list.
+let remove_at_index: fn(List[Json], i32) -> List[Json] =
+    fn(arr: List[Json], idx: i32) -> List[Json] {
+        if idx < 0 {
+            return arr
+        }
+        match arr {
+            Nil => { return Nil }
+            Cons(head, tail) => {
+                if idx == 0 {
+                    return tail
+                }
+                return Cons(head, remove_at_index(tail, idx - 1))
+            }
+        }
+    }
+

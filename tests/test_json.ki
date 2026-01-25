@@ -3,7 +3,7 @@
 
 module test_json
 
-import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals }
+import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error }
 
 // =============================================================================
 // Test Utilities
@@ -2060,6 +2060,354 @@ let test_error_column_helper: fn() -> void = fn() -> void {
 }
 
 // =============================================================================
+// Path-Based Access Tests
+// =============================================================================
+
+let test_get_path_simple_key: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JObject(Cons(JsonField { key: "name", value: JString("Alice") }, Nil))
+
+    // Act
+    let result: Option[Json] = get_path(json, "name")
+
+    // Assert
+    match result {
+        Some(v) => {
+            match as_string(v) {
+                Some(s) => { assert_str_eq(s, "Alice", "get_path should return 'Alice'") }
+                None => { assert(false, "get_path should return string") }
+            }
+        }
+        None => { assert(false, "get_path should find 'name'") }
+    }
+    return
+}
+
+let test_get_path_nested_keys: fn() -> void = fn() -> void {
+    // Arrange: {"user": {"address": {"city": "NYC"}}}
+    let city: Json = JObject(Cons(JsonField { key: "city", value: JString("NYC") }, Nil))
+    let address: Json = JObject(Cons(JsonField { key: "address", value: city }, Nil))
+    let user: Json = JObject(Cons(JsonField { key: "user", value: address }, Nil))
+
+    // Act
+    let result: Option[Json] = get_path(user, "user.address.city")
+
+    // Assert
+    match result {
+        Some(v) => {
+            match as_string(v) {
+                Some(s) => { assert_str_eq(s, "NYC", "get_path should return 'NYC'") }
+                None => { assert(false, "get_path should return string") }
+            }
+        }
+        None => { assert(false, "get_path should find nested path") }
+    }
+    return
+}
+
+let test_get_path_array_index: fn() -> void = fn() -> void {
+    // Arrange: {"items": [1, 2, 3]}
+    let arr: List[Json] = Cons(JNumber(1.0), Cons(JNumber(2.0), Cons(JNumber(3.0), Nil)))
+    let json: Json = JObject(Cons(JsonField { key: "items", value: JArray(arr) }, Nil))
+
+    // Act
+    let result: Option[Json] = get_path(json, "items[1]")
+
+    // Assert
+    match result {
+        Some(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 2.0, "get_path should return 2.0") }
+                None => { assert(false, "get_path should return number") }
+            }
+        }
+        None => { assert(false, "get_path should find array element") }
+    }
+    return
+}
+
+let test_get_path_mixed_access: fn() -> void = fn() -> void {
+    // Arrange: {"users": [{"name": "Alice"}, {"name": "Bob"}]}
+    let user1: Json = JObject(Cons(JsonField { key: "name", value: JString("Alice") }, Nil))
+    let user2: Json = JObject(Cons(JsonField { key: "name", value: JString("Bob") }, Nil))
+    let users: Json = JArray(Cons(user1, Cons(user2, Nil)))
+    let json: Json = JObject(Cons(JsonField { key: "users", value: users }, Nil))
+
+    // Act
+    let result: Option[Json] = get_path(json, "users[1].name")
+
+    // Assert
+    match result {
+        Some(v) => {
+            match as_string(v) {
+                Some(s) => { assert_str_eq(s, "Bob", "get_path should return 'Bob'") }
+                None => { assert(false, "get_path should return string") }
+            }
+        }
+        None => { assert(false, "get_path should find users[1].name") }
+    }
+    return
+}
+
+let test_get_path_empty_path: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(42.0)
+
+    // Act
+    let result: Option[Json] = get_path(json, "")
+
+    // Assert
+    match result {
+        Some(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 42.0, "empty path should return original value") }
+                None => { assert(false, "should return number") }
+            }
+        }
+        None => { assert(false, "empty path should succeed") }
+    }
+    return
+}
+
+let test_get_path_nonexistent_key: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JObject(Cons(JsonField { key: "a", value: JNumber(1.0) }, Nil))
+
+    // Act
+    let result: Option[Json] = get_path(json, "b")
+
+    // Assert
+    assert_none[Json](result, "get_path should return None for nonexistent key")
+    return
+}
+
+let test_get_path_out_of_bounds_index: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Nil))
+
+    // Act
+    let result: Option[Json] = get_path(json, "[5]")
+
+    // Assert
+    assert_none[Json](result, "get_path should return None for out-of-bounds index")
+    return
+}
+
+let test_get_path_type_mismatch: fn() -> void = fn() -> void {
+    // Arrange: try to use key access on array
+    let json: Json = JArray(Cons(JNumber(1.0), Nil))
+
+    // Act
+    let result: Option[Json] = get_path(json, "key")
+
+    // Assert
+    assert_none[Json](result, "get_path should return None for type mismatch")
+    return
+}
+
+let test_set_path_simple_key: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JObject(Cons(JsonField { key: "x", value: JNumber(1.0) }, Nil))
+
+    // Act
+    let result: Json = set_path(json, "y", JNumber(2.0))
+
+    // Assert
+    match get_path(result, "y") {
+        Some(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 2.0, "set_path should set new key") }
+                None => { assert(false, "should be number") }
+            }
+        }
+        None => { assert(false, "set_path should create key") }
+    }
+    return
+}
+
+let test_set_path_nested_keys: fn() -> void = fn() -> void {
+    // Arrange: start with empty object
+    let json: Json = JObject(Nil)
+
+    // Act
+    let result: Json = set_path(json, "a.b.c", JNumber(42.0))
+
+    // Assert
+    match get_path(result, "a.b.c") {
+        Some(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 42.0, "set_path should create nested path") }
+                None => { assert(false, "should be number") }
+            }
+        }
+        None => { assert(false, "set_path should create nested structure") }
+    }
+    return
+}
+
+let test_set_path_array_index: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Nil)))
+
+    // Act
+    let result: Json = set_path(json, "[1]", JNumber(99.0))
+
+    // Assert
+    match get_path(result, "[1]") {
+        Some(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 99.0, "set_path should update array element") }
+                None => { assert(false, "should be number") }
+            }
+        }
+        None => { assert(false, "set_path should keep array element") }
+    }
+    return
+}
+
+let test_set_path_extend_array: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Nil)
+
+    // Act
+    let result: Json = set_path(json, "[2]", JNumber(42.0))
+
+    // Assert - array should have [null, null, 42]
+    match get_path(result, "[2]") {
+        Some(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 42.0, "set_path should extend array") }
+                None => { assert(false, "should be number") }
+            }
+        }
+        None => { assert(false, "set_path should create index") }
+    }
+    match get_path(result, "[0]") {
+        Some(v) => { assert_true(is_null(v), "index 0 should be null") }
+        None => { assert(false, "index 0 should exist") }
+    }
+    return
+}
+
+let test_set_path_empty_path: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(1.0)
+
+    // Act
+    let result: Json = set_path(json, "", JNumber(42.0))
+
+    // Assert
+    match as_number(result) {
+        Some(n) => { assert_f64_eq(n, 42.0, "empty path should replace value") }
+        None => { assert(false, "should be number") }
+    }
+    return
+}
+
+let test_has_path_exists: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JObject(Cons(JsonField { key: "x", value: JNumber(1.0) }, Nil))
+
+    // Act
+    let result: bool = has_path(json, "x")
+
+    // Assert
+    assert_true(result, "has_path should return true for existing path")
+    return
+}
+
+let test_has_path_not_exists: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JObject(Cons(JsonField { key: "x", value: JNumber(1.0) }, Nil))
+
+    // Act
+    let result: bool = has_path(json, "y")
+
+    // Assert
+    assert_true(not result, "has_path should return false for nonexistent path")
+    return
+}
+
+let test_remove_path_simple_key: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JObject(Cons(
+        JsonField { key: "a", value: JNumber(1.0) },
+        Cons(JsonField { key: "b", value: JNumber(2.0) }, Nil)
+    ))
+
+    // Act
+    let result: Json = remove_path(json, "a")
+
+    // Assert
+    assert_true(not has_path(result, "a"), "remove_path should remove key 'a'")
+    assert_true(has_path(result, "b"), "remove_path should keep key 'b'")
+    return
+}
+
+let test_remove_path_nested: fn() -> void = fn() -> void {
+    // Arrange: {"outer": {"inner": 1, "other": 2}}
+    let inner_obj: Json = JObject(Cons(
+        JsonField { key: "inner", value: JNumber(1.0) },
+        Cons(JsonField { key: "other", value: JNumber(2.0) }, Nil)
+    ))
+    let json: Json = JObject(Cons(JsonField { key: "outer", value: inner_obj }, Nil))
+
+    // Act
+    let result: Json = remove_path(json, "outer.inner")
+
+    // Assert
+    assert_true(not has_path(result, "outer.inner"), "remove_path should remove nested key")
+    assert_true(has_path(result, "outer.other"), "remove_path should keep sibling")
+    return
+}
+
+let test_remove_path_array_index: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Cons(JNumber(3.0), Nil))))
+
+    // Act
+    let result: Json = remove_path(json, "[1]")
+
+    // Assert
+    match size(result) {
+        Some(s) => { assert_i32_eq(s, 2, "array should have 2 elements after remove") }
+        None => { assert(false, "should be array") }
+    }
+    match get_path(result, "[1]") {
+        Some(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 3.0, "index 1 should now be 3.0") }
+                None => { assert(false, "should be number") }
+            }
+        }
+        None => { assert(false, "index 1 should exist") }
+    }
+    return
+}
+
+let test_get_path_consecutive_array_indices: fn() -> void = fn() -> void {
+    // Arrange: [[1, 2], [3, 4]]
+    let inner1: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Nil)))
+    let inner2: Json = JArray(Cons(JNumber(3.0), Cons(JNumber(4.0), Nil)))
+    let json: Json = JArray(Cons(inner1, Cons(inner2, Nil)))
+
+    // Act
+    let result: Option[Json] = get_path(json, "[1][0]")
+
+    // Assert
+    match result {
+        Some(v) => {
+            match as_number(v) {
+                Some(n) => { assert_f64_eq(n, 3.0, "get_path should handle consecutive indices") }
+                None => { assert(false, "should be number") }
+            }
+        }
+        None => { assert(false, "get_path should find [1][0]") }
+    }
+    return
+}
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -2268,6 +2616,28 @@ effect fn main() -> IO[void] {
     run_test("test_format_error_invalid_number", test_format_error_invalid_number)
     run_test("test_error_line_helper", test_error_line_helper)
     run_test("test_error_column_helper", test_error_column_helper)
+    std.io.println("")
+
+    std.io.println("Path-Based Access:")
+    run_test("test_get_path_simple_key", test_get_path_simple_key)
+    run_test("test_get_path_nested_keys", test_get_path_nested_keys)
+    run_test("test_get_path_array_index", test_get_path_array_index)
+    run_test("test_get_path_mixed_access", test_get_path_mixed_access)
+    run_test("test_get_path_empty_path", test_get_path_empty_path)
+    run_test("test_get_path_nonexistent_key", test_get_path_nonexistent_key)
+    run_test("test_get_path_out_of_bounds_index", test_get_path_out_of_bounds_index)
+    run_test("test_get_path_type_mismatch", test_get_path_type_mismatch)
+    run_test("test_get_path_consecutive_array_indices", test_get_path_consecutive_array_indices)
+    run_test("test_set_path_simple_key", test_set_path_simple_key)
+    run_test("test_set_path_nested_keys", test_set_path_nested_keys)
+    run_test("test_set_path_array_index", test_set_path_array_index)
+    run_test("test_set_path_extend_array", test_set_path_extend_array)
+    run_test("test_set_path_empty_path", test_set_path_empty_path)
+    run_test("test_has_path_exists", test_has_path_exists)
+    run_test("test_has_path_not_exists", test_has_path_not_exists)
+    run_test("test_remove_path_simple_key", test_remove_path_simple_key)
+    run_test("test_remove_path_nested", test_remove_path_nested)
+    run_test("test_remove_path_array_index", test_remove_path_array_index)
     std.io.println("")
 
     std.io.println("==========================")

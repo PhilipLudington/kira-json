@@ -80,13 +80,15 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 ## Phase 3: API Enhancements
 
-### 3.1 Path-Based Access
-- [ ] `get_path(json, "user.address.city")` → `Option[Json]`
-- [ ] `get_path(json, "users[0].name")` → `Option[Json]`
-- [ ] `set_path(json, "user.name", value)` → `Json`
-- [ ] Path parsing with error handling
+### 3.1 Path-Based Access ✓
+- [x] `get_path(json, "user.address.city")` → `Option[Json]`
+- [x] `get_path(json, "users[0].name")` → `Option[Json]`
+- [x] `set_path(json, "user.name", value)` → `Json`
+- [x] `has_path(json, "user.name")` → `bool`
+- [x] `remove_path(json, "user.name")` → `Json`
+- [x] Path parsing with error handling (`PathError` type)
 
-**New file:** `src/json_path.ki`
+**Files:** `src/json.ki`
 
 ### 3.2 Equality and Comparison
 - [x] `equals(a, b)` → `bool` (deep structural equality)
@@ -217,7 +219,7 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 3. ~~**Phase 1.3** - String validation~~ ✓
 4. ~~**Phase 3.2** - Equality~~ ✓
 5. ~~**Phase 4.1** - Structured errors~~ ✓
-6. **Phase 3.1** - Path access (common use case)
+6. ~~**Phase 3.1** - Path access~~ ✓
 7. **Phase 2.3** - Stack safety (robustness)
 8. **Phase 1.1** - Surrogate pairs (full Unicode)
 9. **Phase 5.1** - Test suite (validation)
