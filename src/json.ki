@@ -49,6 +49,22 @@ pub type JsonError =
     | TrailingContent { found: string, line: i32, col: i32 }
     | MaxDepthExceeded { depth: i32, max_depth: i32, line: i32, col: i32 }
     | DuplicateKey { key: string, line: i32, col: i32 }
+    | StringTooLong { length: i32, max_length: i32, line: i32, col: i32 }
+    | TooManyArrayItems { count: i32, max_items: i32, line: i32, col: i32 }
+    | TooManyObjectFields { count: i32, max_fields: i32, line: i32, col: i32 }
+
+/// Resource limits for parsing untrusted JSON input.
+/// Used to prevent resource exhaustion attacks from malicious input.
+pub type ParseLimits = {
+    /// Maximum nesting depth for arrays and objects (default: 128)
+    max_depth: i32,
+    /// Maximum string length in characters (None = unlimited)
+    max_string_length: Option[i32],
+    /// Maximum number of array items (None = unlimited)
+    max_array_items: Option[i32],
+    /// Maximum number of object fields (None = unlimited)
+    max_object_fields: Option[i32]
+}
 
 /// Converts a JsonError to a human-readable string.
 pub let format_error: fn(JsonError) -> string = fn(err: JsonError) -> string {
@@ -74,11 +90,20 @@ pub let format_error: fn(JsonError) -> string = fn(err: JsonError) -> string {
         ControlChar { code: cd, line: l, col: c } => {
             return std.string.concat("Unescaped control character (code ", std.string.concat(std.int.to_string(cd), std.string.concat(") at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))))
         }
-        UnterminatedString { line: l, col: c } => {
-            return std.string.concat("Unterminated string at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))
-        }
         MaxDepthExceeded { depth: d, max_depth: m, line: l, col: c } => {
             return std.string.concat("Maximum nesting depth exceeded at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": depth ", std.string.concat(std.int.to_string(d), std.string.concat(" exceeds limit ", std.int.to_string(m))))))))
+        }
+        StringTooLong { length: len, max_length: max, line: l, col: c } => {
+            return std.string.concat("String too long at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": length ", std.string.concat(std.int.to_string(len), std.string.concat(" exceeds limit ", std.int.to_string(max))))))))
+        }
+        TooManyArrayItems { count: cnt, max_items: max, line: l, col: c } => {
+            return std.string.concat("Too many array items at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": count ", std.string.concat(std.int.to_string(cnt), std.string.concat(" exceeds limit ", std.int.to_string(max))))))))
+        }
+        TooManyObjectFields { count: cnt, max_fields: max, line: l, col: c } => {
+            return std.string.concat("Too many object fields at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": count ", std.string.concat(std.int.to_string(cnt), std.string.concat(" exceeds limit ", std.int.to_string(max))))))))
+        }
+        UnterminatedString { line: l, col: c } => {
+            return std.string.concat("Unterminated string at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))
         }
     }
 }
@@ -93,8 +118,11 @@ pub let error_line: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
         UnexpectedToken { expected: _, found: _, line: l, col: _ } => { return l }
         TrailingContent { found: _, line: l, col: _ } => { return l }
         ControlChar { code: _, line: l, col: _ } => { return l }
-        UnterminatedString { line: l, col: _ } => { return l }
         MaxDepthExceeded { depth: _, max_depth: _, line: l, col: _ } => { return l }
+        StringTooLong { length: _, max_length: _, line: l, col: _ } => { return l }
+        TooManyArrayItems { count: _, max_items: _, line: l, col: _ } => { return l }
+        TooManyObjectFields { count: _, max_fields: _, line: l, col: _ } => { return l }
+        UnterminatedString { line: l, col: _ } => { return l }
     }
 }
 
@@ -108,8 +136,11 @@ pub let error_column: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
         UnexpectedToken { expected: _, found: _, line: _, col: c } => { return c }
         TrailingContent { found: _, line: _, col: c } => { return c }
         ControlChar { code: _, line: _, col: c } => { return c }
-        UnterminatedString { line: _, col: c } => { return c }
         MaxDepthExceeded { depth: _, max_depth: _, line: _, col: c } => { return c }
+        StringTooLong { length: _, max_length: _, line: _, col: c } => { return c }
+        TooManyArrayItems { count: _, max_items: _, line: _, col: c } => { return c }
+        TooManyObjectFields { count: _, max_fields: _, line: _, col: c } => { return c }
+        UnterminatedString { line: _, col: c } => { return c }
     }
 }
 
@@ -232,6 +263,31 @@ pub let default_max_depth: fn() -> i32 = fn() -> i32 {
     return 128
 }
 
+/// Returns sensible default limits for parsing untrusted JSON input.
+/// - max_depth: 128 (prevents stack overflow from deep nesting)
+/// - max_string_length: 10_000_000 (10 MB of characters)
+/// - max_array_items: 1_000_000 (1 million items)
+/// - max_object_fields: 100_000 (100 thousand fields)
+pub let default_limits: fn() -> ParseLimits = fn() -> ParseLimits {
+    return ParseLimits {
+        max_depth: 128,
+        max_string_length: Some(10000000),
+        max_array_items: Some(1000000),
+        max_object_fields: Some(100000)
+    }
+}
+
+/// Returns unlimited limits (no restrictions except max_depth).
+/// Use with caution on untrusted input.
+pub let unlimited_limits: fn() -> ParseLimits = fn() -> ParseLimits {
+    return ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: None,
+        max_object_fields: None
+    }
+}
+
 /// Internal state for the recursive descent parser.
 type ParserState = {
     input: string,
@@ -240,7 +296,8 @@ type ParserState = {
     column: i32,
     depth: i32,
     max_depth: i32,
-    strict: bool
+    strict: bool,
+    limits: ParseLimits
 }
 
 /// Result of a parse operation - either success with value and new state,
@@ -900,7 +957,8 @@ let init_state: fn(string) -> ParserState = fn(input: string) -> ParserState {
         column: 1,
         depth: 0,
         max_depth: default_max_depth(),
-        strict: false
+        strict: false,
+        limits: unlimited_limits()
     }
 }
 
@@ -913,7 +971,8 @@ let init_state_with_depth: fn(string, i32) -> ParserState = fn(input: string, ma
         column: 1,
         depth: 0,
         max_depth: max_depth,
-        strict: false
+        strict: false,
+        limits: unlimited_limits()
     }
 }
 
@@ -926,7 +985,22 @@ let init_state_strict: fn(string, i32, bool) -> ParserState = fn(input: string, 
         column: 1,
         depth: 0,
         max_depth: max_depth,
-        strict: strict
+        strict: strict,
+        limits: unlimited_limits()
+    }
+}
+
+/// Creates an initial parser state with custom limits.
+let init_state_with_limits: fn(string, ParseLimits, bool) -> ParserState = fn(input: string, limits: ParseLimits, strict: bool) -> ParserState {
+    return ParserState {
+        input: input,
+        pos: 0,
+        line: 1,
+        column: 1,
+        depth: 0,
+        max_depth: limits.max_depth,
+        strict: strict,
+        limits: limits
     }
 }
 
@@ -943,7 +1017,8 @@ let increment_depth: fn(ParserState) -> Option[ParserState] = fn(state: ParserSt
         column: state.column,
         depth: new_depth,
         max_depth: state.max_depth,
-        strict: state.strict
+        strict: state.strict,
+        limits: state.limits
     })
 }
 
@@ -956,7 +1031,8 @@ let decrement_depth: fn(ParserState) -> ParserState = fn(state: ParserState) -> 
         column: state.column,
         depth: state.depth - 1,
         max_depth: state.max_depth,
-        strict: state.strict
+        strict: state.strict,
+        limits: state.limits
     }
 }
 
@@ -1036,7 +1112,8 @@ let advance: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserSt
                 column: state.column + 1,
                 depth: state.depth,
                 max_depth: state.max_depth,
-                strict: state.strict
+                strict: state.strict,
+                limits: state.limits
             }
         }
         Ok(c) => {
@@ -1055,7 +1132,8 @@ let advance: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserSt
                 column: new_column,
                 depth: state.depth,
                 max_depth: state.max_depth,
-                strict: state.strict
+                strict: state.strict,
+                limits: state.limits
             }
         }
     }
@@ -1377,6 +1455,9 @@ let parse_string_contents_builder: fn(ParserState, StringBuilder) -> ParseResult
     fn(state: ParserState, builder: StringBuilder) -> ParseResult[string] {
         var current_state: ParserState = state
         var current_builder: StringBuilder = builder
+        var string_length: i32 = 0
+        let start_line: i32 = state.line
+        let start_col: i32 = state.column
 
         while true {
             match peek_str(current_state) {
@@ -1391,6 +1472,18 @@ let parse_string_contents_builder: fn(ParserState, StringBuilder) -> ParseResult
                         let escape_result: ParseResult[string] = parse_escape_sequence_str(advance(current_state))
                         match escape_result {
                             ParseOk(escaped, new_state) => {
+                                // Check string length limit before adding
+                                match current_state.limits.max_string_length {
+                                    Some(max_len) => {
+                                        // Escaped sequences are typically 1 char, but unicode might be more
+                                        // Use 1 as a safe approximation for length checking
+                                        string_length = string_length + 1
+                                        if string_length > max_len {
+                                            return ParseErr(StringTooLong { length: string_length, max_length: max_len, line: start_line, col: start_col })
+                                        }
+                                    }
+                                    None => { }
+                                }
                                 current_builder = std.builder.append(current_builder, escaped)
                                 current_state = new_state
                                 // Continue loop (no recursive call)
@@ -1402,6 +1495,16 @@ let parse_string_contents_builder: fn(ParserState, StringBuilder) -> ParseResult
                         if is_control_char_str(c) {
                             let code: i32 = get_char_code(c)
                             return ParseErr(ControlChar { code: code, line: current_state.line, col: current_state.column })
+                        }
+                        // Check string length limit before adding regular character
+                        match current_state.limits.max_string_length {
+                            Some(max_len) => {
+                                string_length = string_length + 1
+                                if string_length > max_len {
+                                    return ParseErr(StringTooLong { length: string_length, max_length: max_len, line: start_line, col: start_col })
+                                }
+                            }
+                            None => { }
                         }
                         // Regular character - add to builder and advance
                         current_builder = std.builder.append(current_builder, c)
@@ -1646,9 +1749,18 @@ let parse_array: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) -
     }
 }
 
-/// Parses array elements.
-let parse_array_elements: fn(ParserState, List[Json]) -> ParseResult[Json] =
-    fn(state: ParserState, acc: List[Json]) -> ParseResult[Json] {
+/// Parses array elements with a count for limit checking.
+let parse_array_elements_counted: fn(ParserState, List[Json], i32, i32, i32) -> ParseResult[Json] =
+    fn(state: ParserState, acc: List[Json], count: i32, start_line: i32, start_col: i32) -> ParseResult[Json] {
+        // Check array items limit before parsing next element
+        match state.limits.max_array_items {
+            Some(max_items) => {
+                if count > max_items {
+                    return ParseErr(TooManyArrayItems { count: count, max_items: max_items, line: start_line, col: start_col })
+                }
+            }
+            None => { }
+        }
         let value_result: ParseResult[Json] = parse_value(state)
         match value_result {
             ParseErr(e) => { return ParseErr(e) }
@@ -1662,7 +1774,7 @@ let parse_array_elements: fn(ParserState, List[Json]) -> ParseResult[Json] =
                         }
                         if std.string.equals(c, ",") {
                             let after_comma: ParserState = skip_whitespace(advance(after_ws))
-                            return parse_array_elements(after_comma, new_acc)
+                            return parse_array_elements_counted(after_comma, new_acc, count + 1, start_line, start_col)
                         }
                         return ParseErr(UnexpectedToken { expected: "',' or ']'", found: c, line: after_ws.line, col: after_ws.column })
                     }
@@ -1670,6 +1782,12 @@ let parse_array_elements: fn(ParserState, List[Json]) -> ParseResult[Json] =
                 }
             }
         }
+    }
+
+/// Parses array elements.
+let parse_array_elements: fn(ParserState, List[Json]) -> ParseResult[Json] =
+    fn(state: ParserState, acc: List[Json]) -> ParseResult[Json] {
+        return parse_array_elements_counted(state, acc, 1, state.line, state.column)
     }
 
 /// Parses a JSON object.
@@ -1722,9 +1840,18 @@ let parse_object: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
     }
 }
 
-/// Parses object fields into a HashMap.
-let parse_object_fields_map: fn(ParserState, HashMap) -> ParseResult[Json] =
-    fn(state: ParserState, acc: HashMap) -> ParseResult[Json] {
+/// Parses object fields into a HashMap with count for limit checking.
+let parse_object_fields_map_counted: fn(ParserState, HashMap, i32, i32, i32) -> ParseResult[Json] =
+    fn(state: ParserState, acc: HashMap, count: i32, start_line: i32, start_col: i32) -> ParseResult[Json] {
+        // Check object fields limit before parsing next field
+        match state.limits.max_object_fields {
+            Some(max_fields) => {
+                if count > max_fields {
+                    return ParseErr(TooManyObjectFields { count: count, max_fields: max_fields, line: start_line, col: start_col })
+                }
+            }
+            None => { }
+        }
         // Parse key (save position for error reporting)
         let key_line: i32 = state.line
         let key_col: i32 = state.column
@@ -1762,7 +1889,7 @@ let parse_object_fields_map: fn(ParserState, HashMap) -> ParseResult[Json] =
                                             }
                                             if std.string.equals(c2, ",") {
                                                 let after_comma: ParserState = skip_whitespace(advance(after_ws))
-                                                return parse_object_fields_map(after_comma, new_acc)
+                                                return parse_object_fields_map_counted(after_comma, new_acc, count + 1, start_line, start_col)
                                             }
                                             return ParseErr(UnexpectedToken { expected: "',' or '}'", found: c2, line: after_ws.line, col: after_ws.column })
                                         }
@@ -1777,6 +1904,12 @@ let parse_object_fields_map: fn(ParserState, HashMap) -> ParseResult[Json] =
                 }
             }
         }
+    }
+
+/// Parses object fields into a HashMap.
+let parse_object_fields_map: fn(ParserState, HashMap) -> ParseResult[Json] =
+    fn(state: ParserState, acc: HashMap) -> ParseResult[Json] {
+        return parse_object_fields_map_counted(state, acc, 1, state.line, state.column)
     }
 
 /// Parses object fields (List[JsonField] version).
@@ -1937,6 +2070,40 @@ pub let parse_strict_with_max_depth: fn(string, i32) -> Result[Json, JsonError] 
 /// Uses the default maximum nesting depth (512 levels).
 pub let parse_strict: fn(string) -> Result[Json, JsonError] = fn(input: string) -> Result[Json, JsonError] {
     return parse_strict_with_max_depth(input, default_max_depth())
+}
+
+/// Internal: Parses a JSON string with custom limits.
+let parse_internal_with_limits: fn(string, ParseLimits, bool) -> Result[Json, JsonError] = fn(input: string, limits: ParseLimits, strict: bool) -> Result[Json, JsonError] {
+    let state: ParserState = init_state_with_limits(input, limits, strict)
+    let result: ParseResult[Json] = parse_value(state)
+    match result {
+        ParseOk(json, final_state) => {
+            let after_ws: ParserState = skip_whitespace(final_state)
+            if is_eof(after_ws) {
+                return Ok(json)
+            }
+            match peek_str(after_ws) {
+                Some(c) => { return Err(TrailingContent { found: c, line: after_ws.line, col: after_ws.column }) }
+                None => { return Ok(json) }
+            }
+        }
+        ParseErr(e) => { return Err(e) }
+    }
+}
+
+/// Parses a JSON string with custom resource limits.
+/// Use this for parsing untrusted input to prevent resource exhaustion attacks.
+/// The limits control maximum string length, array size, object size, and nesting depth.
+/// See `default_limits()` for sensible defaults, or `unlimited_limits()` to disable limits.
+pub let parse_with_limits: fn(string, ParseLimits) -> Result[Json, JsonError] = fn(input: string, limits: ParseLimits) -> Result[Json, JsonError] {
+    return parse_internal_with_limits(input, limits, false)
+}
+
+/// Parses a JSON string in strict mode with custom resource limits.
+/// Combines strict mode (rejects duplicate keys) with resource limits (prevents exhaustion).
+/// Recommended for parsing untrusted input that requires RFC 8259 compliance.
+pub let parse_strict_with_limits: fn(string, ParseLimits) -> Result[Json, JsonError] = fn(input: string, limits: ParseLimits) -> Result[Json, JsonError] {
+    return parse_internal_with_limits(input, limits, true)
 }
 
 // =============================================================================

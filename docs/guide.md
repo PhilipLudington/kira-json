@@ -12,6 +12,7 @@ A practical guide to using the Kira JSON library for parsing, building, transfor
 - [Path-Based Access](#path-based-access)
 - [Error Handling](#error-handling)
 - [Schema Validation](#schema-validation)
+- [Security: Parsing Untrusted Input](#security-parsing-untrusted-input)
 
 ---
 
@@ -683,3 +684,92 @@ match validate(json, user_schema) {
     Ok(_) => { }
 }
 ```
+
+---
+
+## Security: Parsing Untrusted Input
+
+When parsing JSON from untrusted sources (user input, external APIs, uploaded files), use resource limits to prevent denial-of-service attacks.
+
+### The Problem
+
+Malicious JSON can exhaust system resources:
+
+- **Deep nesting**: `[[[[[[...]]]]]]` causes stack overflow
+- **Huge strings**: `"aaa...aaa"` (millions of characters) exhausts memory
+- **Large arrays**: `[1,1,1,...,1]` (millions of elements) exhausts memory
+- **Large objects**: `{"a":1,"b":1,...}` (thousands of keys) exhausts memory
+
+### The Solution: Use `parse_with_limits`
+
+```kira
+import src.json.{ parse_with_limits, default_limits, ParseLimits }
+
+// Parse with sensible default limits (recommended)
+let result: Result[Json, JsonError] = parse_with_limits(untrusted_input, default_limits())
+```
+
+The default limits are:
+- Max nesting depth: 128 levels
+- Max string length: 10 million characters
+- Max array items: 1 million elements
+- Max object fields: 100 thousand keys
+
+### Custom Limits
+
+For stricter requirements, define custom limits:
+
+```kira
+let strict_limits: ParseLimits = ParseLimits {
+    max_depth: 20,               // Shallow nesting only
+    max_string_length: Some(10000),   // 10KB strings max
+    max_array_items: Some(1000),      // 1000 items max
+    max_object_fields: Some(100)      // 100 fields max
+}
+
+let result: Result[Json, JsonError] = parse_with_limits(input, strict_limits)
+```
+
+### Handling Limit Errors
+
+```kira
+match parse_with_limits(input, default_limits()) {
+    Ok(json) => { /* safe to use */ }
+    Err(StringTooLong { length: len, max_length: max, ... }) => {
+        std.io.println("String too long: " + std.int.to_string(len) + " chars (max " + std.int.to_string(max) + ")")
+    }
+    Err(TooManyArrayItems { count: cnt, max_items: max, ... }) => {
+        std.io.println("Array too large: " + std.int.to_string(cnt) + " items (max " + std.int.to_string(max) + ")")
+    }
+    Err(TooManyObjectFields { count: cnt, max_fields: max, ... }) => {
+        std.io.println("Object too large: " + std.int.to_string(cnt) + " fields (max " + std.int.to_string(max) + ")")
+    }
+    Err(MaxDepthExceeded { depth: d, max_depth: max, ... }) => {
+        std.io.println("Nesting too deep: " + std.int.to_string(d) + " levels (max " + std.int.to_string(max) + ")")
+    }
+    Err(e) => {
+        std.io.println("Parse error: " + format_error(e))
+    }
+}
+```
+
+### Combining with Strict Mode
+
+For maximum safety, combine limits with strict mode:
+
+```kira
+let result: Result[Json, JsonError] = parse_strict_with_limits(input, default_limits())
+```
+
+This rejects:
+- Inputs that exceed resource limits
+- Duplicate object keys (strict RFC 8259 compliance)
+
+### When to Use Each Parser
+
+| Parser | Use Case |
+|--------|----------|
+| `parse` | Trusted input, development, internal data |
+| `parse_strict` | When duplicate keys should be errors |
+| `parse_with_limits` | Untrusted input, external APIs |
+| `parse_strict_with_limits` | Untrusted input requiring RFC compliance |

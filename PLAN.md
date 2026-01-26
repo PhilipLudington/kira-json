@@ -257,6 +257,174 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 ---
 
+## Phase 7: Code Quality Improvements
+
+Based on comprehensive code quality review (score: 8.9/10). These improvements address architectural refinements, security hardening, and maintainability enhancements.
+
+### 7.1 Resource Limits for Untrusted Input ✓
+
+Add configurable limits to prevent resource exhaustion attacks from malicious JSON input.
+
+**New Types:**
+```kira
+pub type ParseLimits = {
+    max_depth: i32,
+    max_string_length: Option[i32],
+    max_array_items: Option[i32],
+    max_object_fields: Option[i32]
+}
+```
+
+**New Functions:**
+- [x] `parse_with_limits(string, ParseLimits) -> Result[Json, JsonError]`
+- [x] `parse_strict_with_limits(string, ParseLimits) -> Result[Json, JsonError]`
+- [x] `default_limits() -> ParseLimits` - sensible defaults for untrusted input
+- [x] `unlimited_limits() -> ParseLimits` - no limits (use with caution)
+
+**New Error Variants:**
+- [x] `StringTooLong { length: i32, max_length: i32, line: i32, col: i32 }`
+- [x] `TooManyArrayItems { count: i32, max_items: i32, line: i32, col: i32 }`
+- [x] `TooManyObjectFields { count: i32, max_fields: i32, line: i32, col: i32 }`
+
+**Implementation:**
+- [x] Add limit checks in `parse_string_contents_builder`
+- [x] Add limit checks in `parse_array_elements` (via `parse_array_elements_counted`)
+- [x] Add limit checks in `parse_object_fields` (via `parse_object_fields_map_counted`)
+- [x] Update `ParserState` to include limits
+- [x] Add tests for each limit type (16 new tests)
+- [x] Update docs/api.md with new functions
+- [x] Update docs/guide.md with security recommendations
+
+**Files:** `src/json.ki`, `tests/test_json.ki`, `docs/api.md`, `docs/guide.md`
+
+### 7.2 Refactor Surrogate Pair Handling (High Priority)
+
+Extract surrogate pair logic from `parse_unicode_escape_str` to reduce nesting depth from 5 levels to 2-3.
+
+**Current State:** Lines 1477-1562 have deeply nested pattern matching for UTF-16 surrogate pairs.
+
+**Refactoring Plan:**
+- [ ] Extract `parse_surrogate_pair: fn(i32, ParserState) -> ParseResult[string]`
+- [ ] Extract `try_parse_low_surrogate: fn(ParserState) -> Option[(i32, ParserState)]`
+- [ ] Simplify `parse_unicode_escape_str` to delegate to helpers
+- [ ] Maintain identical behavior (lone surrogates → U+FFFD)
+- [ ] Verify all existing unicode tests still pass
+
+**Files:** `src/json.ki`
+
+### 7.3 Modularize Source Code (Medium Priority)
+
+Split `src/json.ki` (3,626 lines) into logical submodules for better maintainability.
+
+**Proposed Structure:**
+```
+src/
+├── json.ki              (re-exports, ~50 lines)
+├── json/
+│   ├── types.ki         (Json, JsonField, JsonError, ~150 lines)
+│   ├── parser.ki        (parse functions, ParserState, ~1200 lines)
+│   ├── serializer.ki    (stringify functions, ~400 lines)
+│   ├── schema.ki        (Schema types, validate, ~500 lines)
+│   ├── transform.ki     (map, filter, merge, set/remove, ~400 lines)
+│   ├── path.ki          (get_path, set_path, PathError, ~400 lines)
+│   ├── builder.ki       (JsonBuilder, with_* functions, ~100 lines)
+│   └── util.ki          (internal helpers, ~400 lines)
+```
+
+**Implementation Steps:**
+- [ ] Create `src/json/` directory
+- [ ] Extract types to `src/json/types.ki`
+- [ ] Extract parser to `src/json/parser.ki`
+- [ ] Extract serializer to `src/json/serializer.ki`
+- [ ] Extract schema validation to `src/json/schema.ki`
+- [ ] Extract transformations to `src/json/transform.ki`
+- [ ] Extract path operations to `src/json/path.ki`
+- [ ] Extract builder to `src/json/builder.ki`
+- [ ] Extract internal utilities to `src/json/util.ki`
+- [ ] Update `src/json.ki` to re-export public API
+- [ ] Update all imports in tests and examples
+- [ ] Verify all tests pass after refactoring
+
+**Files:** `src/json.ki` → `src/json/*.ki`, `tests/*.ki`, `examples/*.ki`
+
+**Note:** Depends on Kira module system supporting nested modules. Verify capability first.
+
+### 7.4 Performance Benchmarks (Medium Priority)
+
+Create benchmark suite to track performance characteristics and prevent regressions.
+
+**Benchmark Categories:**
+- [ ] Parse time vs. input size (1KB, 10KB, 100KB, 1MB)
+- [ ] Stringify time vs. structure complexity
+- [ ] Field access: HashMap O(1) verification
+- [ ] Path access time vs. depth
+- [ ] Array operations vs. length
+- [ ] Schema validation time vs. complexity
+
+**Implementation:**
+- [ ] Create `benches/bench_json.ki`
+- [ ] Implement timing utilities (or use std if available)
+- [ ] Generate test data of various sizes
+- [ ] Run benchmarks and document baseline
+- [ ] Add benchmark results to `docs/performance.md`
+
+**Files:** `benches/bench_json.ki` (new), `docs/performance.md`
+
+### 7.5 Standardize Internal Naming (Low Priority)
+
+Establish consistent naming conventions for internal helper functions.
+
+**Naming Conventions:**
+| Suffix | Usage | Example |
+|--------|-------|---------|
+| `_str` | String-based variant | `is_digit_str`, `peek_str` |
+| `_acc` | Accumulator recursion | `list_reverse_acc`, `format_schema_errors_acc` |
+| `_impl` | Internal implementation | `validate_impl`, `equals_impl` |
+| `_to_builder` | StringBuilder output | `escape_chars_to_builder` |
+
+**Implementation:**
+- [ ] Audit all internal functions for naming consistency
+- [ ] Rename inconsistent functions (backwards compatible - internal only)
+- [ ] Document conventions in code comments
+
+**Files:** `src/json.ki`
+
+### 7.6 Add Performance Documentation in Code (Low Priority)
+
+Add inline documentation for operations with non-obvious performance characteristics.
+
+**Locations to Document:**
+- [ ] `get_index` - O(n) array traversal warning
+- [ ] `size` for arrays - O(n) list length
+- [ ] `as_object` - O(n) HashMap to List conversion
+- [ ] `map_array`, `filter_array` - O(n) with new list allocation
+- [ ] Path operations with array indices - O(n) per index segment
+
+**Example Format:**
+```kira
+/// Gets an element from a JSON array by index.
+///
+/// **Performance:** O(n) where n is the index. Arrays are linked lists,
+/// requiring traversal to reach the target index. For frequent random
+/// access, consider using objects with string indices.
+pub let get_index: fn(Json, i32) -> Option[Json]
+```
+
+**Files:** `src/json.ki`
+
+---
+
+## Phase 7 Priority Order
+
+1. **7.1** - Resource limits (security hardening)
+2. **7.2** - Surrogate pair refactor (complexity reduction)
+3. **7.4** - Performance benchmarks (measurement before optimization)
+4. **7.6** - Performance docs in code (quick win)
+5. **7.5** - Naming standardization (maintainability)
+6. **7.3** - Modularization (large refactor, do last)
+
+---
+
 ## Priority Order
 
 1. ~~**Phase 2.2** - Parser string building~~ ✓
@@ -278,6 +446,12 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 17. ~~**Phase 3.3** - JSON Schema validation~~ ✓
 18. ~~**Phase 5.4** - Fuzzing~~ ✓
 19. ~~**Phase 6** - Documentation~~ ✓
+20. ~~**Phase 7.1** - Resource limits for untrusted input~~ ✓
+21. **Phase 7.2** - Refactor surrogate pair handling
+22. **Phase 7.4** - Performance benchmarks
+23. **Phase 7.6** - Performance documentation in code
+24. **Phase 7.5** - Standardize internal naming
+25. **Phase 7.3** - Modularize source code
 
 ---
 

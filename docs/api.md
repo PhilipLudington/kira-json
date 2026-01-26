@@ -64,6 +64,22 @@ pub type JsonError =
     | TrailingContent { found: string, line: i32, col: i32 }
     | MaxDepthExceeded { depth: i32, max_depth: i32, line: i32, col: i32 }
     | DuplicateKey { key: string, line: i32, col: i32 }
+    | StringTooLong { length: i32, max_length: i32, line: i32, col: i32 }
+    | TooManyArrayItems { count: i32, max_items: i32, line: i32, col: i32 }
+    | TooManyObjectFields { count: i32, max_fields: i32, line: i32, col: i32 }
+```
+
+### ParseLimits
+
+Resource limits for parsing untrusted JSON input. Used to prevent resource exhaustion attacks.
+
+```kira
+pub type ParseLimits = {
+    max_depth: i32,                      // Maximum nesting depth (default: 128)
+    max_string_length: Option[i32],      // Max characters per string (None = unlimited)
+    max_array_items: Option[i32],        // Max items per array (None = unlimited)
+    max_object_fields: Option[i32]       // Max fields per object (None = unlimited)
+}
 ```
 
 ### PathError
@@ -150,6 +166,76 @@ Returns the default maximum nesting depth (128).
 
 ```kira
 pub let default_max_depth: fn() -> i32
+```
+
+### default_limits
+
+Returns sensible default limits for parsing untrusted JSON input.
+
+```kira
+pub let default_limits: fn() -> ParseLimits
+```
+
+**Default values:**
+- `max_depth`: 128
+- `max_string_length`: Some(10,000,000) (10 million characters)
+- `max_array_items`: Some(1,000,000) (1 million items)
+- `max_object_fields`: Some(100,000) (100 thousand fields)
+
+### unlimited_limits
+
+Returns unlimited limits (no restrictions except max_depth of 128). Use with caution on untrusted input.
+
+```kira
+pub let unlimited_limits: fn() -> ParseLimits
+```
+
+### parse_with_limits
+
+Parses JSON with custom resource limits. Use for parsing untrusted input to prevent resource exhaustion.
+
+```kira
+pub let parse_with_limits: fn(string, ParseLimits) -> Result[Json, JsonError]
+```
+
+**Example:**
+```kira
+// Parse with default limits (recommended for untrusted input)
+let result: Result[Json, JsonError] = parse_with_limits(untrusted_input, default_limits())
+
+// Parse with custom limits
+let limits: ParseLimits = ParseLimits {
+    max_depth: 50,
+    max_string_length: Some(1000),
+    max_array_items: Some(100),
+    max_object_fields: Some(50)
+}
+let result: Result[Json, JsonError] = parse_with_limits(input, limits)
+```
+
+**Possible errors:**
+- `StringTooLong` - A string exceeded `max_string_length`
+- `TooManyArrayItems` - An array exceeded `max_array_items`
+- `TooManyObjectFields` - An object exceeded `max_object_fields`
+- `MaxDepthExceeded` - Nesting exceeded `max_depth`
+
+### parse_strict_with_limits
+
+Combines strict mode (rejects duplicate keys) with resource limits. Recommended for parsing untrusted input that requires RFC 8259 compliance.
+
+```kira
+pub let parse_strict_with_limits: fn(string, ParseLimits) -> Result[Json, JsonError]
+```
+
+**Example:**
+```kira
+let result: Result[Json, JsonError] = parse_strict_with_limits(input, default_limits())
+match result {
+    Ok(json) => { /* use json */ }
+    Err(DuplicateKey { key: k, ... }) => { std.io.println("Duplicate key: " + k) }
+    Err(StringTooLong { ... }) => { std.io.println("String too long") }
+    Err(e) => { std.io.println(format_error(e)) }
+}
 ```
 
 ---

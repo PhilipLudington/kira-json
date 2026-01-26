@@ -3,7 +3,7 @@
 
 module test_json
 
-import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, default_max_depth, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error, json_object, json_object_empty, Schema, SchemaProperty, SchemaRef, SchemaInline, SchemaError, TypeMismatch, MissingRequired, MinimumViolation, MaximumViolation, MinLengthViolation, MaxLengthViolation, MinItemsViolation, MaxItemsViolation, EnumViolation, IntegerRequired, format_schema_error, format_schema_errors, validate, schema_any, schema_type, schema_string, schema_number, schema_integer, schema_array, schema_object, schema_property, schema_ref, schema_enum }
+import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, StringTooLong, TooManyArrayItems, TooManyObjectFields, ParseLimits, default_limits, unlimited_limits, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, parse_with_limits, parse_strict_with_limits, default_max_depth, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error, json_object, json_object_empty, Schema, SchemaProperty, SchemaRef, SchemaInline, SchemaError, TypeMismatch, MissingRequired, MinimumViolation, MaximumViolation, MinLengthViolation, MaxLengthViolation, MinItemsViolation, MaxItemsViolation, EnumViolation, IntegerRequired, format_schema_error, format_schema_errors, validate, schema_any, schema_type, schema_string, schema_number, schema_integer, schema_array, schema_object, schema_property, schema_ref, schema_enum }
 
 // =============================================================================
 // Test Utilities
@@ -4608,6 +4608,259 @@ let test_schema_any_accepts_all_types: fn() -> void = fn() -> void {
 }
 
 // =============================================================================
+// Resource Limit Tests
+// =============================================================================
+
+/// Test that default limits are reasonable
+let test_default_limits_values: fn() -> void = fn() -> void {
+    let limits: ParseLimits = default_limits()
+    assert_true(limits.max_depth == 128, "default max_depth should be 128")
+    match limits.max_string_length {
+        Some(n) => { assert_true(n == 10000000, "default max_string_length should be 10000000") }
+        None => { assert_true(false, "default max_string_length should have a value") }
+    }
+    match limits.max_array_items {
+        Some(n) => { assert_true(n == 1000000, "default max_array_items should be 1000000") }
+        None => { assert_true(false, "default max_array_items should have a value") }
+    }
+    match limits.max_object_fields {
+        Some(n) => { assert_true(n == 100000, "default max_object_fields should be 100000") }
+        None => { assert_true(false, "default max_object_fields should have a value") }
+    }
+    return
+}
+
+/// Test that unlimited limits have None for optional fields
+let test_unlimited_limits_values: fn() -> void = fn() -> void {
+    let limits: ParseLimits = unlimited_limits()
+    assert_true(limits.max_depth == 128, "unlimited max_depth should still be 128")
+    match limits.max_string_length {
+        Some(_) => { assert_true(false, "unlimited max_string_length should be None") }
+        None => { }
+    }
+    match limits.max_array_items {
+        Some(_) => { assert_true(false, "unlimited max_array_items should be None") }
+        None => { }
+    }
+    match limits.max_object_fields {
+        Some(_) => { assert_true(false, "unlimited max_object_fields should be None") }
+        None => { }
+    }
+    return
+}
+
+/// Test that string too long error is returned when limit exceeded
+let test_string_too_long_error: fn() -> void = fn() -> void {
+    // Create limits with a very small string length limit
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: Some(5),
+        max_array_items: None,
+        max_object_fields: None
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("\"hello world\"", limits)
+    match result {
+        Ok(_) => { assert_true(false, "should have failed with StringTooLong") }
+        Err(err) => {
+            match err {
+                StringTooLong { length: len, max_length: max, line: _, col: _ } => {
+                    assert_true(len > max, "length should exceed max")
+                    assert_true(max == 5, "max should be 5")
+                }
+                _ => { assert_true(false, "expected StringTooLong error") }
+            }
+        }
+    }
+    return
+}
+
+/// Test that string within limit is accepted
+let test_string_within_limit: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: Some(20),
+        max_array_items: None,
+        max_object_fields: None
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("\"hello\"", limits)
+    assert_ok[Json, JsonError](result, "string within limit should be accepted")
+    return
+}
+
+/// Test that too many array items error is returned
+let test_too_many_array_items_error: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: Some(3),
+        max_object_fields: None
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("[1, 2, 3, 4, 5]", limits)
+    match result {
+        Ok(_) => { assert_true(false, "should have failed with TooManyArrayItems") }
+        Err(err) => {
+            match err {
+                TooManyArrayItems { count: cnt, max_items: max, line: _, col: _ } => {
+                    assert_true(cnt > max, "count should exceed max")
+                    assert_true(max == 3, "max should be 3")
+                }
+                _ => { assert_true(false, "expected TooManyArrayItems error") }
+            }
+        }
+    }
+    return
+}
+
+/// Test that array within limit is accepted
+let test_array_within_limit: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: Some(5),
+        max_object_fields: None
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("[1, 2, 3]", limits)
+    assert_ok[Json, JsonError](result, "array within limit should be accepted")
+    return
+}
+
+/// Test that too many object fields error is returned
+let test_too_many_object_fields_error: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: None,
+        max_object_fields: Some(2)
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("{\"a\": 1, \"b\": 2, \"c\": 3}", limits)
+    match result {
+        Ok(_) => { assert_true(false, "should have failed with TooManyObjectFields") }
+        Err(err) => {
+            match err {
+                TooManyObjectFields { count: cnt, max_fields: max, line: _, col: _ } => {
+                    assert_true(cnt > max, "count should exceed max")
+                    assert_true(max == 2, "max should be 2")
+                }
+                _ => { assert_true(false, "expected TooManyObjectFields error") }
+            }
+        }
+    }
+    return
+}
+
+/// Test that object within limit is accepted
+let test_object_within_limit: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: None,
+        max_object_fields: Some(5)
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("{\"a\": 1, \"b\": 2}", limits)
+    assert_ok[Json, JsonError](result, "object within limit should be accepted")
+    return
+}
+
+/// Test parse_strict_with_limits combines strict mode with limits
+let test_parse_strict_with_limits: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: Some(2),
+        max_object_fields: None
+    }
+    // Test that strict mode works (duplicate keys rejected)
+    let strict_result: Result[Json, JsonError] = parse_strict_with_limits("{\"a\": 1, \"a\": 2}", limits)
+    match strict_result {
+        Ok(_) => { assert_true(false, "strict mode should reject duplicate keys") }
+        Err(err) => {
+            match err {
+                DuplicateKey { key: _, line: _, col: _ } => { }
+                _ => { assert_true(false, "expected DuplicateKey error") }
+            }
+        }
+    }
+    // Test that limits work (too many array items)
+    let limit_result: Result[Json, JsonError] = parse_strict_with_limits("[1, 2, 3]", limits)
+    match limit_result {
+        Ok(_) => { assert_true(false, "should have failed with TooManyArrayItems") }
+        Err(err) => {
+            match err {
+                TooManyArrayItems { count: _, max_items: _, line: _, col: _ } => { }
+                _ => { assert_true(false, "expected TooManyArrayItems error") }
+            }
+        }
+    }
+    return
+}
+
+/// Test error formatting for new error types
+let test_format_error_string_too_long: fn() -> void = fn() -> void {
+    let err: JsonError = StringTooLong { length: 100, max_length: 50, line: 1, col: 1 }
+    let formatted: string = format_error(err)
+    assert_true(std.string.contains(formatted, "String too long"), "should contain error description")
+    assert_true(std.string.contains(formatted, "100"), "should contain actual length")
+    assert_true(std.string.contains(formatted, "50"), "should contain max length")
+    return
+}
+
+/// Test error formatting for array items error
+let test_format_error_too_many_array_items: fn() -> void = fn() -> void {
+    let err: JsonError = TooManyArrayItems { count: 10, max_items: 5, line: 2, col: 3 }
+    let formatted: string = format_error(err)
+    assert_true(std.string.contains(formatted, "Too many array items"), "should contain error description")
+    assert_true(std.string.contains(formatted, "10"), "should contain actual count")
+    assert_true(std.string.contains(formatted, "5"), "should contain max items")
+    return
+}
+
+/// Test error formatting for object fields error
+let test_format_error_too_many_object_fields: fn() -> void = fn() -> void {
+    let err: JsonError = TooManyObjectFields { count: 20, max_fields: 10, line: 3, col: 4 }
+    let formatted: string = format_error(err)
+    assert_true(std.string.contains(formatted, "Too many object fields"), "should contain error description")
+    assert_true(std.string.contains(formatted, "20"), "should contain actual count")
+    assert_true(std.string.contains(formatted, "10"), "should contain max fields")
+    return
+}
+
+/// Test error_line for new error types
+let test_error_line_new_errors: fn() -> void = fn() -> void {
+    assert_true(error_line(StringTooLong { length: 1, max_length: 1, line: 5, col: 1 }) == 5, "StringTooLong line")
+    assert_true(error_line(TooManyArrayItems { count: 1, max_items: 1, line: 6, col: 1 }) == 6, "TooManyArrayItems line")
+    assert_true(error_line(TooManyObjectFields { count: 1, max_fields: 1, line: 7, col: 1 }) == 7, "TooManyObjectFields line")
+    return
+}
+
+/// Test error_column for new error types
+let test_error_column_new_errors: fn() -> void = fn() -> void {
+    assert_true(error_column(StringTooLong { length: 1, max_length: 1, line: 1, col: 10 }) == 10, "StringTooLong col")
+    assert_true(error_column(TooManyArrayItems { count: 1, max_items: 1, line: 1, col: 11 }) == 11, "TooManyArrayItems col")
+    assert_true(error_column(TooManyObjectFields { count: 1, max_fields: 1, line: 1, col: 12 }) == 12, "TooManyObjectFields col")
+    return
+}
+
+/// Test empty containers work with any limits
+let test_empty_containers_with_limits: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: Some(0),
+        max_array_items: Some(0),
+        max_object_fields: Some(0)
+    }
+    // Empty array should work (0 items)
+    let arr_result: Result[Json, JsonError] = parse_with_limits("[]", limits)
+    assert_ok[Json, JsonError](arr_result, "empty array should be accepted even with max_items=0")
+    // Empty object should work (0 fields)
+    let obj_result: Result[Json, JsonError] = parse_with_limits("{}", limits)
+    assert_ok[Json, JsonError](obj_result, "empty object should be accepted even with max_fields=0")
+    // Empty string should work (0 length)
+    let str_result: Result[Json, JsonError] = parse_with_limits("\"\"", limits)
+    assert_ok[Json, JsonError](str_result, "empty string should be accepted even with max_length=0")
+    return
+}
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -5031,6 +5284,39 @@ effect fn main() -> IO[void] {
 
     std.io.println("Schema Validation - Any:")
     run_test("test_schema_any_accepts_all_types", test_schema_any_accepts_all_types)
+    std.io.println("")
+
+    std.io.println("Resource Limits - Basic:")
+    run_test("test_default_limits_values", test_default_limits_values)
+    run_test("test_unlimited_limits_values", test_unlimited_limits_values)
+    std.io.println("")
+
+    std.io.println("Resource Limits - String Length:")
+    run_test("test_string_too_long_error", test_string_too_long_error)
+    run_test("test_string_within_limit", test_string_within_limit)
+    std.io.println("")
+
+    std.io.println("Resource Limits - Array Items:")
+    run_test("test_too_many_array_items_error", test_too_many_array_items_error)
+    run_test("test_array_within_limit", test_array_within_limit)
+    std.io.println("")
+
+    std.io.println("Resource Limits - Object Fields:")
+    run_test("test_too_many_object_fields_error", test_too_many_object_fields_error)
+    run_test("test_object_within_limit", test_object_within_limit)
+    std.io.println("")
+
+    std.io.println("Resource Limits - Combined:")
+    run_test("test_parse_strict_with_limits", test_parse_strict_with_limits)
+    run_test("test_empty_containers_with_limits", test_empty_containers_with_limits)
+    std.io.println("")
+
+    std.io.println("Resource Limits - Error Formatting:")
+    run_test("test_format_error_string_too_long", test_format_error_string_too_long)
+    run_test("test_format_error_too_many_array_items", test_format_error_too_many_array_items)
+    run_test("test_format_error_too_many_object_fields", test_format_error_too_many_object_fields)
+    run_test("test_error_line_new_errors", test_error_line_new_errors)
+    run_test("test_error_column_new_errors", test_error_column_new_errors)
     std.io.println("")
 
     std.io.println("==========================")
