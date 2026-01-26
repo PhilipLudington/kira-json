@@ -1,0 +1,860 @@
+/// Fuzz tests for the JSON parser
+/// Tests that the parser never crashes on malformed input.
+/// Uses deterministic pseudo-random generation for reproducibility.
+
+module fuzz_json
+
+import src.json.{ Json, JsonError, parse, parse_strict, parse_with_max_depth, stringify, equals }
+
+// =============================================================================
+// Pseudo-Random Number Generator (Linear Congruential Generator)
+// =============================================================================
+
+/// Simple LCG state - uses a record for immutability
+type RngState = { seed: i64 }
+
+/// Create initial RNG state from seed
+let rng_new: fn(i64) -> RngState = fn(seed: i64) -> RngState {
+    return RngState { seed: seed }
+}
+
+/// Generate next random number and new state (LCG parameters from Numerical Recipes)
+let rng_next: fn(RngState) -> (i64, RngState) = fn(state: RngState) -> (i64, RngState) {
+    // LCG: next = (a * seed + c) mod m
+    // Using parameters: a=1103515245, c=12345, m=2^31
+    let a: i64 = 1103515245i64
+    let c: i64 = 12345i64
+    let m: i64 = 2147483648i64  // 2^31
+    let next_seed: i64 = ((a * state.seed) + c) % m
+    // Ensure positive
+    var positive_seed: i64 = next_seed
+    if next_seed < 0i64 {
+        positive_seed = 0i64 - next_seed
+    }
+    return (positive_seed, RngState { seed: positive_seed })
+}
+
+/// Generate random number in range [0, max)
+let rng_range: fn(RngState, i64) -> (i64, RngState) = fn(state: RngState, max: i64) -> (i64, RngState) {
+    let (value, new_state): (i64, RngState) = rng_next(state)
+    if max <= 0i64 {
+        return (0i64, new_state)
+    }
+    return (value % max, new_state)
+}
+
+/// Generate random boolean
+let rng_bool: fn(RngState) -> (bool, RngState) = fn(state: RngState) -> (bool, RngState) {
+    let (value, new_state): (i64, RngState) = rng_range(state, 2i64)
+    return (value == 1i64, new_state)
+}
+
+// =============================================================================
+// String Generators
+// =============================================================================
+
+/// Generate a random ASCII character from a predefined list
+let random_ascii_char: fn(RngState) -> (string, RngState) = fn(state: RngState) -> (string, RngState) {
+    // Use a list of single-character strings to avoid char_at issues
+    let char_list: List[string] = Cons("a", Cons("b", Cons("c", Cons("d", Cons("e",
+        Cons("f", Cons("g", Cons("h", Cons("i", Cons("j",
+        Cons("k", Cons("l", Cons("m", Cons("n", Cons("o",
+        Cons("p", Cons("q", Cons("r", Cons("s", Cons("t",
+        Cons("u", Cons("v", Cons("w", Cons("x", Cons("y",
+        Cons("z", Cons("0", Cons("1", Cons("2", Cons("3",
+        Cons("4", Cons("5", Cons("6", Cons("7", Cons("8",
+        Cons("9", Cons(" ", Cons("{", Cons("}", Cons("[",
+        Cons("]", Cons(":", Cons(",", Cons(".", Cons("-",
+        Cons("+", Cons("e", Cons("E",
+        Nil))))))))))))))))))))))))))))))))))))))))))))))))
+    let len: i64 = 48i64  // Length of char_list
+    let (idx, new_state): (i64, RngState) = rng_range(state, len)
+    let char_str: string = list_get_string(char_list, to_int(idx))
+    return (char_str, new_state)
+}
+
+/// Get element at index from list of strings (with default)
+let list_get_string: fn(List[string], i32) -> string = fn(list: List[string], index: i32) -> string {
+    return list_get_string_acc(list, index, 0)
+}
+
+let list_get_string_acc: fn(List[string], i32, i32) -> string =
+    fn(list: List[string], target: i32, current: i32) -> string {
+        match list {
+            Nil => { return "a" }  // Default if out of bounds
+            Cons(head, tail) => {
+                if current == target {
+                    return head
+                }
+                return list_get_string_acc(tail, target, current + 1)
+            }
+        }
+    }
+
+/// Generate a random string of given length
+let random_string: fn(RngState, i32) -> (string, RngState) = fn(state: RngState, length: i32) -> (string, RngState) {
+    return random_string_acc(state, length, "")
+}
+
+let random_string_acc: fn(RngState, i32, string) -> (string, RngState) =
+    fn(state: RngState, remaining: i32, acc: string) -> (string, RngState) {
+        if remaining <= 0 {
+            return (acc, state)
+        }
+        let (char_str, new_state): (string, RngState) = random_ascii_char(state)
+        return random_string_acc(new_state, remaining - 1, acc + char_str)
+    }
+
+/// Generate a random control character (0x00-0x1F)
+let random_control_char: fn(RngState) -> (string, RngState) = fn(state: RngState) -> (string, RngState) {
+    let (code, new_state): (i64, RngState) = rng_range(state, 32i64)
+    let char_opt: Option[char] = std.char.from_i32(to_int(code))
+    match char_opt {
+        Some(c) => { return (to_string(c), new_state) }
+        None => { return ("\x00", new_state) }
+    }
+}
+
+// =============================================================================
+// Malformed JSON Generators
+// =============================================================================
+
+/// Generate malformed number strings
+let malformed_numbers: fn() -> List[string] = fn() -> List[string] {
+    return Cons("007",                    // Leading zeros
+    Cons("00",                            // Just zeros
+    Cons("01.5",                          // Leading zero with decimal
+    Cons(".5",                            // Missing integer part
+    Cons("5.",                            // Missing fractional part
+    Cons("1..5",                          // Double dot
+    Cons("1e",                            // Incomplete exponent
+    Cons("1e+",                           // Incomplete positive exponent
+    Cons("1e-",                           // Incomplete negative exponent
+    Cons("1ee5",                          // Double e
+    Cons("1E+e5",                         // Mixed exponent
+    Cons("+5",                            // Leading plus
+    Cons("++5",                           // Double plus
+    Cons("--5",                           // Double minus
+    Cons("1.2.3",                         // Multiple decimals
+    Cons("1e2e3",                         // Multiple exponents
+    Cons("NaN",                           // NaN literal
+    Cons("Infinity",                      // Infinity literal
+    Cons("-Infinity",                     // Negative infinity
+    Cons("inf",                           // Short infinity
+    Cons("1_000",                         // Underscore separator
+    Cons("0x1F",                          // Hex number
+    Cons("0b101",                         // Binary number
+    Cons("0o77",                          // Octal number
+    Cons("1e999999999999999999999999",    // Huge exponent
+    Cons("-",                             // Just minus
+    Cons("+",                             // Just plus
+    Cons("1e1.5",                         // Decimal exponent
+    Nil))))))))))))))))))))))))))))
+}
+
+/// Generate malformed string inputs
+let malformed_strings: fn() -> List[string] = fn() -> List[string] {
+    return Cons("\"unterminated",               // Missing end quote
+    Cons("\"bad\\escape\"",                     // Invalid escape
+    Cons("\"bad\\xHH\"",                        // Invalid hex escape
+    Cons("\"\\u123\"",                          // Short unicode escape
+    Cons("\"\\uGHIJ\"",                         // Invalid hex in unicode
+    Cons("\"\\u\"",                             // Empty unicode escape
+    Cons("\"\\",                                // Trailing backslash
+    Cons("'single quotes'",                     // Single quotes
+    Cons("\"line\nbreak\"",                     // Literal newline
+    Cons("\"tab\there\"",                       // Literal tab (may be valid)
+    Cons("unquoted",                            // Unquoted string
+    Cons("\"\\u0000\"",                         // Null character escape
+    Cons("\"\\uD800\"",                         // Lone high surrogate
+    Cons("\"\\uDC00\"",                         // Lone low surrogate
+    Cons("\"\\uD800\\uD800\"",                  // Two high surrogates
+    Cons("\"\\uDC00\\uDC00\"",                  // Two low surrogates
+    Cons("\"\"\"",                              // Extra quote
+    Cons("\"a\"\"b\"",                          // Adjacent strings
+    Nil))))))))))))))))))
+}
+
+/// Generate malformed array inputs
+let malformed_arrays: fn() -> List[string] = fn() -> List[string] {
+    return Cons("[",                            // Unclosed
+    Cons("]",                                   // No opening
+    Cons("[,]",                                 // Leading comma
+    Cons("[1,]",                                // Trailing comma
+    Cons("[,1]",                                // Leading comma with value
+    Cons("[1,,2]",                              // Double comma
+    Cons("[1 2]",                               // Missing comma
+    Cons("[[[]",                                // Mismatched brackets
+    Cons("[]]",                                 // Extra closing
+    Cons("[}",                                  // Wrong bracket type
+    Cons("{]",                                  // Wrong bracket type
+    Cons("[1,2,3",                              // Unclosed with values
+    Cons("1,2,3]",                              // No opening with values
+    Nil)))))))))))))
+}
+
+/// Generate malformed object inputs
+let malformed_objects: fn() -> List[string] = fn() -> List[string] {
+    return Cons("{",                            // Unclosed
+    Cons("}",                                   // No opening (valid empty though)
+    Cons("{,}",                                 // Leading comma
+    Cons("{\"a\":1,}",                          // Trailing comma
+    Cons("{,\"a\":1}",                          // Leading comma with value
+    Cons("{\"a\":1,,\"b\":2}",                  // Double comma
+    Cons("{\"a\":1 \"b\":2}",                   // Missing comma
+    Cons("{\"a\" 1}",                           // Missing colon
+    Cons("{\"a\"::1}",                          // Double colon
+    Cons("{\"a\"}",                             // Missing value
+    Cons("{:1}",                                // Missing key
+    Cons("{1:\"a\"}",                           // Non-string key
+    Cons("{true:1}",                            // Boolean key
+    Cons("{null:1}",                            // Null key
+    Cons("{[]:1}",                              // Array key
+    Cons("{{}:1}",                              // Object key
+    Cons("{{}}",                                // Nested without key
+    Cons("{\"a\":}",                            // Missing value after colon
+    Cons("{\"a\":,\"b\":1}",                    // Missing value in middle
+    Nil)))))))))))))))))))
+}
+
+/// Generate other edge cases
+let edge_cases: fn() -> List[string] = fn() -> List[string] {
+    return Cons("",                             // Empty input
+    Cons("   ",                                 // Whitespace only
+    Cons("\t\n\r ",                             // Various whitespace
+    Cons("null null",                           // Multiple values
+    Cons("true false",                          // Multiple booleans
+    Cons("1 2 3",                               // Multiple numbers
+    Cons("truee",                               // Almost true
+    Cons("falsee",                              // Almost false
+    Cons("nulll",                               // Almost null
+    Cons("tru",                                 // Truncated true
+    Cons("fals",                                // Truncated false
+    Cons("nul",                                 // Truncated null
+    Cons("True",                                // Wrong case
+    Cons("FALSE",                               // Wrong case
+    Cons("NULL",                                // Wrong case
+    Cons("undefined",                           // JavaScript undefined
+    Cons("None",                                // Python None
+    Cons("nil",                                 // Ruby nil
+    Cons("/*comment*/",                         // C-style comment
+    Cons("//comment",                           // C++ comment
+    Cons("#comment",                            // Shell comment
+    Cons("[1,2,3]trailing",                     // Trailing content
+    Cons("leading[1,2,3]",                      // Leading content
+    Cons("\x00",                                // Null byte
+    Cons("\xFF",                                // Invalid UTF-8 start
+    Nil)))))))))))))))))))))))))
+}
+
+// =============================================================================
+// Core Fuzz Test Logic
+// =============================================================================
+
+/// Test that parsing any input never crashes - returns true if parser handles gracefully
+let fuzz_parse: fn(string) -> bool = fn(input: string) -> bool {
+    // Parser should always return a Result, never crash
+    match parse(input) {
+        Ok(_) => { return true }
+        Err(_) => { return true }  // Error is fine, crash is not
+    }
+}
+
+/// Test that strict parsing any input never crashes
+let fuzz_parse_strict: fn(string) -> bool = fn(input: string) -> bool {
+    match parse_strict(input) {
+        Ok(_) => { return true }
+        Err(_) => { return true }
+    }
+}
+
+/// Test parsing with depth limit
+let fuzz_parse_with_depth: fn(string, i32) -> bool = fn(input: string, depth: i32) -> bool {
+    match parse_with_max_depth(input, depth) {
+        Ok(_) => { return true }
+        Err(_) => { return true }
+    }
+}
+
+/// Run fuzz test on a list of inputs, return count of tests run
+let fuzz_list: fn(List[string]) -> i32 = fn(inputs: List[string]) -> i32 {
+    return fuzz_list_acc(inputs, 0)
+}
+
+let fuzz_list_acc: fn(List[string], i32) -> i32 = fn(inputs: List[string], count: i32) -> i32 {
+    match inputs {
+        Nil => { return count }
+        Cons(input, rest) => {
+            let ok1: bool = fuzz_parse(input)
+            let ok2: bool = fuzz_parse_strict(input)
+            let ok3: bool = fuzz_parse_with_depth(input, 10)
+            assert(ok1 and ok2 and ok3, "Parser crashed on input")
+            return fuzz_list_acc(rest, count + 1)
+        }
+    }
+}
+
+// =============================================================================
+// Fuzz Test Cases - Malformed Input
+// =============================================================================
+
+let test_fuzz_malformed_numbers: fn() -> void = fn() -> void {
+    let count: i32 = fuzz_list(malformed_numbers())
+    assert(count > 0, "Should have tested malformed numbers")
+    return
+}
+
+let test_fuzz_malformed_strings: fn() -> void = fn() -> void {
+    let count: i32 = fuzz_list(malformed_strings())
+    assert(count > 0, "Should have tested malformed strings")
+    return
+}
+
+let test_fuzz_malformed_arrays: fn() -> void = fn() -> void {
+    let count: i32 = fuzz_list(malformed_arrays())
+    assert(count > 0, "Should have tested malformed arrays")
+    return
+}
+
+let test_fuzz_malformed_objects: fn() -> void = fn() -> void {
+    let count: i32 = fuzz_list(malformed_objects())
+    assert(count > 0, "Should have tested malformed objects")
+    return
+}
+
+let test_fuzz_edge_cases: fn() -> void = fn() -> void {
+    let count: i32 = fuzz_list(edge_cases())
+    assert(count > 0, "Should have tested edge cases")
+    return
+}
+
+// =============================================================================
+// Fuzz Test Cases - Random Input Generation
+// =============================================================================
+
+/// Generate N random strings and test them
+let test_fuzz_random_strings: fn() -> void = fn() -> void {
+    let num_tests: i32 = 100
+    let max_length: i32 = 50
+    var state: RngState = rng_new(12345i64)
+    var passed: i32 = 0
+
+    var i: i32 = 0
+    while i < num_tests {
+        // Random length between 1 and max_length
+        let (len_i64, state1): (i64, RngState) = rng_range(state, to_int(max_length))
+        let len: i32 = to_int(len_i64) + 1
+        let (random_input, state2): (string, RngState) = random_string(state1, len)
+        state = state2
+
+        if fuzz_parse(random_input) {
+            passed = passed + 1
+        }
+        i = i + 1
+    }
+
+    assert(passed == num_tests, "All random string tests should complete without crash")
+    return
+}
+
+/// Generate random JSON-like structures
+let test_fuzz_random_json_like: fn() -> void = fn() -> void {
+    let num_tests: i32 = 50
+    var state: RngState = rng_new(67890i64)
+    var passed: i32 = 0
+
+    var i: i32 = 0
+    while i < num_tests {
+        let (input, new_state): (string, RngState) = generate_random_json_like(state, 3)
+        state = new_state
+
+        if fuzz_parse(input) and fuzz_parse_strict(input) {
+            passed = passed + 1
+        }
+        i = i + 1
+    }
+
+    assert(passed == num_tests, "All random JSON-like tests should complete without crash")
+    return
+}
+
+/// Generate a random JSON-like structure (may be valid or invalid)
+let generate_random_json_like: fn(RngState, i32) -> (string, RngState) =
+    fn(state: RngState, depth: i32) -> (string, RngState) {
+        if depth <= 0 {
+            // Base case: generate a primitive
+            return generate_random_primitive(state)
+        }
+
+        let (choice, state1): (i64, RngState) = rng_range(state, 6i64)
+
+        if choice == 0i64 {
+            return generate_random_primitive(state1)
+        }
+        if choice == 1i64 {
+            return generate_random_array(state1, depth - 1)
+        }
+        if choice == 2i64 {
+            return generate_random_object(state1, depth - 1)
+        }
+        if choice == 3i64 {
+            // Malformed: missing bracket/brace
+            let (inner, state2): (string, RngState) = generate_random_json_like(state1, depth - 1)
+            let (add_open, state3): (bool, RngState) = rng_bool(state2)
+            if add_open {
+                return ("[" + inner, state3)
+            }
+            return (inner + "]", state3)
+        }
+        if choice == 4i64 {
+            // Malformed: random prefix/suffix
+            let (json, state2): (string, RngState) = generate_random_json_like(state1, depth - 1)
+            let (prefix, state3): (string, RngState) = random_string(state2, 3)
+            return (prefix + json, state3)
+        }
+        // Default: primitive
+        return generate_random_primitive(state1)
+    }
+
+/// Generate a random primitive value
+let generate_random_primitive: fn(RngState) -> (string, RngState) = fn(state: RngState) -> (string, RngState) {
+    let (choice, state1): (i64, RngState) = rng_range(state, 8i64)
+
+    if choice == 0i64 { return ("null", state1) }
+    if choice == 1i64 { return ("true", state1) }
+    if choice == 2i64 { return ("false", state1) }
+    if choice == 3i64 {
+        // Random number
+        let (num, state2): (i64, RngState) = rng_range(state1, 1000i64)
+        return (to_string(num), state2)
+    }
+    if choice == 4i64 {
+        // Random negative number
+        let (num, state2): (i64, RngState) = rng_range(state1, 1000i64)
+        return ("-" + to_string(num), state2)
+    }
+    if choice == 5i64 {
+        // Random string (valid)
+        let (str_content, state2): (string, RngState) = random_string(state1, 10)
+        // Escape any quotes in the content
+        let escaped: string = std.string.replace(str_content, "\"", "\\\"")
+        let escaped2: string = std.string.replace(escaped, "\\", "\\\\")
+        return ("\"" + escaped2 + "\"", state2)
+    }
+    if choice == 6i64 {
+        // Malformed number
+        let (num, state2): (i64, RngState) = rng_range(state1, 100i64)
+        return ("0" + to_string(num), state2)  // Leading zero
+    }
+    // Malformed string
+    let (str_content, state2): (string, RngState) = random_string(state1, 5)
+    return ("\"" + str_content, state2)  // Unterminated
+}
+
+/// Generate a random array
+let generate_random_array: fn(RngState, i32) -> (string, RngState) =
+    fn(state: RngState, depth: i32) -> (string, RngState) {
+        let (num_elements, state1): (i64, RngState) = rng_range(state, 5i64)
+        let (elements, state2): (string, RngState) = generate_array_elements(state1, to_int(num_elements), depth)
+        return ("[" + elements + "]", state2)
+    }
+
+let generate_array_elements: fn(RngState, i32, i32) -> (string, RngState) =
+    fn(state: RngState, count: i32, depth: i32) -> (string, RngState) {
+        if count <= 0 {
+            return ("", state)
+        }
+        let (first, state1): (string, RngState) = generate_random_json_like(state, depth)
+        if count == 1 {
+            return (first, state1)
+        }
+        let (rest, state2): (string, RngState) = generate_array_elements(state1, count - 1, depth)
+        return (first + "," + rest, state2)
+    }
+
+/// Generate a random object
+let generate_random_object: fn(RngState, i32) -> (string, RngState) =
+    fn(state: RngState, depth: i32) -> (string, RngState) {
+        let (num_fields, state1): (i64, RngState) = rng_range(state, 4i64)
+        let (fields, state2): (string, RngState) = generate_object_fields(state1, to_int(num_fields), depth)
+        return ("{" + fields + "}", state2)
+    }
+
+let generate_object_fields: fn(RngState, i32, i32) -> (string, RngState) =
+    fn(state: RngState, count: i32, depth: i32) -> (string, RngState) {
+        if count <= 0 {
+            return ("", state)
+        }
+        let (key, state1): (string, RngState) = random_string(state, 5)
+        let (value, state2): (string, RngState) = generate_random_json_like(state1, depth)
+        let field: string = "\"" + key + "\":" + value
+        if count == 1 {
+            return (field, state2)
+        }
+        let (rest, state3): (string, RngState) = generate_object_fields(state2, count - 1, depth)
+        return (field + "," + rest, state3)
+    }
+
+// =============================================================================
+// Fuzz Test Cases - Deep Nesting
+// =============================================================================
+
+/// Test deeply nested arrays
+let test_fuzz_deep_nested_arrays: fn() -> void = fn() -> void {
+    // Generate arrays nested to various depths
+    var i: i32 = 1
+    while i <= 100 {
+        let input: string = make_nested_array(i)
+        let ok: bool = fuzz_parse_with_depth(input, i + 10)
+        assert(ok, "Deep nested array should not crash parser")
+        i = i + 10
+    }
+    return
+}
+
+/// Test deeply nested objects
+let test_fuzz_deep_nested_objects: fn() -> void = fn() -> void {
+    var i: i32 = 1
+    while i <= 100 {
+        let input: string = make_nested_object(i)
+        let ok: bool = fuzz_parse_with_depth(input, i + 10)
+        assert(ok, "Deep nested object should not crash parser")
+        i = i + 10
+    }
+    return
+}
+
+/// Generate nested array string: [[[[...]]]]
+let make_nested_array: fn(i32) -> string = fn(depth: i32) -> string {
+    return make_nested_array_acc(depth, "null")
+}
+
+let make_nested_array_acc: fn(i32, string) -> string = fn(remaining: i32, inner: string) -> string {
+    if remaining <= 0 {
+        return inner
+    }
+    return make_nested_array_acc(remaining - 1, "[" + inner + "]")
+}
+
+/// Generate nested object string: {"a":{"a":{"a":...}}}
+let make_nested_object: fn(i32) -> string = fn(depth: i32) -> string {
+    return make_nested_object_acc(depth, "null")
+}
+
+let make_nested_object_acc: fn(i32, string) -> string = fn(remaining: i32, inner: string) -> string {
+    if remaining <= 0 {
+        return inner
+    }
+    return make_nested_object_acc(remaining - 1, "{\"a\":" + inner + "}")
+}
+
+// =============================================================================
+// Fuzz Test Cases - Roundtrip Integrity
+// =============================================================================
+
+/// Test that valid JSON roundtrips correctly
+let test_fuzz_roundtrip: fn() -> void = fn() -> void {
+    let valid_inputs: List[string] = Cons("null",
+        Cons("true",
+        Cons("false",
+        Cons("42",
+        Cons("-17",
+        Cons("3.14",
+        Cons("1e10",
+        Cons("\"hello\"",
+        Cons("\"simple string\"",
+        Cons("[]",
+        Cons("[1,2,3]",
+        Cons("{}",
+        Cons("{\"a\":1}",
+        Cons("{\"a\":[1,2],\"b\":{\"c\":true}}",
+        Cons("[{},{},[],null,true,false,1,\"x\"]",
+        Nil)))))))))))))))
+
+    let count: i32 = test_roundtrip_list(valid_inputs, 0)
+    assert(count == 15, "All valid inputs should roundtrip")
+    return
+}
+
+let test_roundtrip_list: fn(List[string], i32) -> i32 = fn(inputs: List[string], count: i32) -> i32 {
+    match inputs {
+        Nil => { return count }
+        Cons(input, rest) => {
+            let parse_result: Result[Json, JsonError] = parse(input)
+            match parse_result {
+                Ok(json) => {
+                    let output: string = stringify(json)
+                    let parse2_result: Result[Json, JsonError] = parse(output)
+                    match parse2_result {
+                        Ok(json2) => {
+                            // Should be structurally equal
+                            let are_equal: bool = equals(json, json2)
+                            assert(are_equal, "Roundtrip should preserve structure")
+                        }
+                        Err(_) => {
+                            assert(false, "Stringified JSON should parse")
+                        }
+                    }
+                }
+                Err(_) => {
+                    assert(false, "Valid JSON should parse")
+                }
+            }
+            return test_roundtrip_list(rest, count + 1)
+        }
+    }
+}
+
+// =============================================================================
+// Fuzz Test Cases - Boundary Values
+// =============================================================================
+
+/// Test numeric boundary values
+let test_fuzz_numeric_boundaries: fn() -> void = fn() -> void {
+    let boundary_numbers: List[string] = Cons("0",
+        Cons("-0",
+        Cons("1",
+        Cons("-1",
+        Cons("9007199254740991",        // MAX_SAFE_INTEGER
+        Cons("-9007199254740991",       // MIN_SAFE_INTEGER
+        Cons("1e308",                   // Near max f64
+        Cons("1e-308",                  // Near min positive f64
+        Cons("2.2250738585072014e-308", // Min normal f64
+        Cons("1.7976931348623157e308",  // Max f64
+        Cons("5e-324",                  // Min subnormal f64
+        Cons("0.1",                     // Common precision test
+        Cons("0.2",
+        Cons("0.3",
+        Nil))))))))))))))
+
+    let count: i32 = fuzz_list(boundary_numbers)
+    assert(count > 0, "Should test numeric boundaries")
+    return
+}
+
+/// Test string boundary values
+let test_fuzz_string_boundaries: fn() -> void = fn() -> void {
+    let boundary_strings: List[string] = Cons("\"\"",                          // Empty
+        Cons("\" \"",                                                           // Single space
+        Cons("\"\\u0000\"",                                                     // Null char
+        Cons("\"\\u001F\"",                                                     // Last control char
+        Cons("\"\\u0020\"",                                                     // Space as unicode
+        Cons("\"\\uFFFF\"",                                                     // Max BMP
+        Cons("\"\\uD83D\\uDE00\"",                                              // Emoji (surrogate pair)
+        Cons("\"\\t\\n\\r\"",                                                   // Whitespace escapes
+        Cons("\"\\\"\\\\\\//\"",                                                // All escape chars
+        Nil)))))))))
+
+    let count: i32 = fuzz_list(boundary_strings)
+    assert(count > 0, "Should test string boundaries")
+    return
+}
+
+// =============================================================================
+// Fuzz Test Cases - Special Characters
+// =============================================================================
+
+/// Test inputs with special byte sequences
+let test_fuzz_special_bytes: fn() -> void = fn() -> void {
+    // Test various problematic byte patterns
+    // Parser should handle these gracefully
+    let special: List[string] = Cons("\x00",           // Null byte
+        Cons("\x7F",                                    // DEL character
+        Cons("\xC0\x80",                                // Overlong null (invalid UTF-8)
+        Cons("\xF4\x90\x80\x80",                        // Above max codepoint
+        Nil))))
+
+    let count: i32 = fuzz_list(special)
+    assert(count > 0, "Should test special bytes")
+    return
+}
+
+// =============================================================================
+// Summary Test
+// =============================================================================
+
+/// Run all fuzz tests and report
+let test_fuzz_summary: fn() -> void = fn() -> void {
+    // Count total malformed inputs tested
+    let nums: i32 = std.list.length[string](malformed_numbers())
+    let strs: i32 = std.list.length[string](malformed_strings())
+    let arrs: i32 = std.list.length[string](malformed_arrays())
+    let objs: i32 = std.list.length[string](malformed_objects())
+    let edges: i32 = std.list.length[string](edge_cases())
+
+    let total: i32 = nums + strs + arrs + objs + edges
+
+    // Verify we have comprehensive coverage
+    assert(nums >= 25, "Should have 25+ malformed number tests")
+    assert(strs >= 15, "Should have 15+ malformed string tests")
+    assert(arrs >= 10, "Should have 10+ malformed array tests")
+    assert(objs >= 15, "Should have 15+ malformed object tests")
+    assert(edges >= 20, "Should have 20+ edge case tests")
+    assert(total >= 85, "Should have 85+ total malformed input tests")
+
+    return
+}
+
+// =============================================================================
+// Test Runner
+// =============================================================================
+
+/// Helper to run a test and print result
+let run_test: fn(string, fn() -> void) -> bool = fn(name: string, test_fn: fn() -> void) -> bool {
+    test_fn()
+    return true
+}
+
+effect fn main() -> void {
+    std.io.println("Running JSON Fuzz Tests")
+    std.io.println("=======================")
+    std.io.println("")
+
+    // Count tests
+    var passed: i32 = 0
+    var total: i32 = 0
+
+    // Malformed Input Tests
+    std.io.println("Malformed Input Tests:")
+
+    std.io.print("  test_fuzz_malformed_numbers ... ")
+    test_fuzz_malformed_numbers()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.print("  test_fuzz_malformed_strings ... ")
+    test_fuzz_malformed_strings()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.print("  test_fuzz_malformed_arrays ... ")
+    test_fuzz_malformed_arrays()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.print("  test_fuzz_malformed_objects ... ")
+    test_fuzz_malformed_objects()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.print("  test_fuzz_edge_cases ... ")
+    test_fuzz_edge_cases()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.println("")
+
+    // Random Input Tests
+    std.io.println("Random Input Tests:")
+
+    std.io.print("  test_fuzz_random_strings (100 inputs) ... ")
+    test_fuzz_random_strings()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.print("  test_fuzz_random_json_like (50 inputs) ... ")
+    test_fuzz_random_json_like()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.println("")
+
+    // Deep Nesting Tests
+    std.io.println("Deep Nesting Tests:")
+
+    std.io.print("  test_fuzz_deep_nested_arrays ... ")
+    test_fuzz_deep_nested_arrays()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.print("  test_fuzz_deep_nested_objects ... ")
+    test_fuzz_deep_nested_objects()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.println("")
+
+    // Roundtrip Tests
+    std.io.println("Roundtrip Tests:")
+
+    std.io.print("  test_fuzz_roundtrip ... ")
+    test_fuzz_roundtrip()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.println("")
+
+    // Boundary Tests
+    std.io.println("Boundary Tests:")
+
+    std.io.print("  test_fuzz_numeric_boundaries ... ")
+    test_fuzz_numeric_boundaries()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.print("  test_fuzz_string_boundaries ... ")
+    test_fuzz_string_boundaries()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.println("")
+
+    // Special Character Tests
+    std.io.println("Special Character Tests:")
+
+    std.io.print("  test_fuzz_special_bytes ... ")
+    test_fuzz_special_bytes()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.println("")
+
+    // Summary
+    std.io.println("Summary Test:")
+
+    std.io.print("  test_fuzz_summary ... ")
+    test_fuzz_summary()
+    std.io.println("ok")
+    passed = passed + 1
+    total = total + 1
+
+    std.io.println("")
+    std.io.println("=======================")
+    std.io.println("Fuzz Tests: " + to_string(passed) + "/" + to_string(total) + " passed")
+
+    // Report malformed input coverage
+    let nums: i32 = std.list.length[string](malformed_numbers())
+    let strs: i32 = std.list.length[string](malformed_strings())
+    let arrs: i32 = std.list.length[string](malformed_arrays())
+    let objs: i32 = std.list.length[string](malformed_objects())
+    let edges: i32 = std.list.length[string](edge_cases())
+    let malformed_total: i32 = nums + strs + arrs + objs + edges
+
+    std.io.println("")
+    std.io.println("Malformed inputs tested: " + to_string(malformed_total))
+    std.io.println("  - Malformed numbers: " + to_string(nums))
+    std.io.println("  - Malformed strings: " + to_string(strs))
+    std.io.println("  - Malformed arrays: " + to_string(arrs))
+    std.io.println("  - Malformed objects: " + to_string(objs))
+    std.io.println("  - Edge cases: " + to_string(edges))
+    std.io.println("")
+    std.io.println("Random inputs tested: 150 (100 random strings + 50 JSON-like)")
+    std.io.println("Deep nesting tested: up to 100 levels")
+    std.io.println("")
+    std.io.println("All fuzz tests passed - parser handles malformed input gracefully!")
+
+    return
+}

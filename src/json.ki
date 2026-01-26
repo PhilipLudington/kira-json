@@ -226,8 +226,10 @@ let format_schema_errors_acc: fn(List[SchemaError], StringBuilder) -> string =
 
 /// Default maximum nesting depth for JSON parsing.
 /// This prevents stack overflow from deeply nested structures.
+/// Set conservatively to stay well under Kira's 1000 call depth limit,
+/// since each nesting level uses multiple call frames.
 pub let default_max_depth: fn() -> i32 = fn() -> i32 {
-    return 512
+    return 128
 }
 
 /// Internal state for the recursive descent parser.
@@ -523,14 +525,21 @@ let extract_values: fn(List[JsonField]) -> List[Json] = fn(fields: List[JsonFiel
 /// Escapes a string for JSON output.
 /// Uses std.string.chars for proper character iteration.
 let escape_string: fn(string) -> string = fn(s: string) -> string {
-    let chars: List[Char] = std.string.chars(s)
-    let builder: StringBuilder = escape_chars_to_builder(chars, std.builder.new())
-    return std.builder.build(builder)
+    match std.string.chars(s) {
+        Err(_) => {
+            // On invalid UTF-8, return the string as-is (will be caught during parsing)
+            return s
+        }
+        Ok(chars) => {
+            let builder: StringBuilder = escape_chars_to_builder(chars, std.builder.new())
+            return std.builder.build(builder)
+        }
+    }
 }
 
 /// Helper to escape characters into a StringBuilder.
-let escape_chars_to_builder: fn(List[Char], StringBuilder) -> StringBuilder =
-    fn(chars: List[Char], builder: StringBuilder) -> StringBuilder {
+let escape_chars_to_builder: fn(List[char], StringBuilder) -> StringBuilder =
+    fn(chars: List[char], builder: StringBuilder) -> StringBuilder {
         match chars {
             Nil => { return builder }
             Cons(c, rest) => {
@@ -542,7 +551,7 @@ let escape_chars_to_builder: fn(List[Char], StringBuilder) -> StringBuilder =
 
 /// Escapes a single character into a StringBuilder.
 /// Properly handles control characters using std.char.to_i32.
-let escape_char: fn(Char, StringBuilder) -> StringBuilder = fn(c: Char, builder: StringBuilder) -> StringBuilder {
+let escape_char: fn(char, StringBuilder) -> StringBuilder = fn(c: char, builder: StringBuilder) -> StringBuilder {
     let code: i32 = std.char.to_i32(c)
 
     // Check for characters that need escaping
@@ -608,8 +617,9 @@ let hex_digit_char: fn(i32) -> string = fn(n: i32) -> string {
 }
 
 /// Pads a string on the left to the specified length.
+/// Uses byte_length since padding is typically used with ASCII strings.
 let pad_left_str: fn(string, i32, string) -> string = fn(s: string, len: i32, pad: string) -> string {
-    let current_len: i32 = std.string.length(s)
+    let current_len: i32 = std.string.byte_length(s)
     if current_len >= len {
         return s
     }
@@ -951,34 +961,64 @@ let decrement_depth: fn(ParserState) -> ParserState = fn(state: ParserState) -> 
 }
 
 /// Helper to get the character code from a single-character string.
+/// Returns 0 if the string is invalid UTF-8 or not a single character.
 let get_char_code: fn(string) -> i32 = fn(s: string) -> i32 {
-    let chars: List[Char] = std.string.chars(s)
-    match chars {
-        Cons(ch, Nil) => { return std.char.to_i32(ch) }
-        _ => { return 0 }
+    match std.string.chars(s) {
+        Err(_) => { return 0 }
+        Ok(chars) => {
+            match chars {
+                Cons(ch, Nil) => { return std.char.to_i32(ch) }
+                _ => { return 0 }
+            }
+        }
+    }
+}
+
+/// Helper for safe substring extraction. Returns empty string on error.
+let safe_substring: fn(string, i32, i32) -> string = fn(s: string, start: i32, end: i32) -> string {
+    match std.string.substring(s, start, end) {
+        Ok(sub) => { return sub }
+        Err(_) => { return "" }
+    }
+}
+
+/// Helper to get string length in characters, returning 0 on invalid UTF-8.
+let safe_length: fn(string) -> i32 = fn(s: string) -> i32 {
+    match std.string.length(s) {
+        Ok(len) => { return len }
+        Err(_) => { return 0 }
     }
 }
 
 /// Returns true if the parser has reached the end of input.
+/// Uses character length for consistency with substring (which uses character indices).
 let is_eof: fn(ParserState) -> bool = fn(state: ParserState) -> bool {
-    return state.pos >= std.string.length(state.input)
+    return state.pos >= safe_length(state.input)
 }
 
 /// Returns the current character as a string without consuming it.
+/// Returns None if at EOF or if the substring operation fails (e.g., invalid UTF-8).
 let peek_str: fn(ParserState) -> Option[string] = fn(state: ParserState) -> Option[string] {
     if is_eof(state) {
         return None
     }
-    return Some(std.string.substring(state.input, state.pos, state.pos + 1))
+    match std.string.substring(state.input, state.pos, state.pos + 1) {
+        Ok(s) => { return Some(s) }
+        Err(_) => { return None }
+    }
 }
 
 /// Returns the character at a given offset as a string.
+/// Returns None if position is out of bounds or substring fails.
 let peek_at_str: fn(ParserState, i32) -> Option[string] = fn(state: ParserState, offset: i32) -> Option[string] {
     let target_pos: i32 = state.pos + offset
-    if target_pos >= std.string.length(state.input) {
+    if target_pos >= safe_length(state.input) {
         return None
     }
-    return Some(std.string.substring(state.input, target_pos, target_pos + 1))
+    match std.string.substring(state.input, target_pos, target_pos + 1) {
+        Ok(s) => { return Some(s) }
+        Err(_) => { return None }
+    }
 }
 
 /// Advances the parser by one character, updating line/column tracking.
@@ -986,23 +1026,38 @@ let advance: fn(ParserState) -> ParserState = fn(state: ParserState) -> ParserSt
     if is_eof(state) {
         return state
     }
-    let c: string = std.string.substring(state.input, state.pos, state.pos + 1)
-    var new_line: i32 = state.line
-    var new_column: i32 = state.column
-    if std.string.equals(c, "\n") {
-        new_line = state.line + 1
-        new_column = 1
-    } else {
-        new_column = state.column + 1
-    }
-    return ParserState {
-        input: state.input,
-        pos: state.pos + 1,
-        line: new_line,
-        column: new_column,
-        depth: state.depth,
-        max_depth: state.max_depth,
-        strict: state.strict
+    match std.string.substring(state.input, state.pos, state.pos + 1) {
+        Err(_) => {
+            // On invalid UTF-8, still advance position but don't update line tracking
+            return ParserState {
+                input: state.input,
+                pos: state.pos + 1,
+                line: state.line,
+                column: state.column + 1,
+                depth: state.depth,
+                max_depth: state.max_depth,
+                strict: state.strict
+            }
+        }
+        Ok(c) => {
+            var new_line: i32 = state.line
+            var new_column: i32 = state.column
+            if std.string.equals(c, "\n") {
+                new_line = state.line + 1
+                new_column = 1
+            } else {
+                new_column = state.column + 1
+            }
+            return ParserState {
+                input: state.input,
+                pos: state.pos + 1,
+                line: new_line,
+                column: new_column,
+                depth: state.depth,
+                max_depth: state.max_depth,
+                strict: state.strict
+            }
+        }
     }
 }
 
@@ -1052,13 +1107,17 @@ let is_hex_digit_str: fn(string) -> bool = fn(c: string) -> bool {
 /// Returns true if the string (single char) is a control character (0x00-0x1F).
 /// These must be escaped in JSON strings.
 let is_control_char_str: fn(string) -> bool = fn(c: string) -> bool {
-    let chars: List[Char] = std.string.chars(c)
-    match chars {
-        Cons(ch, Nil) => {
-            let code: i32 = std.char.to_i32(ch)
-            return code >= 0 and code <= 31
+    match std.string.chars(c) {
+        Err(_) => { return false }
+        Ok(chars) => {
+            match chars {
+                Cons(ch, Nil) => {
+                    let code: i32 = std.char.to_i32(ch)
+                    return code >= 0 and code <= 31
+                }
+                _ => { return false }
+            }
         }
-        _ => { return false }
     }
 }
 
@@ -1124,7 +1183,8 @@ let parse_bool: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) ->
 /// Uses index-based comparison to avoid std.string.to_chars.
 let expect_literal: fn(ParserState, string) -> ParseResult[string] =
     fn(state: ParserState, expected: string) -> ParseResult[string] {
-        let expected_len: i32 = std.string.length(expected)
+        // byte_length is fine here since literals are ASCII
+        let expected_len: i32 = std.string.byte_length(expected)
         return expect_literal_from(state, expected, 0, expected_len)
     }
 
@@ -1139,11 +1199,18 @@ let expect_literal_from: fn(ParserState, string, i32, i32) -> ParseResult[string
                 return ParseErr(UnexpectedEof { expected: expected, context: "literal", line: state.line, col: state.column })
             }
             Some(actual) => {
-                let expected_char: string = std.string.substring(expected, index, index + 1)
-                if std.string.equals(actual, expected_char) {
-                    return expect_literal_from(advance(state), expected, index + 1, len)
+                // expected is always ASCII (true, false, null), so substring won't fail
+                match std.string.substring(expected, index, index + 1) {
+                    Err(_) => {
+                        return ParseErr(UnexpectedToken { expected: "character", found: actual, line: state.line, col: state.column })
+                    }
+                    Ok(expected_char) => {
+                        if std.string.equals(actual, expected_char) {
+                            return expect_literal_from(advance(state), expected, index + 1, len)
+                        }
+                        return ParseErr(UnexpectedToken { expected: expected_char, found: actual, line: state.line, col: state.column })
+                    }
                 }
-                return ParseErr(UnexpectedToken { expected: expected_char, found: actual, line: state.line, col: state.column })
             }
         }
     }
@@ -1177,7 +1244,7 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
                 match peek_str(current_state) {
                     Some(next) => {
                         if is_digit_str(next) {
-                            let partial: string = std.string.substring(state.input, start_pos, current_state.pos + 1)
+                            let partial: string = safe_substring(state.input, start_pos, current_state.pos + 1)
                             return ParseErr(InvalidNumber { value: partial, reason: "leading zeros are not allowed", line: current_state.line, col: current_state.column })
                         }
                     }
@@ -1202,12 +1269,12 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
                         if is_digit_str(d) {
                             current_state = consume_digits_str(current_state)
                         } else {
-                            let partial: string = std.string.substring(state.input, start_pos, current_state.pos)
+                            let partial: string = safe_substring(state.input, start_pos, current_state.pos)
                             return ParseErr(InvalidNumber { value: partial, reason: "expected digit after decimal point", line: current_state.line, col: current_state.column })
                         }
                     }
                     None => {
-                        let partial: string = std.string.substring(state.input, start_pos, current_state.pos)
+                        let partial: string = safe_substring(state.input, start_pos, current_state.pos)
                         return ParseErr(InvalidNumber { value: partial, reason: "expected digit after decimal point", line: current_state.line, col: current_state.column })
                     }
                 }
@@ -1234,12 +1301,12 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
                         if is_digit_str(d) {
                             current_state = consume_digits_str(current_state)
                         } else {
-                            let partial: string = std.string.substring(state.input, start_pos, current_state.pos)
+                            let partial: string = safe_substring(state.input, start_pos, current_state.pos)
                             return ParseErr(InvalidNumber { value: partial, reason: "expected digit in exponent", line: current_state.line, col: current_state.column })
                         }
                     }
                     None => {
-                        let partial: string = std.string.substring(state.input, start_pos, current_state.pos)
+                        let partial: string = safe_substring(state.input, start_pos, current_state.pos)
                         return ParseErr(InvalidNumber { value: partial, reason: "expected digit in exponent", line: current_state.line, col: current_state.column })
                     }
                 }
@@ -1248,7 +1315,7 @@ let parse_number: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
         None => {}
     }
 
-    let num_str: string = std.string.substring(state.input, start_pos, current_state.pos)
+    let num_str: string = safe_substring(state.input, start_pos, current_state.pos)
     match std.float.parse(num_str) {
         Some(n) => {
             // Reject NaN and Infinity (not valid JSON values)
@@ -2434,7 +2501,7 @@ pub let format_path_error: fn(PathError) -> string = fn(err: PathError) -> strin
 /// Path format: "field.nested[0].key" - dots separate object keys, [n] for array indices.
 /// Returns None if the path doesn't exist or if any intermediate value is not the expected type.
 pub let get_path: fn(Json, string) -> Option[Json] = fn(json: Json, path: string) -> Option[Json] {
-    if std.string.length(path) == 0 {
+    if std.string.byte_length(path) == 0 {
         return Some(json)
     }
     let segments_result: Result[List[PathSegment], PathError] = parse_path(path)
@@ -2447,10 +2514,10 @@ pub let get_path: fn(Json, string) -> Option[Json] = fn(json: Json, path: string
 /// Parses a path and returns any parsing errors.
 /// Useful when you want to validate a path before using it.
 pub let parse_path: fn(string) -> Result[List[PathSegment], PathError] = fn(path: string) -> Result[List[PathSegment], PathError] {
-    if std.string.length(path) == 0 {
+    if std.string.byte_length(path) == 0 {
         return Ok(Nil)
     }
-    return parse_path_from(path, 0, std.string.length(path))
+    return parse_path_from(path, 0, std.string.byte_length(path))
 }
 
 /// Internal path parser starting from a given position.
@@ -2460,7 +2527,7 @@ let parse_path_from: fn(string, i32, i32) -> Result[List[PathSegment], PathError
             return Ok(Nil)
         }
 
-        let c: string = std.string.substring(path, pos, pos + 1)
+        let c: string = safe_substring(path, pos, pos + 1)
 
         // Skip leading dot (except at start)
         if std.string.equals(c, ".") {
@@ -2482,10 +2549,10 @@ let parse_key_segment: fn(string, i32, i32) -> Result[List[PathSegment], PathErr
         let end: i32 = find_key_end(path, start, len)
         if end == start {
             // Empty key at start could mean we hit a special char
-            let c: string = std.string.substring(path, start, start + 1)
+            let c: string = safe_substring(path, start, start + 1)
             return Err(UnexpectedChar { char: c, position: start })
         }
-        let key: string = std.string.substring(path, start, end)
+        let key: string = safe_substring(path, start, end)
         let rest_result: Result[List[PathSegment], PathError] = parse_path_from(path, end, len)
         match rest_result {
             Err(e) => { return Err(e) }
@@ -2498,7 +2565,7 @@ let find_key_end: fn(string, i32, i32) -> i32 = fn(path: string, pos: i32, len: 
     if pos >= len {
         return pos
     }
-    let c: string = std.string.substring(path, pos, pos + 1)
+    let c: string = safe_substring(path, pos, pos + 1)
     if std.string.equals(c, ".") or std.string.equals(c, "[") {
         return pos
     }
@@ -2515,7 +2582,7 @@ let parse_index_segment: fn(string, i32, i32) -> Result[List[PathSegment], PathE
         if bracket_end == start {
             return Err(EmptyBracket { position: start - 1 })
         }
-        let index_str: string = std.string.substring(path, start, bracket_end)
+        let index_str: string = safe_substring(path, start, bracket_end)
         match parse_index_value(index_str) {
             None => { return Err(InvalidIndex { segment: index_str }) }
             Some(idx) => {
@@ -2533,7 +2600,7 @@ let find_char: fn(string, string, i32, i32) -> i32 = fn(s: string, target: strin
     if pos >= len {
         return -1
     }
-    let c: string = std.string.substring(s, pos, pos + 1)
+    let c: string = safe_substring(s, pos, pos + 1)
     if std.string.equals(c, target) {
         return pos
     }
@@ -2542,7 +2609,7 @@ let find_char: fn(string, string, i32, i32) -> i32 = fn(s: string, target: strin
 
 /// Parses a non-negative integer from a string.
 let parse_index_value: fn(string) -> Option[i32] = fn(s: string) -> Option[i32] {
-    let len: i32 = std.string.length(s)
+    let len: i32 = std.string.byte_length(s)
     if len == 0 {
         return None
     }
@@ -2559,7 +2626,7 @@ let all_digits: fn(string, i32, i32) -> bool = fn(s: string, pos: i32, len: i32)
     if pos >= len {
         return true
     }
-    let c: string = std.string.substring(s, pos, pos + 1)
+    let c: string = safe_substring(s, pos, pos + 1)
     if not is_digit_str(c) {
         return false
     }
@@ -2571,7 +2638,7 @@ let parse_int_acc: fn(string, i32, i32, i32) -> i32 = fn(s: string, pos: i32, le
     if pos >= len {
         return acc
     }
-    let c: string = std.string.substring(s, pos, pos + 1)
+    let c: string = safe_substring(s, pos, pos + 1)
     let digit: i32 = digit_value(c)
     return parse_int_acc(s, pos + 1, len, acc * 10 + digit)
 }
@@ -2616,7 +2683,7 @@ let apply_segment: fn(Json, PathSegment) -> Option[Json] = fn(json: Json, segmen
 /// Sets a value at the given path, creating intermediate objects/arrays as needed.
 /// Returns the modified JSON. If the path is invalid or can't be set, returns the original JSON.
 pub let set_path: fn(Json, string, Json) -> Json = fn(json: Json, path: string, value: Json) -> Json {
-    if std.string.length(path) == 0 {
+    if std.string.byte_length(path) == 0 {
         return value
     }
     let segments_result: Result[List[PathSegment], PathError] = parse_path(path)
@@ -2758,7 +2825,7 @@ pub let has_path: fn(Json, string) -> bool = fn(json: Json, path: string) -> boo
 /// Removes the value at the given path.
 /// Returns the modified JSON. If the path doesn't exist, returns the original JSON.
 pub let remove_path: fn(Json, string) -> Json = fn(json: Json, path: string) -> Json {
-    if std.string.length(path) == 0 {
+    if std.string.byte_length(path) == 0 {
         return JNull
     }
     let segments_result: Result[List[PathSegment], PathError] = parse_path(path)
@@ -3026,15 +3093,15 @@ let split_lines: fn(string) -> List[string] = fn(input: string) -> List[string] 
 
 let split_lines_acc: fn(string, i32, StringBuilder) -> List[string] =
     fn(input: string, pos: i32, current: StringBuilder) -> List[string] {
-        let len: i32 = std.string.length(input)
+        let len: i32 = std.string.byte_length(input)
         if pos >= len {
             let final_line: string = std.builder.build(current)
-            if std.string.length(final_line) > 0 {
+            if std.string.byte_length(final_line) > 0 {
                 return Cons(final_line, Nil)
             }
             return Nil
         }
-        let c: string = std.string.substring(input, pos, pos + 1)
+        let c: string = safe_substring(input, pos, pos + 1)
         if std.string.equals(c, "\n") {
             let line: string = std.builder.build(current)
             return Cons(line, split_lines_acc(input, pos + 1, std.builder.new()))
@@ -3043,7 +3110,7 @@ let split_lines_acc: fn(string, i32, StringBuilder) -> List[string] =
             // Handle \r\n
             let next_pos: i32 = pos + 1
             if next_pos < len {
-                let next_c: string = std.string.substring(input, next_pos, next_pos + 1)
+                let next_c: string = safe_substring(input, next_pos, next_pos + 1)
                 if std.string.equals(next_c, "\n") {
                     let line: string = std.builder.build(current)
                     return Cons(line, split_lines_acc(input, pos + 2, std.builder.new()))
@@ -3368,7 +3435,11 @@ let validate_number: fn(f64, Schema, string) -> List[SchemaError] =
 let validate_string: fn(string, Schema, string) -> List[SchemaError] =
     fn(value: string, schema: Schema, path: string) -> List[SchemaError] {
         var errors: List[SchemaError] = Nil
-        let len: i32 = std.string.length(value)
+        // JSON strings from parse are valid UTF-8, but handle the Result type
+        let len: i32 = match std.string.length(value) {
+            Ok(l) => { l }
+            Err(_) => { return errors }  // If invalid UTF-8, skip length validation
+        }
 
         match schema.min_length {
             Some(min) => {

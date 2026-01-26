@@ -6,6 +6,8 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 **Note:** Tests updated to use `std.string.length` as character count (not byte count) after compiler update.
 
+**Note:** Kira stdlib API change - `std.string.chars`, `std.string.length`, and `std.string.substring` now return `Result` types. The json.ki library has been updated; test_json.ki needs updating for tests that use these functions directly.
+
 ### What Works
 - Core types: `Json`, `JsonField`, `JsonError` (structured error types)
 - **HashMap-based objects**: `JObject(HashMap)` with O(1) field lookup via `std.map`
@@ -207,12 +209,23 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 **Files:** `tests/test_json.ki`
 
-### 5.4 Fuzzing
-- [ ] Create fuzz test harness
-- [ ] Run against parser to find crashes
-- [ ] Document any issues found
+### 5.4 Fuzzing ✓
+- [x] Create fuzz test harness
+- [x] Run against parser to find crashes
+- [x] Document any issues found
 
-**New file:** `tests/fuzz_json.ki`
+**File:** `tests/fuzz_json.ki`
+
+**Coverage:**
+- 103 deterministic malformed inputs (numbers, strings, arrays, objects, edge cases)
+- 150 random inputs (100 random strings + 50 JSON-like structures)
+- Deep nesting up to 100 levels (arrays and objects)
+- Boundary value testing (numeric limits, string escapes)
+- Special byte sequences (null bytes, invalid UTF-8)
+
+**Issues Found and Fixed:**
+- Fixed `escape_string` to handle new `std.string.chars` Result API
+- Parser gracefully handles all tested malformed inputs (returns errors, no crashes)
 
 ---
 
@@ -261,8 +274,9 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 14. ~~**Phase 5.2** - Property-based tests~~ ✓
 15. ~~**Phase 5.3** - Edge case tests~~ ✓
 16. ~~**Phase 2.1** - HashMap objects~~ ✓
-17. **Phase 3.3** - JSON Schema validation
-18. **Phase 6** - Documentation
+17. ~~**Phase 3.3** - JSON Schema validation~~ ✓
+18. ~~**Phase 5.4** - Fuzzing~~ ✓
+19. **Phase 6** - Documentation
 
 ---
 
