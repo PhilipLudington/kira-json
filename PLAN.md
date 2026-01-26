@@ -375,22 +375,27 @@ Created benchmark suite to track performance characteristics and verify complexi
 
 **Files:** `benches/bench_json.ki`, `docs/performance.md`
 
-### 7.5 Standardize Internal Naming (Low Priority)
+### 7.5 Standardize Internal Naming ✓
 
-Establish consistent naming conventions for internal helper functions.
+Established consistent naming conventions for internal helper functions.
 
 **Naming Conventions:**
 | Suffix | Usage | Example |
 |--------|-------|---------|
 | `_str` | String-based variant | `is_digit_str`, `peek_str` |
 | `_acc` | Accumulator recursion | `list_reverse_acc`, `format_schema_errors_acc` |
-| `_impl` | Internal implementation | `validate_impl`, `equals_impl` |
+| `_impl` | Internal implementation | `parse_impl`, `validate_impl` |
 | `_to_builder` | StringBuilder output | `escape_chars_to_builder` |
 
 **Implementation:**
-- [ ] Audit all internal functions for naming consistency
-- [ ] Rename inconsistent functions (backwards compatible - internal only)
-- [ ] Document conventions in code comments
+- [x] Audit all internal functions for naming consistency
+- [x] Rename inconsistent functions (backwards compatible - internal only)
+  - `parse_internal` → `parse_impl`
+  - `parse_internal_with_limits` → `parse_impl_with_limits`
+  - `list_length_json` → `length_json`
+  - `list_append_schema_errors` → `append_errors`
+  - Removed duplicate `list_has_key` (identical to `has_key`)
+- [x] Document conventions in code comments (added at top of json.ki)
 
 **Files:** `src/json.ki`
 
@@ -455,7 +460,7 @@ pub let get_index: fn(Json, i32) -> Option[Json]
 21. ~~**Phase 7.2** - Refactor surrogate pair handling~~ ✓
 22. ~~**Phase 7.4** - Performance benchmarks~~ ✓
 23. ~~**Phase 7.6** - Performance documentation in code~~ ✓
-24. **Phase 7.5** - Standardize internal naming
+24. ~~**Phase 7.5** - Standardize internal naming~~ ✓
 25. **Phase 7.3** - Modularize source code
 
 ---

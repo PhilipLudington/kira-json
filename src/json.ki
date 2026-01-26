@@ -4,6 +4,21 @@
 module json
 
 // =============================================================================
+// Internal Naming Conventions
+// =============================================================================
+//
+// Internal helper functions follow these naming conventions:
+//
+// | Suffix        | Usage                      | Example                        |
+// |---------------|----------------------------|--------------------------------|
+// | `_str`        | String-based variant       | `is_digit_str`, `peek_str`     |
+// | `_acc`        | Accumulator recursion      | `format_schema_errors_acc`     |
+// | `_impl`       | Internal implementation    | `parse_impl`, `validate_impl`  |
+// | `_to_builder` | StringBuilder output       | `escape_chars_to_builder`      |
+//
+// =============================================================================
+
+// =============================================================================
 // Core Types
 // =============================================================================
 
@@ -1695,19 +1710,6 @@ let list_reverse_acc[T]: fn(List[T], List[T]) -> List[T] = fn(list: List[T], acc
     }
 }
 
-/// Checks if a key already exists in a list of JSON fields.
-let list_has_key: fn(List[JsonField], string) -> bool = fn(fields: List[JsonField], key: string) -> bool {
-    match fields {
-        Nil => { return false }
-        Cons(field, rest) => {
-            if std.string.equals(field.key, key) {
-                return true
-            }
-            return list_has_key(rest, key)
-        }
-    }
-}
-
 // =============================================================================
 // Parser - Compound Parsers
 // =============================================================================
@@ -1938,7 +1940,7 @@ let parse_object_fields: fn(ParserState, List[JsonField]) -> ParseResult[Json] =
             ParseOk(key, after_key) => {
                 // Check for duplicate key in strict mode
                 if after_key.strict {
-                    if list_has_key(acc, key) {
+                    if has_key(acc, key) {
                         return ParseErr(DuplicateKey { key: key, line: key_line, col: key_col })
                     }
                 }
@@ -2049,7 +2051,7 @@ pub let parse: fn(string) -> Result[Json, JsonError] = fn(input: string) -> Resu
 }
 
 /// Internal: Parses a JSON string with custom options.
-let parse_internal: fn(string, i32, bool) -> Result[Json, JsonError] = fn(input: string, max_depth: i32, strict: bool) -> Result[Json, JsonError] {
+let parse_impl: fn(string, i32, bool) -> Result[Json, JsonError] = fn(input: string, max_depth: i32, strict: bool) -> Result[Json, JsonError] {
     var effective_max: i32 = max_depth
     if max_depth <= 0 {
         effective_max = 2147483647
@@ -2075,7 +2077,7 @@ let parse_internal: fn(string, i32, bool) -> Result[Json, JsonError] = fn(input:
 /// Strict mode rejects duplicate keys in objects with a DuplicateKey error.
 /// Use this for applications that require RFC 8259 strict compliance.
 pub let parse_strict_with_max_depth: fn(string, i32) -> Result[Json, JsonError] = fn(input: string, max_depth: i32) -> Result[Json, JsonError] {
-    return parse_internal(input, max_depth, true)
+    return parse_impl(input, max_depth, true)
 }
 
 /// Parses a JSON string in strict mode.
@@ -2086,7 +2088,7 @@ pub let parse_strict: fn(string) -> Result[Json, JsonError] = fn(input: string) 
 }
 
 /// Internal: Parses a JSON string with custom limits.
-let parse_internal_with_limits: fn(string, ParseLimits, bool) -> Result[Json, JsonError] = fn(input: string, limits: ParseLimits, strict: bool) -> Result[Json, JsonError] {
+let parse_impl_with_limits: fn(string, ParseLimits, bool) -> Result[Json, JsonError] = fn(input: string, limits: ParseLimits, strict: bool) -> Result[Json, JsonError] {
     let state: ParserState = init_state_with_limits(input, limits, strict)
     let result: ParseResult[Json] = parse_value(state)
     match result {
@@ -2109,14 +2111,14 @@ let parse_internal_with_limits: fn(string, ParseLimits, bool) -> Result[Json, Js
 /// The limits control maximum string length, array size, object size, and nesting depth.
 /// See `default_limits()` for sensible defaults, or `unlimited_limits()` to disable limits.
 pub let parse_with_limits: fn(string, ParseLimits) -> Result[Json, JsonError] = fn(input: string, limits: ParseLimits) -> Result[Json, JsonError] {
-    return parse_internal_with_limits(input, limits, false)
+    return parse_impl_with_limits(input, limits, false)
 }
 
 /// Parses a JSON string in strict mode with custom resource limits.
 /// Combines strict mode (rejects duplicate keys) with resource limits (prevents exhaustion).
 /// Recommended for parsing untrusted input that requires RFC 8259 compliance.
 pub let parse_strict_with_limits: fn(string, ParseLimits) -> Result[Json, JsonError] = fn(input: string, limits: ParseLimits) -> Result[Json, JsonError] {
-    return parse_internal_with_limits(input, limits, true)
+    return parse_impl_with_limits(input, limits, true)
 }
 
 // =============================================================================
@@ -3532,7 +3534,7 @@ let validate_impl: fn(Json, Schema, string) -> List[SchemaError] =
         match schema.type_constraint {
             Some(expected_type) => {
                 let type_errors: List[SchemaError] = validate_type(json, expected_type, path)
-                errors = list_append_schema_errors(errors, type_errors)
+                errors = append_errors(errors, type_errors)
             }
             None => { }
         }
@@ -3541,7 +3543,7 @@ let validate_impl: fn(Json, Schema, string) -> List[SchemaError] =
         match schema.enum_values {
             Some(allowed) => {
                 let enum_errors: List[SchemaError] = validate_enum(json, allowed, path)
-                errors = list_append_schema_errors(errors, enum_errors)
+                errors = append_errors(errors, enum_errors)
             }
             None => { }
         }
@@ -3550,19 +3552,19 @@ let validate_impl: fn(Json, Schema, string) -> List[SchemaError] =
         match json {
             JNumber(n) => {
                 let num_errors: List[SchemaError] = validate_number(n, schema, path)
-                errors = list_append_schema_errors(errors, num_errors)
+                errors = append_errors(errors, num_errors)
             }
             JString(s) => {
                 let str_errors: List[SchemaError] = validate_string(s, schema, path)
-                errors = list_append_schema_errors(errors, str_errors)
+                errors = append_errors(errors, str_errors)
             }
             JArray(arr) => {
                 let arr_errors: List[SchemaError] = validate_array(arr, schema, path)
-                errors = list_append_schema_errors(errors, arr_errors)
+                errors = append_errors(errors, arr_errors)
             }
             JObject(map) => {
                 let obj_errors: List[SchemaError] = validate_object(map, schema, path)
-                errors = list_append_schema_errors(errors, obj_errors)
+                errors = append_errors(errors, obj_errors)
             }
             _ => { }
         }
@@ -3665,7 +3667,7 @@ let validate_string: fn(string, Schema, string) -> List[SchemaError] =
 let validate_array: fn(List[Json], Schema, string) -> List[SchemaError] =
     fn(arr: List[Json], schema: Schema, path: string) -> List[SchemaError] {
         var errors: List[SchemaError] = Nil
-        let len: i32 = list_length_json(arr)
+        let len: i32 = length_json(arr)
 
         match schema.min_items {
             Some(min) => {
@@ -3689,7 +3691,7 @@ let validate_array: fn(List[Json], Schema, string) -> List[SchemaError] =
         match schema.items {
             Some(SchemaInline(item_schema)) => {
                 let item_errors: List[SchemaError] = validate_array_items(arr, item_schema, path, 0)
-                errors = list_append_schema_errors(errors, item_errors)
+                errors = append_errors(errors, item_errors)
             }
             None => { }
         }
@@ -3706,7 +3708,7 @@ let validate_array_items: fn(List[Json], Schema, string, i32) -> List[SchemaErro
                 let item_path: string = std.string.concat(path, std.string.concat("[", std.string.concat(std.int.to_string(index), "]")))
                 let item_errors: List[SchemaError] = validate_impl(item, item_schema, item_path)
                 let rest_errors: List[SchemaError] = validate_array_items(rest, item_schema, path, index + 1)
-                return list_append_schema_errors(item_errors, rest_errors)
+                return append_errors(item_errors, rest_errors)
             }
         }
     }
@@ -3720,7 +3722,7 @@ let validate_object: fn(HashMap, Schema, string) -> List[SchemaError] =
         match schema.required {
             Some(required_fields) => {
                 let req_errors: List[SchemaError] = check_required(map, required_fields, path)
-                errors = list_append_schema_errors(errors, req_errors)
+                errors = append_errors(errors, req_errors)
             }
             None => { }
         }
@@ -3729,7 +3731,7 @@ let validate_object: fn(HashMap, Schema, string) -> List[SchemaError] =
         match schema.properties {
             Some(props) => {
                 let prop_errors: List[SchemaError] = validate_properties(map, props, path)
-                errors = list_append_schema_errors(errors, prop_errors)
+                errors = append_errors(errors, prop_errors)
             }
             None => { }
         }
@@ -3752,7 +3754,7 @@ let check_required: fn(HashMap, List[string], string) -> List[SchemaError] =
                     Some(_) => { }
                 }
                 let rest_errors: List[SchemaError] = check_required(map, rest, path)
-                return list_append_schema_errors(errors, rest_errors)
+                return append_errors(errors, rest_errors)
             }
         }
     }
@@ -3771,14 +3773,14 @@ let validate_properties: fn(HashMap, List[SchemaProperty], string) -> List[Schem
                         match prop.schema {
                             SchemaInline(s) => {
                                 let prop_errors: List[SchemaError] = validate_impl(value, s, prop_path)
-                                errors = list_append_schema_errors(errors, prop_errors)
+                                errors = append_errors(errors, prop_errors)
                             }
                         }
                     }
                     None => { }  // Missing properties are only errors if required
                 }
                 let rest_errors: List[SchemaError] = validate_properties(map, rest, path)
-                return list_append_schema_errors(errors, rest_errors)
+                return append_errors(errors, rest_errors)
             }
         }
     }
@@ -3806,19 +3808,19 @@ let is_in_enum: fn(Json, List[Json]) -> bool = fn(json: Json, allowed: List[Json
 }
 
 /// Appends two lists of schema errors.
-let list_append_schema_errors: fn(List[SchemaError], List[SchemaError]) -> List[SchemaError] =
+let append_errors: fn(List[SchemaError], List[SchemaError]) -> List[SchemaError] =
     fn(a: List[SchemaError], b: List[SchemaError]) -> List[SchemaError] {
         match a {
             Nil => { return b }
-            Cons(x, rest) => { return Cons(x, list_append_schema_errors(rest, b)) }
+            Cons(x, rest) => { return Cons(x, append_errors(rest, b)) }
         }
     }
 
 /// Gets the length of a JSON list.
-let list_length_json: fn(List[Json]) -> i32 = fn(list: List[Json]) -> i32 {
+let length_json: fn(List[Json]) -> i32 = fn(list: List[Json]) -> i32 {
     match list {
         Nil => { return 0 }
-        Cons(_, rest) => { return 1 + list_length_json(rest) }
+        Cons(_, rest) => { return 1 + length_json(rest) }
     }
 }
 
