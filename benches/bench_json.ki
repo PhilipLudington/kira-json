@@ -1,0 +1,830 @@
+/// JSON Library Benchmark Suite
+/// Measures performance characteristics for parsing, serialization, and operations.
+
+module bench_json
+
+import src.json.{
+    Json, JsonField, JNull, JBool, JNumber, JString, JArray, JObject,
+    parse, stringify, stringify_pretty,
+    get_field, set_field, remove_field,
+    get_path, set_path,
+    get_index, size, keys,
+    json_null, json_bool, json_number, json_int, json_string, json_array, json_object,
+    builder, with_string, with_int, with_bool, build,
+    validate, Schema, SchemaProperty, SchemaRef, SchemaInline,
+    schema_object, schema_string, schema_integer, schema_property, schema_type
+}
+import std.list.{ List, Cons, Nil }
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/// Repeat a string n times
+let string_repeat: fn(string, i32) -> string = fn(s: string, n: i32) -> string {
+    var result: StringBuilder = std.builder.new()
+    var i: i32 = 0
+    while i < n {
+        result = std.builder.append(result, s)
+        i = i + 1
+    }
+    return std.builder.build(result)
+}
+
+/// Generate a JSON string of approximately the given size in bytes
+let generate_json_string: fn(i32) -> string = fn(target_size: i32) -> string {
+    var b: StringBuilder = std.builder.new()
+    b = std.builder.append(b, "{\"data\":[")
+
+    var current_size: i32 = 10
+    var first: bool = true
+
+    while current_size < target_size {
+        if first {
+            first = false
+        } else {
+            b = std.builder.append(b, ",")
+        }
+        b = std.builder.append(b, "{\"id\":")
+        b = std.builder.append_int(b, current_size)
+        b = std.builder.append(b, ",\"name\":\"item_")
+        b = std.builder.append_int(b, current_size)
+        b = std.builder.append(b, "\",\"value\":")
+        b = std.builder.append_float(b, to_float(current_size) * 1.5)
+        b = std.builder.append(b, ",\"active\":true}")
+        current_size = current_size + 60
+    }
+
+    b = std.builder.append(b, "]}")
+    return std.builder.build(b)
+}
+
+/// Build a JSON object with N fields
+let build_object_with_fields: fn(i32) -> Json = fn(n: i32) -> Json {
+    var fields: List[JsonField] = Nil
+    var i: i32 = 0
+    while i < n {
+        let key: string = "field_" + to_string(i)
+        let field: JsonField = JsonField { key: key, value: json_int(to_int(i)) }
+        fields = Cons(field, fields)
+        i = i + 1
+    }
+    return json_object(fields)
+}
+
+/// Build a JSON array with N items
+let build_array_with_items: fn(i32) -> Json = fn(n: i32) -> Json {
+    var items: List[Json] = Nil
+    var i: i32 = 0
+    while i < n {
+        items = Cons(json_int(to_int(i)), items)
+        i = i + 1
+    }
+    return JArray(items)
+}
+
+/// Build a nested JSON structure with given depth
+let build_nested_structure: fn(i32) -> Json = fn(depth: i32) -> Json {
+    if depth <= 0 {
+        return json_string("leaf")
+    }
+    let inner: Json = build_nested_structure(depth - 1)
+    let field: JsonField = JsonField { key: "nested", value: inner }
+    return json_object(Cons(field, Nil))
+}
+
+// =============================================================================
+// Benchmark: Parsing Performance
+// =============================================================================
+
+effect fn bench_parse_small() -> IO[void] {
+    std.io.println("\n== Parse Performance (Small JSON ~100 bytes) ==")
+
+    let json_str: string = "{\"name\":\"Alice\",\"age\":30,\"active\":true,\"scores\":[95,87,92]}"
+    let iterations: i32 = 100
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Result[Json, _] = parse(json_str)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per parse")
+    return
+}
+
+effect fn bench_parse_medium() -> IO[void] {
+    std.io.println("\n== Parse Performance (Medium JSON ~1KB) ==")
+
+    let json_str: string = generate_json_string(1000)
+    let iterations: i32 = 100
+
+    std.io.print("  Input size: ")
+    std.io.print(to_string(len(json_str)))
+    std.io.println(" bytes")
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Result[Json, _] = parse(json_str)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per parse")
+    return
+}
+
+effect fn bench_parse_large() -> IO[void] {
+    std.io.println("\n== Parse Performance (Large JSON ~10KB) ==")
+
+    let json_str: string = generate_json_string(10000)
+    let iterations: i32 = 10
+
+    std.io.print("  Input size: ")
+    std.io.print(to_string(len(json_str)))
+    std.io.println(" bytes")
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Result[Json, _] = parse(json_str)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per parse")
+    return
+}
+
+// =============================================================================
+// Benchmark: Serialization Performance
+// =============================================================================
+
+effect fn bench_stringify_small() -> IO[void] {
+    std.io.println("\n== Stringify Performance (Small Object) ==")
+
+    let obj: Json = build(
+        with_bool(
+            with_int(
+                with_string(builder(), "name", "Alice"),
+                "age", 30),
+            "active", true))
+    let iterations: i32 = 100
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: string = stringify(obj)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per stringify")
+    return
+}
+
+effect fn bench_stringify_with_fields() -> IO[void] {
+    std.io.println("\n== Stringify Performance (Object with 100 fields) ==")
+
+    let obj: Json = build_object_with_fields(100)
+    let iterations: i32 = 100
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: string = stringify(obj)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per stringify")
+    return
+}
+
+effect fn bench_stringify_pretty() -> IO[void] {
+    std.io.println("\n== Stringify Pretty Performance ==")
+
+    let obj: Json = build_object_with_fields(50)
+    let iterations: i32 = 100
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: string = stringify_pretty(obj)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per stringify_pretty")
+    return
+}
+
+// =============================================================================
+// Benchmark: Field Access Performance (HashMap O(1) verification)
+// =============================================================================
+
+effect fn bench_field_access_small() -> IO[void] {
+    std.io.println("\n== Field Access (10 fields) ==")
+
+    let obj: Json = build_object_with_fields(10)
+    let iterations: i32 = 1000
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Option[Json] = get_field(obj, "field_5")
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per get_field")
+    return
+}
+
+effect fn bench_field_access_large() -> IO[void] {
+    std.io.println("\n== Field Access (1000 fields) ==")
+
+    let obj: Json = build_object_with_fields(1000)
+    let iterations: i32 = 1000
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Option[Json] = get_field(obj, "field_999")
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per get_field")
+    std.io.println("  Note: Similar times to 10-field case indicate O(1) HashMap access")
+    return
+}
+
+effect fn bench_set_field() -> IO[void] {
+    std.io.println("\n== Set Field Performance ==")
+
+    let obj: Json = build_object_with_fields(100)
+    let iterations: i32 = 1000
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Json = set_field(obj, "new_field", json_int(42))
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per set_field")
+    return
+}
+
+// =============================================================================
+// Benchmark: Path Access Performance
+// =============================================================================
+
+effect fn bench_path_access_shallow() -> IO[void] {
+    std.io.println("\n== Path Access (Depth 2) ==")
+
+    let inner_field: JsonField = JsonField { key: "name", value: json_string("Alice") }
+    let inner: Json = json_object(Cons(inner_field, Nil))
+    let outer_field: JsonField = JsonField { key: "user", value: inner }
+    let obj: Json = json_object(Cons(outer_field, Nil))
+    let iterations: i32 = 1000
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Option[Json] = get_path(obj, "user.name")
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per get_path")
+    return
+}
+
+effect fn bench_path_access_deep() -> IO[void] {
+    std.io.println("\n== Path Access (Depth 10) ==")
+
+    let obj: Json = build_nested_structure(10)
+    let iterations: i32 = 1000
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Option[Json] = get_path(obj, "nested.nested.nested.nested.nested.nested.nested.nested.nested.nested")
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per get_path")
+    return
+}
+
+effect fn bench_set_path() -> IO[void] {
+    std.io.println("\n== Set Path Performance ==")
+
+    let obj: Json = build_nested_structure(5)
+    let iterations: i32 = 1000
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Json = set_path(obj, "nested.nested.nested.value", json_int(42))
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per set_path")
+    return
+}
+
+// =============================================================================
+// Benchmark: Array Operations
+// =============================================================================
+
+effect fn bench_array_index_small() -> IO[void] {
+    std.io.println("\n== Array Index Access (10 items) ==")
+
+    let arr: Json = build_array_with_items(10)
+    let iterations: i32 = 1000
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Option[Json] = get_index(arr, 5)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per get_index")
+    return
+}
+
+effect fn bench_array_index_large() -> IO[void] {
+    std.io.println("\n== Array Index Access (500 items) ==")
+
+    // Use smaller array to avoid stack overflow (Kira recursion limit ~1000)
+    let arr: Json = build_array_with_items(500)
+    let iterations: i32 = 100
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Option[Json] = get_index(arr, 250)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per get_index")
+    std.io.println("  Note: O(n) expected for linked list arrays")
+    return
+}
+
+effect fn bench_array_size() -> IO[void] {
+    std.io.println("\n== Array Size Performance ==")
+
+    // Use smaller array to avoid stack overflow (Kira recursion limit ~1000)
+    let arr: Json = build_array_with_items(500)
+    let iterations: i32 = 100
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: i32 = size(arr)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per size()")
+    return
+}
+
+// =============================================================================
+// Benchmark: Schema Validation
+// =============================================================================
+
+effect fn bench_schema_simple() -> IO[void] {
+    std.io.println("\n== Schema Validation (Simple) ==")
+
+    let obj: Json = build(
+        with_int(
+            with_string(builder(), "name", "Alice"),
+            "age", 30))
+
+    let required_fields: List[string] = Cons("name", Cons("age", Nil))
+    let properties: List[SchemaProperty] = Cons(
+        schema_property("name", schema_type("string")),
+        Cons(schema_property("age", schema_type("integer")), Nil))
+    let schema: Schema = schema_object(Some(required_fields), Some(properties))
+    let iterations: i32 = 1000
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Result[void, List[_]] = validate(obj, schema)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per validate")
+    return
+}
+
+effect fn bench_schema_complex() -> IO[void] {
+    std.io.println("\n== Schema Validation (10 required fields) ==")
+
+    let obj: Json = build_object_with_fields(10)
+
+    var props: List[SchemaProperty] = Nil
+    var required_list: List[string] = Nil
+    var j: i32 = 0
+    while j < 10 {
+        let key: string = "field_" + to_string(j)
+        let prop: SchemaProperty = schema_property(key, schema_type("integer"))
+        props = Cons(prop, props)
+        required_list = Cons(key, required_list)
+        j = j + 1
+    }
+    let schema: Schema = schema_object(Some(required_list), Some(props))
+    let iterations: i32 = 1000
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Result[void, List[_]] = validate(obj, schema)
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per validate")
+    return
+}
+
+// =============================================================================
+// Benchmark: Builder Pattern
+// =============================================================================
+
+effect fn bench_builder_pattern() -> IO[void] {
+    std.io.println("\n== Builder Pattern (10 fields) ==")
+
+    let iterations: i32 = 1000
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        let _: Json = build(
+            with_int(
+                with_int(
+                    with_int(
+                        with_int(
+                            with_int(
+                                with_string(
+                                    with_string(
+                                        with_string(
+                                            with_bool(
+                                                with_bool(builder(), "f1", true),
+                                            "f2", false),
+                                        "f3", "value3"),
+                                    "f4", "value4"),
+                                "f5", "value5"),
+                            "f6", 6),
+                        "f7", 7),
+                    "f8", 8),
+                "f9", 9),
+            "f10", 10))
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per build")
+    return
+}
+
+// =============================================================================
+// Benchmark: Roundtrip (Parse -> Stringify)
+// =============================================================================
+
+effect fn bench_roundtrip() -> IO[void] {
+    std.io.println("\n== Roundtrip (Parse + Stringify) ==")
+
+    let json_str: string = generate_json_string(1000)
+    let iterations: i32 = 100
+
+    std.io.print("  Running ")
+    std.io.print(to_string(iterations))
+    std.io.println(" iterations...")
+
+    let start: i64 = std.time.now()
+    var i: i32 = 0
+    while i < iterations {
+        match parse(json_str) {
+            Ok(json) => {
+                let _: string = stringify(json)
+            }
+            Err(_) => { }
+        }
+        i = i + 1
+    }
+    let end: i64 = std.time.now()
+
+    let total_ms: f64 = to_float(end - start)
+    let avg_ms: f64 = total_ms / to_float(iterations)
+
+    std.io.print("  Total time: ")
+    std.io.print(to_string(total_ms))
+    std.io.println(" ms")
+    std.io.print("  Average: ")
+    std.io.print(to_string(avg_ms))
+    std.io.println(" ms per roundtrip")
+    return
+}
+
+// =============================================================================
+// Summary Report
+// =============================================================================
+
+effect fn print_summary() -> IO[void] {
+    std.io.println("\n")
+    std.io.println(string_repeat("=", 60))
+    std.io.println("BENCHMARK SUMMARY")
+    std.io.println(string_repeat("=", 60))
+    std.io.println("")
+    std.io.println("Key findings:")
+    std.io.println("- Field access (get_field, set_field): O(1) via HashMap")
+    std.io.println("- Array index access (get_index): O(n) via linked list")
+    std.io.println("- Path access: O(d) where d = path depth")
+    std.io.println("- Parse time: Linear in input size")
+    std.io.println("- Stringify time: Linear in structure size")
+    std.io.println("")
+    std.io.println("See docs/performance.md for detailed analysis")
+    return
+}
+
+// =============================================================================
+// Main Entry Point
+// =============================================================================
+
+effect fn main() -> IO[void] {
+    std.io.println(string_repeat("=", 60))
+    std.io.println("JSON Library Performance Benchmarks")
+    std.io.println(string_repeat("=", 60))
+    std.io.println("")
+
+    // Parsing benchmarks
+    bench_parse_small()
+    bench_parse_medium()
+    bench_parse_large()
+
+    // Serialization benchmarks
+    bench_stringify_small()
+    bench_stringify_with_fields()
+    bench_stringify_pretty()
+
+    // Field access benchmarks (HashMap verification)
+    bench_field_access_small()
+    bench_field_access_large()
+    bench_set_field()
+
+    // Path access benchmarks
+    bench_path_access_shallow()
+    bench_path_access_deep()
+    bench_set_path()
+
+    // Array operation benchmarks
+    bench_array_index_small()
+    bench_array_index_large()
+    bench_array_size()
+
+    // Schema validation benchmarks
+    bench_schema_simple()
+    bench_schema_complex()
+
+    // Builder pattern benchmark
+    bench_builder_pattern()
+
+    // Roundtrip benchmark
+    bench_roundtrip()
+
+    // Summary
+    print_summary()
+
+    return
+}
