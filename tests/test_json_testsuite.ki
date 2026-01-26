@@ -1,0 +1,479 @@
+/// JSONTestSuite File-Based Tests
+/// Runs the official JSONTestSuite (https://github.com/nst/JSONTestSuite)
+/// Tests are loaded from testdata/JSONTestSuite/test_parsing/
+
+module test_json_testsuite
+
+import src.json.{ Json, JsonError, parse, parse_strict }
+
+// =============================================================================
+// Implementation-Defined Behavior Configuration
+// =============================================================================
+
+/// How to handle numbers that overflow f64
+type NumberOverflowBehavior =
+    | AcceptAsInfinity
+    | RejectAsError
+
+/// How to handle lone/invalid surrogate pairs in \uXXXX escapes
+type SurrogateBehavior =
+    | ReplaceWithReplacementChar
+    | RejectAsError
+
+/// How to handle invalid UTF-8 sequences
+type Utf8Behavior =
+    | ReplaceInvalid
+    | RejectAsError
+
+/// Configuration for implementation-defined test behavior
+type ImplDefinedConfig = {
+    number_overflow: NumberOverflowBehavior,
+    lone_surrogate: SurrogateBehavior,
+    invalid_utf8: Utf8Behavior,
+    max_nesting: i32,
+    accept_bom: bool
+}
+
+/// Default configuration matching kira-json's current behavior
+let default_config: fn() -> ImplDefinedConfig = fn() -> ImplDefinedConfig {
+    return ImplDefinedConfig {
+        number_overflow: RejectAsError,  // Parser rejects numbers that overflow to Infinity
+        lone_surrogate: ReplaceWithReplacementChar,
+        invalid_utf8: RejectAsError,
+        max_nesting: 128,  // Conservative limit to stay under Kira's call stack limit
+        accept_bom: false
+    }
+}
+
+// =============================================================================
+// Test Category Classification
+// =============================================================================
+
+/// Test category based on JSONTestSuite naming convention
+type TestCategory =
+    | MustAccept
+    | MustReject
+    | ImplDefined(string)  // Carries the subcategory (number, string, structure)
+
+/// Classify a test file by its name prefix
+let classify_test: fn(string) -> TestCategory = fn(filename: string) -> TestCategory {
+    if std.string.starts_with(filename, "y_") {
+        return MustAccept
+    }
+    if std.string.starts_with(filename, "n_") {
+        return MustReject
+    }
+    if std.string.starts_with(filename, "i_") {
+        if std.string.starts_with(filename, "i_number_") {
+            return ImplDefined("number")
+        }
+        if std.string.starts_with(filename, "i_string_") {
+            return ImplDefined("string")
+        }
+        if std.string.starts_with(filename, "i_structure_") {
+            return ImplDefined("structure")
+        }
+        if std.string.starts_with(filename, "i_object_") {
+            return ImplDefined("object")
+        }
+        return ImplDefined("other")
+    }
+    return MustReject
+}
+
+// =============================================================================
+// Implementation-Defined Test Expectations
+// =============================================================================
+
+/// Expected result for an implementation-defined test
+type ExpectedResult =
+    | ExpectAccept
+    | ExpectReject
+    | ExpectEither  // Both outcomes are valid
+
+/// Determine expected result for impl-defined test based on config
+let get_impl_expected: fn(string, ImplDefinedConfig) -> ExpectedResult =
+    fn(filename: string, config: ImplDefinedConfig) -> ExpectedResult {
+        // True overflow tests (result in Infinity)
+        // These have huge exponents like e100000 or e+9999
+        if std.string.contains(filename, "huge_exp") or
+           std.string.contains(filename, "overflow") {
+            match config.number_overflow {
+                AcceptAsInfinity => { return ExpectAccept }
+                RejectAsError => { return ExpectReject }
+            }
+        }
+
+        // Large integers that fit in f64 with precision loss
+        // These are accepted (parsed as f64, may lose precision)
+        if std.string.contains(filename, "too_big") or
+           std.string.contains(filename, "very_big") {
+            return ExpectAccept
+        }
+
+        // Number underflow (typically accepted as 0)
+        if std.string.contains(filename, "underflow") {
+            return ExpectAccept
+        }
+
+        // Invalid UTF-8 tests (check before surrogate tests)
+        // Note: "UTF8_surrogate" files contain raw invalid UTF-8 bytes, not \uXXXX escapes
+        if std.string.contains(filename, "utf-8") or
+           std.string.contains(filename, "utf8") or
+           std.string.contains(filename, "UTF-8") or
+           std.string.contains(filename, "UTF8") or
+           std.string.contains(filename, "overlong") or
+           std.string.contains(filename, "truncated") or
+           std.string.contains(filename, "continuation") or
+           std.string.contains(filename, "unicode_range") or
+           std.string.contains(filename, "iso_latin") {
+            match config.invalid_utf8 {
+                ReplaceInvalid => { return ExpectAccept }
+                RejectAsError => { return ExpectReject }
+            }
+        }
+
+        // Surrogate tests (for \uXXXX escape sequences, not raw UTF-8 bytes)
+        if std.string.contains(filename, "surrogate") or
+           std.string.contains(filename, "lone_2nd") {
+            match config.lone_surrogate {
+                ReplaceWithReplacementChar => { return ExpectAccept }
+                RejectAsError => { return ExpectReject }
+            }
+        }
+
+        // UTF-16 tests (we only support UTF-8)
+        if std.string.contains(filename, "utf16") {
+            return ExpectReject
+        }
+
+        // BOM tests
+        if std.string.contains(filename, "BOM") {
+            if config.accept_bom {
+                return ExpectAccept
+            }
+            return ExpectReject
+        }
+
+        // Nesting depth tests
+        if std.string.contains(filename, "nested") {
+            if config.max_nesting >= 500 {
+                return ExpectAccept
+            }
+            return ExpectReject
+        }
+
+        // Default: either outcome is acceptable
+        return ExpectEither
+    }
+
+// =============================================================================
+// Test Execution
+// =============================================================================
+
+/// Result of running a single test
+type TestResult =
+    | Pass
+    | Fail(string)
+    | Skip(string)
+
+/// Run a single test file
+let run_test: fn(string, string, ImplDefinedConfig) -> TestResult =
+    fn(filename: string, content: string, config: ImplDefinedConfig) -> TestResult {
+        let category: TestCategory = classify_test(filename)
+        let parse_result: Result[Json, JsonError] = parse(content)
+
+        match category {
+            MustAccept => {
+                match parse_result {
+                    Ok(_) => { return Pass }
+                    Err(e) => {
+                        return Fail(std.string.concat("should accept but got error: ", format_error(e)))
+                    }
+                }
+            }
+            MustReject => {
+                match parse_result {
+                    Ok(_) => { return Fail("should reject but parsed successfully") }
+                    Err(_) => { return Pass }
+                }
+            }
+            ImplDefined(subcat) => {
+                let expected: ExpectedResult = get_impl_expected(filename, config)
+                match expected {
+                    ExpectAccept => {
+                        match parse_result {
+                            Ok(_) => { return Pass }
+                            Err(e) => {
+                                return Fail(std.string.concat("config expects accept but got: ", format_error(e)))
+                            }
+                        }
+                    }
+                    ExpectReject => {
+                        match parse_result {
+                            Ok(_) => { return Fail("config expects reject but parsed ok") }
+                            Err(_) => { return Pass }
+                        }
+                    }
+                    ExpectEither => {
+                        return Pass
+                    }
+                }
+            }
+        }
+    }
+
+/// Format a JsonError for display
+let format_error: fn(JsonError) -> string = fn(e: JsonError) -> string {
+    match e {
+        UnexpectedEof { expected: exp, context: ctx, line: l, col: c } => {
+            return std.string.concat("UnexpectedEof at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))
+        }
+        UnexpectedToken { expected: exp, found: fnd, line: l, col: c } => {
+            return std.string.concat("UnexpectedToken '", std.string.concat(fnd, std.string.concat("' at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))))
+        }
+        UnterminatedString { line: l, col: c } => {
+            return std.string.concat("UnterminatedString at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))
+        }
+        InvalidEscape { sequence: seq, reason: rsn, line: l, col: c } => {
+            return std.string.concat("InvalidEscape '", std.string.concat(seq, std.string.concat("' at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))))
+        }
+        ControlChar { code: cd, line: l, col: c } => {
+            return std.string.concat("ControlChar at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))
+        }
+        InvalidNumber { value: val, reason: rsn, line: l, col: c } => {
+            return std.string.concat("InvalidNumber '", std.string.concat(val, std.string.concat("' at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))))
+        }
+        TrailingContent { found: fnd, line: l, col: c } => {
+            return std.string.concat("TrailingContent at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))
+        }
+        MaxDepthExceeded { depth: d, max_depth: m, line: l, col: c } => {
+            return std.string.concat("MaxDepthExceeded at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))
+        }
+        DuplicateKey { key: k, line: l, col: c } => {
+            return std.string.concat("DuplicateKey '", std.string.concat(k, std.string.concat("' at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))))
+        }
+    }
+}
+
+// =============================================================================
+// String Utilities
+// =============================================================================
+
+/// Check if string ends with suffix
+/// Uses nested match since string functions now return Result for UTF-8 safety
+let ends_with: fn(string, string) -> bool = fn(s: string, suffix: string) -> bool {
+    match std.string.length(s) {
+        Err(_) => { return false }
+        Ok(s_len) => {
+            match std.string.length(suffix) {
+                Err(_) => { return false }
+                Ok(suffix_len) => {
+                    if suffix_len > s_len {
+                        return false
+                    }
+                    let start: i32 = s_len - suffix_len
+                    match std.string.substring(s, start, s_len) {
+                        Err(_) => { return false }
+                        Ok(end_part) => {
+                            return std.string.equals(end_part, suffix)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Files that cannot be tested due to Kira runtime limitations.
+/// Currently none - all tests are handled gracefully:
+/// - Invalid UTF-8: string functions return Result
+/// - Deep nesting: max_depth limit prevents stack overflow
+let should_skip_file: fn(string) -> bool = fn(filename: string) -> bool {
+    return false
+}
+
+/// Join path components
+let join_path: fn(string, string) -> string = fn(dir: string, filename: string) -> string {
+    if ends_with(dir, "/") {
+        return std.string.concat(dir, filename)
+    }
+    return std.string.concat(dir, std.string.concat("/", filename))
+}
+
+// =============================================================================
+// Main Test Runner
+// =============================================================================
+
+effect fn main() -> IO[void] {
+    std.io.println("JSONTestSuite File-Based Tests")
+    std.io.println("==============================")
+    std.io.println("")
+
+    let config: ImplDefinedConfig = default_config()
+    let test_dir: string = "testdata/JSONTestSuite/test_parsing"
+
+    // Print configuration
+    std.io.println("Configuration:")
+    std.io.print("  number_overflow: ")
+    match config.number_overflow {
+        AcceptAsInfinity => { std.io.println("AcceptAsInfinity") }
+        RejectAsError => { std.io.println("RejectAsError") }
+    }
+    std.io.print("  lone_surrogate: ")
+    match config.lone_surrogate {
+        ReplaceWithReplacementChar => { std.io.println("ReplaceWithReplacementChar") }
+        RejectAsError => { std.io.println("RejectAsError") }
+    }
+    std.io.print("  invalid_utf8: ")
+    match config.invalid_utf8 {
+        ReplaceInvalid => { std.io.println("ReplaceInvalid") }
+        RejectAsError => { std.io.println("RejectAsError") }
+    }
+    std.io.print("  max_nesting: ")
+    std.io.println(std.int.to_string(config.max_nesting))
+    std.io.print("  accept_bom: ")
+    if config.accept_bom {
+        std.io.println("true")
+    } else {
+        std.io.println("false")
+    }
+    std.io.println("")
+
+    // Read test directory
+    match std.fs.read_dir(test_dir) {
+        Err(e) => {
+            std.io.print("Failed to read test directory: ")
+            std.io.println(e)
+            std.io.println("Make sure JSONTestSuite submodule is initialized:")
+            std.io.println("  git submodule update --init")
+            return
+        }
+        Ok(files) => {
+            // Count JSON files
+            var file_count: i32 = 0
+            for filename in files {
+                if ends_with(filename, ".json") {
+                    file_count = file_count + 1
+                }
+            }
+
+            std.io.print("Found ")
+            std.io.print(std.int.to_string(file_count))
+            std.io.println(" test files")
+            std.io.println("")
+
+            // Run tests
+            var total: i32 = 0
+            var passed: i32 = 0
+            var failed: i32 = 0
+            var skipped: i32 = 0
+            var accept_passed: i32 = 0
+            var accept_failed: i32 = 0
+            var reject_passed: i32 = 0
+            var reject_failed: i32 = 0
+            var impl_passed: i32 = 0
+            var impl_failed: i32 = 0
+
+            // Store failed test messages
+            var failed_msgs: string = ""
+
+            for filename in files {
+                if ends_with(filename, ".json") {
+                    // Skip files that would crash Kira's runtime
+                    if should_skip_file(filename) {
+                        skipped = skipped + 1
+                    } else {
+                        let filepath: string = join_path(test_dir, filename)
+                        match std.fs.read_file(filepath) {
+                            Err(e) => {
+                                std.io.print("  [ERROR] ")
+                                std.io.print(filename)
+                                std.io.print(": ")
+                                std.io.println(e)
+                                failed = failed + 1
+                                total = total + 1
+                            }
+                            Ok(content) => {
+                                let result: TestResult = run_test(filename, content, config)
+                                let category: TestCategory = classify_test(filename)
+                                total = total + 1
+
+                                match result {
+                                    Pass => {
+                                        passed = passed + 1
+                                        match category {
+                                            MustAccept => { accept_passed = accept_passed + 1 }
+                                            MustReject => { reject_passed = reject_passed + 1 }
+                                            ImplDefined(_) => { impl_passed = impl_passed + 1 }
+                                        }
+                                    }
+                                    Fail(reason) => {
+                                        failed = failed + 1
+                                        failed_msgs = std.string.concat(failed_msgs, std.string.concat("  ", std.string.concat(filename, std.string.concat(": ", std.string.concat(reason, "\n")))))
+                                        match category {
+                                            MustAccept => { accept_failed = accept_failed + 1 }
+                                            MustReject => { reject_failed = reject_failed + 1 }
+                                            ImplDefined(_) => { impl_failed = impl_failed + 1 }
+                                        }
+                                    }
+                                    Skip(reason) => {
+                                        passed = passed + 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Print results
+            std.io.println("Results:")
+            std.io.println("--------")
+            std.io.print("Must Accept (y_*): ")
+            std.io.print(std.int.to_string(accept_passed))
+            std.io.print(" passed, ")
+            std.io.print(std.int.to_string(accept_failed))
+            std.io.println(" failed")
+
+            std.io.print("Must Reject (n_*): ")
+            std.io.print(std.int.to_string(reject_passed))
+            std.io.print(" passed, ")
+            std.io.print(std.int.to_string(reject_failed))
+            std.io.println(" failed")
+
+            std.io.print("Impl-Defined (i_*): ")
+            std.io.print(std.int.to_string(impl_passed))
+            std.io.print(" passed, ")
+            std.io.print(std.int.to_string(impl_failed))
+            std.io.println(" failed")
+
+            std.io.println("")
+            std.io.print("Total: ")
+            std.io.print(std.int.to_string(passed))
+            std.io.print(" passed, ")
+            std.io.print(std.int.to_string(failed))
+            std.io.print(" failed, ")
+            std.io.print(std.int.to_string(skipped))
+            std.io.print(" skipped (runtime limitations) out of ")
+            std.io.print(std.int.to_string(total + skipped))
+            std.io.println(" tests")
+
+            // Print failures
+            if failed > 0 {
+                std.io.println("")
+                std.io.println("Failed tests:")
+                std.io.print(failed_msgs)
+            }
+
+            std.io.println("")
+            if failed == 0 {
+                std.io.println("All tests passed!")
+            } else {
+                std.io.println("Some tests failed.")
+            }
+        }
+    }
+
+    return
+}
