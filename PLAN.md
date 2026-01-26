@@ -2,7 +2,7 @@
 
 ## Current Status
 
-The library provides functional JSON parsing, serialization, and manipulation with **257 passing tests** (173 in test_json.ki + 84 in test_json_suite.ki). Recent improvements leverage new compiler features (StringBuilder, std.char.from_i32, std.math.trunc_to_i64).
+The library provides functional JSON parsing, serialization, and manipulation with **375 passing tests** (291 in test_json.ki + 84 in test_json_suite.ki). Recent improvements leverage new compiler features (StringBuilder, std.char.from_i32, std.math.trunc_to_i64). Now includes JSON Schema validation with type constraints, required fields, numeric/string/array length constraints, enum values, and nested validation.
 
 **Note:** Tests updated to use `std.string.length` as character count (not byte count) after compiler update.
 
@@ -110,13 +110,25 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 **Files:** `src/json.ki`
 
-### 3.3 JSON Schema Validation
-- [ ] Define schema type
-- [ ] `validate(json, schema)` → `Result[void, ValidationError]`
-- [ ] Support type constraints, required fields, patterns
-- [ ] Collect all errors vs fail-fast mode
+### 3.3 JSON Schema Validation ✓
+- [x] Define schema types (`Schema`, `SchemaProperty`, `SchemaRef`, `SchemaError`)
+- [x] `validate(json, schema)` → `Result[void, List[SchemaError]]`
+- [x] Type constraints: null, boolean, number, integer, string, array, object
+- [x] Required fields validation
+- [x] Numeric range: minimum, maximum
+- [x] String length: minLength, maxLength
+- [x] Array length: minItems, maxItems
+- [x] Array items schema validation
+- [x] Nested object/array validation with path tracking
+- [x] Enum value validation
+- [x] Collect all errors mode (not fail-fast)
+- [x] Error formatting: `format_schema_error`, `format_schema_errors`
+- [x] Schema constructors: `schema_any`, `schema_type`, `schema_string`, `schema_number`, `schema_integer`, `schema_array`, `schema_object`, `schema_property`, `schema_ref`, `schema_enum`
+- [x] 30 new tests for schema validation
 
-**New file:** `src/json_schema.ki`
+**Files:** `src/json.ki` (integrated, not separate file), `tests/test_json.ki`
+
+**Deferred:** `pattern` (requires regex), `additionalProperties`
 
 ### 3.4 Builder Pattern ✓
 - [x] `JsonBuilder` type for fluent object construction

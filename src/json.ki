@@ -113,6 +113,116 @@ pub let error_column: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
     }
 }
 
+// =============================================================================
+// JSON Schema Validation Types
+// =============================================================================
+
+/// Schema for validating JSON values.
+/// Recursive through SchemaProperty list for nested object validation.
+pub type Schema = {
+    /// Expected type: "null", "boolean", "number", "integer", "string", "array", "object"
+    type_constraint: Option[string],
+    /// List of required property names (for objects)
+    required: Option[List[string]],
+    /// Schemas for specific properties (for objects)
+    properties: Option[List[SchemaProperty]],
+    /// Minimum value (for numbers)
+    minimum: Option[f64],
+    /// Maximum value (for numbers)
+    maximum: Option[f64],
+    /// Minimum string length
+    min_length: Option[i32],
+    /// Maximum string length
+    max_length: Option[i32],
+    /// Minimum array length
+    min_items: Option[i32],
+    /// Maximum array length
+    max_items: Option[i32],
+    /// Schema for array items (recursive through SchemaRef)
+    items: Option[SchemaRef],
+    /// Allowed values (any type)
+    enum_values: Option[List[Json]]
+}
+
+/// A named property with its schema.
+pub type SchemaProperty = {
+    name: string,
+    schema: SchemaRef
+}
+
+/// Reference wrapper for recursive schema definition.
+/// Uses sum type pattern for recursion like List[T].
+pub type SchemaRef =
+    | SchemaInline(Schema)
+
+/// Validation error with path context.
+pub type SchemaError =
+    | TypeMismatch { expected: string, actual: string, path: string }
+    | MissingRequired { field: string, path: string }
+    | MinimumViolation { value: f64, minimum: f64, path: string }
+    | MaximumViolation { value: f64, maximum: f64, path: string }
+    | MinLengthViolation { actual: i32, min_length: i32, path: string }
+    | MaxLengthViolation { actual: i32, max_length: i32, path: string }
+    | MinItemsViolation { actual: i32, min_items: i32, path: string }
+    | MaxItemsViolation { actual: i32, max_items: i32, path: string }
+    | EnumViolation { path: string }
+    | IntegerRequired { value: f64, path: string }
+
+/// Formats a schema error as a human-readable string.
+pub let format_schema_error: fn(SchemaError) -> string = fn(err: SchemaError) -> string {
+    match err {
+        TypeMismatch { expected: exp, actual: act, path: p } => {
+            return std.string.concat("Type mismatch at '", std.string.concat(p, std.string.concat("': expected ", std.string.concat(exp, std.string.concat(", got ", act)))))
+        }
+        MissingRequired { field: f, path: p } => {
+            return std.string.concat("Missing required field '", std.string.concat(f, std.string.concat("' at '", std.string.concat(p, "'"))))
+        }
+        MinimumViolation { value: v, minimum: m, path: p } => {
+            return std.string.concat("Minimum violation at '", std.string.concat(p, std.string.concat("': value ", std.string.concat(std.float.to_string(v), std.string.concat(" is less than minimum ", std.float.to_string(m))))))
+        }
+        MaximumViolation { value: v, maximum: m, path: p } => {
+            return std.string.concat("Maximum violation at '", std.string.concat(p, std.string.concat("': value ", std.string.concat(std.float.to_string(v), std.string.concat(" exceeds maximum ", std.float.to_string(m))))))
+        }
+        MinLengthViolation { actual: a, min_length: m, path: p } => {
+            return std.string.concat("Minimum length violation at '", std.string.concat(p, std.string.concat("': length ", std.string.concat(std.int.to_string(a), std.string.concat(" is less than minimum ", std.int.to_string(m))))))
+        }
+        MaxLengthViolation { actual: a, max_length: m, path: p } => {
+            return std.string.concat("Maximum length violation at '", std.string.concat(p, std.string.concat("': length ", std.string.concat(std.int.to_string(a), std.string.concat(" exceeds maximum ", std.int.to_string(m))))))
+        }
+        MinItemsViolation { actual: a, min_items: m, path: p } => {
+            return std.string.concat("Minimum items violation at '", std.string.concat(p, std.string.concat("': count ", std.string.concat(std.int.to_string(a), std.string.concat(" is less than minimum ", std.int.to_string(m))))))
+        }
+        MaxItemsViolation { actual: a, max_items: m, path: p } => {
+            return std.string.concat("Maximum items violation at '", std.string.concat(p, std.string.concat("': count ", std.string.concat(std.int.to_string(a), std.string.concat(" exceeds maximum ", std.int.to_string(m))))))
+        }
+        EnumViolation { path: p } => {
+            return std.string.concat("Enum violation at '", std.string.concat(p, "': value not in allowed set"))
+        }
+        IntegerRequired { value: v, path: p } => {
+            return std.string.concat("Integer required at '", std.string.concat(p, std.string.concat("': value ", std.string.concat(std.float.to_string(v), " is not an integer"))))
+        }
+    }
+}
+
+/// Formats multiple schema errors as a newline-separated string.
+pub let format_schema_errors: fn(List[SchemaError]) -> string = fn(errors: List[SchemaError]) -> string {
+    return format_schema_errors_acc(errors, std.builder.new())
+}
+
+let format_schema_errors_acc: fn(List[SchemaError], StringBuilder) -> string =
+    fn(errors: List[SchemaError], sb: StringBuilder) -> string {
+        match errors {
+            Nil => { return std.builder.build(sb) }
+            Cons(err, Nil) => {
+                let new_sb: StringBuilder = std.builder.append(sb, format_schema_error(err))
+                return std.builder.build(new_sb)
+            }
+            Cons(err, rest) => {
+                let new_sb: StringBuilder = std.builder.append(std.builder.append(sb, format_schema_error(err)), "\n")
+                return format_schema_errors_acc(rest, new_sb)
+            }
+        }
+    }
 
 /// Default maximum nesting depth for JSON parsing.
 /// This prevents stack overflow from deeply nested structures.
@@ -2969,4 +3079,476 @@ let repeat_char_acc: fn(StringBuilder, string, i32) -> string =
         let new_sb: StringBuilder = std.builder.append(sb, c)
         return repeat_char_acc(new_sb, c, n - 1)
     }
+
+// =============================================================================
+// JSON Schema Validation - Constructors
+// =============================================================================
+
+/// Creates an empty schema (validates anything).
+pub let schema_any: fn() -> Schema = fn() -> Schema {
+    return Schema {
+        type_constraint: None,
+        required: None,
+        properties: None,
+        minimum: None,
+        maximum: None,
+        min_length: None,
+        max_length: None,
+        min_items: None,
+        max_items: None,
+        items: None,
+        enum_values: None
+    }
+}
+
+/// Creates a type-only schema.
+pub let schema_type: fn(string) -> Schema = fn(t: string) -> Schema {
+    return Schema {
+        type_constraint: Some(t),
+        required: None,
+        properties: None,
+        minimum: None,
+        maximum: None,
+        min_length: None,
+        max_length: None,
+        min_items: None,
+        max_items: None,
+        items: None,
+        enum_values: None
+    }
+}
+
+/// Creates a string schema with length constraints.
+pub let schema_string: fn(Option[i32], Option[i32]) -> Schema =
+    fn(min_len: Option[i32], max_len: Option[i32]) -> Schema {
+        return Schema {
+            type_constraint: Some("string"),
+            required: None,
+            properties: None,
+            minimum: None,
+            maximum: None,
+            min_length: min_len,
+            max_length: max_len,
+            min_items: None,
+            max_items: None,
+            items: None,
+            enum_values: None
+        }
+    }
+
+/// Creates a number schema with range constraints.
+pub let schema_number: fn(Option[f64], Option[f64]) -> Schema =
+    fn(min: Option[f64], max: Option[f64]) -> Schema {
+        return Schema {
+            type_constraint: Some("number"),
+            required: None,
+            properties: None,
+            minimum: min,
+            maximum: max,
+            min_length: None,
+            max_length: None,
+            min_items: None,
+            max_items: None,
+            items: None,
+            enum_values: None
+        }
+    }
+
+/// Creates an integer schema with range constraints.
+pub let schema_integer: fn(Option[f64], Option[f64]) -> Schema =
+    fn(min: Option[f64], max: Option[f64]) -> Schema {
+        return Schema {
+            type_constraint: Some("integer"),
+            required: None,
+            properties: None,
+            minimum: min,
+            maximum: max,
+            min_length: None,
+            max_length: None,
+            min_items: None,
+            max_items: None,
+            items: None,
+            enum_values: None
+        }
+    }
+
+/// Creates an array schema with item schema and length constraints.
+pub let schema_array: fn(Option[Schema], Option[i32], Option[i32]) -> Schema =
+    fn(item_schema: Option[Schema], min_items: Option[i32], max_items: Option[i32]) -> Schema {
+        var items_ref: Option[SchemaRef] = None
+        match item_schema {
+            Some(s) => { items_ref = Some(SchemaInline(s)) }
+            None => { items_ref = None }
+        }
+        return Schema {
+            type_constraint: Some("array"),
+            required: None,
+            properties: None,
+            minimum: None,
+            maximum: None,
+            min_length: None,
+            max_length: None,
+            min_items: min_items,
+            max_items: max_items,
+            items: items_ref,
+            enum_values: None
+        }
+    }
+
+/// Creates an object schema with required fields and property schemas.
+pub let schema_object: fn(Option[List[string]], Option[List[SchemaProperty]]) -> Schema =
+    fn(required: Option[List[string]], properties: Option[List[SchemaProperty]]) -> Schema {
+        return Schema {
+            type_constraint: Some("object"),
+            required: required,
+            properties: properties,
+            minimum: None,
+            maximum: None,
+            min_length: None,
+            max_length: None,
+            min_items: None,
+            max_items: None,
+            items: None,
+            enum_values: None
+        }
+    }
+
+/// Creates a schema property (name + schema pair).
+pub let schema_property: fn(string, Schema) -> SchemaProperty =
+    fn(name: string, schema: Schema) -> SchemaProperty {
+        return SchemaProperty {
+            name: name,
+            schema: SchemaInline(schema)
+        }
+    }
+
+/// Wraps a schema in a SchemaRef for recursive definitions.
+pub let schema_ref: fn(Schema) -> SchemaRef = fn(schema: Schema) -> SchemaRef {
+    return SchemaInline(schema)
+}
+
+/// Creates an enum schema that accepts only the specified values.
+pub let schema_enum: fn(List[Json]) -> Schema = fn(values: List[Json]) -> Schema {
+    return Schema {
+        type_constraint: None,
+        required: None,
+        properties: None,
+        minimum: None,
+        maximum: None,
+        min_length: None,
+        max_length: None,
+        min_items: None,
+        max_items: None,
+        items: None,
+        enum_values: Some(values)
+    }
+}
+
+// =============================================================================
+// JSON Schema Validation - Core Functions
+// =============================================================================
+
+/// Validates JSON against a schema. Collects all errors.
+pub let validate: fn(Json, Schema) -> Result[void, List[SchemaError]] =
+    fn(json: Json, schema: Schema) -> Result[void, List[SchemaError]] {
+        let errors: List[SchemaError] = validate_impl(json, schema, "$")
+        match errors {
+            Nil => { return Ok(()) }
+            _ => { return Err(errors) }
+        }
+    }
+
+/// Internal recursive validation implementation.
+let validate_impl: fn(Json, Schema, string) -> List[SchemaError] =
+    fn(json: Json, schema: Schema, path: string) -> List[SchemaError] {
+        var errors: List[SchemaError] = Nil
+
+        // Check type constraint
+        match schema.type_constraint {
+            Some(expected_type) => {
+                let type_errors: List[SchemaError] = validate_type(json, expected_type, path)
+                errors = list_append_schema_errors(errors, type_errors)
+            }
+            None => { }
+        }
+
+        // Check enum values
+        match schema.enum_values {
+            Some(allowed) => {
+                let enum_errors: List[SchemaError] = validate_enum(json, allowed, path)
+                errors = list_append_schema_errors(errors, enum_errors)
+            }
+            None => { }
+        }
+
+        // Type-specific validations
+        match json {
+            JNumber(n) => {
+                let num_errors: List[SchemaError] = validate_number(n, schema, path)
+                errors = list_append_schema_errors(errors, num_errors)
+            }
+            JString(s) => {
+                let str_errors: List[SchemaError] = validate_string(s, schema, path)
+                errors = list_append_schema_errors(errors, str_errors)
+            }
+            JArray(arr) => {
+                let arr_errors: List[SchemaError] = validate_array(arr, schema, path)
+                errors = list_append_schema_errors(errors, arr_errors)
+            }
+            JObject(map) => {
+                let obj_errors: List[SchemaError] = validate_object(map, schema, path)
+                errors = list_append_schema_errors(errors, obj_errors)
+            }
+            _ => { }
+        }
+
+        return errors
+    }
+
+/// Validates that JSON has the expected type.
+let validate_type: fn(Json, string, string) -> List[SchemaError] =
+    fn(json: Json, expected: string, path: string) -> List[SchemaError] {
+        let actual: string = type_name(json)
+
+        // Handle "integer" type specially - it's a number with no fractional part
+        if std.string.equals(expected, "integer") {
+            match json {
+                JNumber(n) => {
+                    if is_integer(n) {
+                        return Nil
+                    }
+                    return Cons(IntegerRequired { value: n, path: path }, Nil)
+                }
+                _ => {
+                    return Cons(TypeMismatch { expected: expected, actual: actual, path: path }, Nil)
+                }
+            }
+        }
+
+        if std.string.equals(actual, expected) {
+            return Nil
+        }
+        return Cons(TypeMismatch { expected: expected, actual: actual, path: path }, Nil)
+    }
+
+/// Checks if a number is an integer (no fractional part).
+let is_integer: fn(f64) -> bool = fn(n: f64) -> bool {
+    let truncated: i64 = std.math.trunc_to_i64(n)
+    let back: f64 = to_float(truncated)
+    return n == back
+}
+
+/// Validates numeric constraints (minimum, maximum).
+let validate_number: fn(f64, Schema, string) -> List[SchemaError] =
+    fn(value: f64, schema: Schema, path: string) -> List[SchemaError] {
+        var errors: List[SchemaError] = Nil
+
+        match schema.minimum {
+            Some(min) => {
+                if value < min {
+                    errors = Cons(MinimumViolation { value: value, minimum: min, path: path }, errors)
+                }
+            }
+            None => { }
+        }
+
+        match schema.maximum {
+            Some(max) => {
+                if value > max {
+                    errors = Cons(MaximumViolation { value: value, maximum: max, path: path }, errors)
+                }
+            }
+            None => { }
+        }
+
+        return errors
+    }
+
+/// Validates string constraints (minLength, maxLength).
+let validate_string: fn(string, Schema, string) -> List[SchemaError] =
+    fn(value: string, schema: Schema, path: string) -> List[SchemaError] {
+        var errors: List[SchemaError] = Nil
+        let len: i32 = std.string.length(value)
+
+        match schema.min_length {
+            Some(min) => {
+                if len < min {
+                    errors = Cons(MinLengthViolation { actual: len, min_length: min, path: path }, errors)
+                }
+            }
+            None => { }
+        }
+
+        match schema.max_length {
+            Some(max) => {
+                if len > max {
+                    errors = Cons(MaxLengthViolation { actual: len, max_length: max, path: path }, errors)
+                }
+            }
+            None => { }
+        }
+
+        return errors
+    }
+
+/// Validates array constraints (minItems, maxItems, items schema).
+let validate_array: fn(List[Json], Schema, string) -> List[SchemaError] =
+    fn(arr: List[Json], schema: Schema, path: string) -> List[SchemaError] {
+        var errors: List[SchemaError] = Nil
+        let len: i32 = list_length_json(arr)
+
+        match schema.min_items {
+            Some(min) => {
+                if len < min {
+                    errors = Cons(MinItemsViolation { actual: len, min_items: min, path: path }, errors)
+                }
+            }
+            None => { }
+        }
+
+        match schema.max_items {
+            Some(max) => {
+                if len > max {
+                    errors = Cons(MaxItemsViolation { actual: len, max_items: max, path: path }, errors)
+                }
+            }
+            None => { }
+        }
+
+        // Validate each item against the items schema
+        match schema.items {
+            Some(SchemaInline(item_schema)) => {
+                let item_errors: List[SchemaError] = validate_array_items(arr, item_schema, path, 0)
+                errors = list_append_schema_errors(errors, item_errors)
+            }
+            None => { }
+        }
+
+        return errors
+    }
+
+/// Validates each array item against the item schema.
+let validate_array_items: fn(List[Json], Schema, string, i32) -> List[SchemaError] =
+    fn(arr: List[Json], item_schema: Schema, path: string, index: i32) -> List[SchemaError] {
+        match arr {
+            Nil => { return Nil }
+            Cons(item, rest) => {
+                let item_path: string = std.string.concat(path, std.string.concat("[", std.string.concat(std.int.to_string(index), "]")))
+                let item_errors: List[SchemaError] = validate_impl(item, item_schema, item_path)
+                let rest_errors: List[SchemaError] = validate_array_items(rest, item_schema, path, index + 1)
+                return list_append_schema_errors(item_errors, rest_errors)
+            }
+        }
+    }
+
+/// Validates object constraints (required, properties).
+let validate_object: fn(HashMap, Schema, string) -> List[SchemaError] =
+    fn(map: HashMap, schema: Schema, path: string) -> List[SchemaError] {
+        var errors: List[SchemaError] = Nil
+
+        // Check required fields
+        match schema.required {
+            Some(required_fields) => {
+                let req_errors: List[SchemaError] = check_required(map, required_fields, path)
+                errors = list_append_schema_errors(errors, req_errors)
+            }
+            None => { }
+        }
+
+        // Validate each property against its schema
+        match schema.properties {
+            Some(props) => {
+                let prop_errors: List[SchemaError] = validate_properties(map, props, path)
+                errors = list_append_schema_errors(errors, prop_errors)
+            }
+            None => { }
+        }
+
+        return errors
+    }
+
+/// Checks that all required fields are present.
+let check_required: fn(HashMap, List[string], string) -> List[SchemaError] =
+    fn(map: HashMap, required: List[string], path: string) -> List[SchemaError] {
+        match required {
+            Nil => { return Nil }
+            Cons(field, rest) => {
+                var errors: List[SchemaError] = Nil
+                let lookup: Option[Json] = std.map.get(map, field)
+                match lookup {
+                    None => {
+                        errors = Cons(MissingRequired { field: field, path: path }, Nil)
+                    }
+                    Some(_) => { }
+                }
+                let rest_errors: List[SchemaError] = check_required(map, rest, path)
+                return list_append_schema_errors(errors, rest_errors)
+            }
+        }
+    }
+
+/// Validates object properties against their schemas.
+let validate_properties: fn(HashMap, List[SchemaProperty], string) -> List[SchemaError] =
+    fn(map: HashMap, props: List[SchemaProperty], path: string) -> List[SchemaError] {
+        match props {
+            Nil => { return Nil }
+            Cons(prop, rest) => {
+                var errors: List[SchemaError] = Nil
+                let lookup: Option[Json] = std.map.get(map, prop.name)
+                match lookup {
+                    Some(value) => {
+                        let prop_path: string = std.string.concat(path, std.string.concat(".", prop.name))
+                        match prop.schema {
+                            SchemaInline(s) => {
+                                let prop_errors: List[SchemaError] = validate_impl(value, s, prop_path)
+                                errors = list_append_schema_errors(errors, prop_errors)
+                            }
+                        }
+                    }
+                    None => { }  // Missing properties are only errors if required
+                }
+                let rest_errors: List[SchemaError] = validate_properties(map, rest, path)
+                return list_append_schema_errors(errors, rest_errors)
+            }
+        }
+    }
+
+/// Validates that a value is in the allowed enum set.
+let validate_enum: fn(Json, List[Json], string) -> List[SchemaError] =
+    fn(json: Json, allowed: List[Json], path: string) -> List[SchemaError] {
+        if is_in_enum(json, allowed) {
+            return Nil
+        }
+        return Cons(EnumViolation { path: path }, Nil)
+    }
+
+/// Checks if a JSON value is in the enum list.
+let is_in_enum: fn(Json, List[Json]) -> bool = fn(json: Json, allowed: List[Json]) -> bool {
+    match allowed {
+        Nil => { return false }
+        Cons(value, rest) => {
+            if equals(json, value) {
+                return true
+            }
+            return is_in_enum(json, rest)
+        }
+    }
+}
+
+/// Appends two lists of schema errors.
+let list_append_schema_errors: fn(List[SchemaError], List[SchemaError]) -> List[SchemaError] =
+    fn(a: List[SchemaError], b: List[SchemaError]) -> List[SchemaError] {
+        match a {
+            Nil => { return b }
+            Cons(x, rest) => { return Cons(x, list_append_schema_errors(rest, b)) }
+        }
+    }
+
+/// Gets the length of a JSON list.
+let list_length_json: fn(List[Json]) -> i32 = fn(list: List[Json]) -> i32 {
+    match list {
+        Nil => { return 0 }
+        Cons(_, rest) => { return 1 + list_length_json(rest) }
+    }
+}
 

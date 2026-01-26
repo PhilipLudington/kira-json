@@ -3,7 +3,7 @@
 
 module test_json
 
-import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, default_max_depth, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error, json_object, json_object_empty }
+import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, default_max_depth, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error, json_object, json_object_empty, Schema, SchemaProperty, SchemaRef, SchemaInline, SchemaError, TypeMismatch, MissingRequired, MinimumViolation, MaximumViolation, MinLengthViolation, MaxLengthViolation, MinItemsViolation, MaxItemsViolation, EnumViolation, IntegerRequired, format_schema_error, format_schema_errors, validate, schema_any, schema_type, schema_string, schema_number, schema_integer, schema_array, schema_object, schema_property, schema_ref, schema_enum }
 
 // =============================================================================
 // Test Utilities
@@ -3894,6 +3894,678 @@ let test_parse_consistency_invalid_never_crashes: fn() -> void = fn() -> void {
 }
 
 // =============================================================================
+// Schema Validation Tests
+// =============================================================================
+
+// --- Type Constraint Tests ---
+
+let test_schema_type_null_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNull
+    let schema: Schema = schema_type("null")
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "null should match null type")
+    return
+}
+
+let test_schema_type_null_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("not null")
+    let schema: Schema = schema_type("null")
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "string should not match null type")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(TypeMismatch { expected: exp, actual: act, path: _ }, _) => {
+                    assert(std.string.equals(exp, "null"), "expected should be null")
+                    assert(std.string.equals(act, "string"), "actual should be string")
+                }
+                _ => { assert(false, "should be TypeMismatch error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+let test_schema_type_boolean_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JBool(true)
+    let schema: Schema = schema_type("boolean")
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "bool should match boolean type")
+    return
+}
+
+let test_schema_type_number_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(42.5)
+    let schema: Schema = schema_type("number")
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "number should match number type")
+    return
+}
+
+let test_schema_type_string_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("hello")
+    let schema: Schema = schema_type("string")
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "string should match string type")
+    return
+}
+
+let test_schema_type_array_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Nil))
+    let schema: Schema = schema_type("array")
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "array should match array type")
+    return
+}
+
+let test_schema_type_object_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = json_object_empty()
+    let schema: Schema = schema_type("object")
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "object should match object type")
+    return
+}
+
+let test_schema_type_integer_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(42.0)
+    let schema: Schema = schema_type("integer")
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "whole number should match integer type")
+    return
+}
+
+let test_schema_type_integer_invalid_fractional: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(42.5)
+    let schema: Schema = schema_type("integer")
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "fractional number should not match integer type")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(IntegerRequired { value: _, path: _ }, _) => { }
+                _ => { assert(false, "should be IntegerRequired error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Required Fields Tests ---
+
+let test_schema_required_present: fn() -> void = fn() -> void {
+    // Arrange
+    let json_result: Result[Json, JsonError] = parse("{\"name\": \"Alice\", \"age\": 30}")
+    var json: Json = JNull
+    match json_result {
+        Ok(j) => { json = j }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+    let schema: Schema = schema_object(Some(Cons("name", Cons("age", Nil))), None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "all required fields present")
+    return
+}
+
+let test_schema_required_missing: fn() -> void = fn() -> void {
+    // Arrange
+    let json_result: Result[Json, JsonError] = parse("{\"name\": \"Alice\"}")
+    var json: Json = JNull
+    match json_result {
+        Ok(j) => { json = j }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+    let schema: Schema = schema_object(Some(Cons("name", Cons("age", Nil))), None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "missing required field should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MissingRequired { field: f, path: _ }, _) => {
+                    assert(std.string.equals(f, "age"), "missing field should be 'age'")
+                }
+                _ => { assert(false, "should be MissingRequired error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+let test_schema_required_multiple_missing: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = json_object_empty()
+    let schema: Schema = schema_object(Some(Cons("a", Cons("b", Nil))), None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "missing required fields should fail")
+    match result {
+        Err(errors) => {
+            // Should have two errors
+            match errors {
+                Cons(_, Cons(_, Nil)) => { }
+                _ => { assert(false, "should have exactly two errors") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Numeric Range Tests ---
+
+let test_schema_number_minimum_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(10.0)
+    let schema: Schema = schema_number(Some(5.0), None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "value above minimum should pass")
+    return
+}
+
+let test_schema_number_minimum_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(3.0)
+    let schema: Schema = schema_number(Some(5.0), None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "value below minimum should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MinimumViolation { value: _, minimum: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MinimumViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+let test_schema_number_maximum_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(10.0)
+    let schema: Schema = schema_number(None, Some(100.0))
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "value below maximum should pass")
+    return
+}
+
+let test_schema_number_maximum_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(150.0)
+    let schema: Schema = schema_number(None, Some(100.0))
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "value above maximum should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MaximumViolation { value: _, maximum: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MaximumViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- String Length Tests ---
+
+let test_schema_string_min_length_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("hello")
+    let schema: Schema = schema_string(Some(3), None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "string above minLength should pass")
+    return
+}
+
+let test_schema_string_min_length_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("hi")
+    let schema: Schema = schema_string(Some(5), None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "string below minLength should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MinLengthViolation { actual: _, min_length: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MinLengthViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+let test_schema_string_max_length_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("hi")
+    let schema: Schema = schema_string(None, Some(5))
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "string below maxLength should pass")
+    return
+}
+
+let test_schema_string_max_length_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("hello world")
+    let schema: Schema = schema_string(None, Some(5))
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "string above maxLength should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MaxLengthViolation { actual: _, max_length: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MaxLengthViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Array Length Tests ---
+
+let test_schema_array_min_items_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Cons(JNumber(3.0), Nil))))
+    let schema: Schema = schema_array(None, Some(2), None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "array with enough items should pass")
+    return
+}
+
+let test_schema_array_min_items_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Nil))
+    let schema: Schema = schema_array(None, Some(3), None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "array with too few items should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MinItemsViolation { actual: _, min_items: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MinItemsViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+let test_schema_array_max_items_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Nil)))
+    let schema: Schema = schema_array(None, None, Some(5))
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "array under maxItems should pass")
+    return
+}
+
+let test_schema_array_max_items_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Cons(JNumber(3.0), Cons(JNumber(4.0), Nil)))))
+    let schema: Schema = schema_array(None, None, Some(2))
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "array over maxItems should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MaxItemsViolation { actual: _, max_items: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MaxItemsViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Enum Tests ---
+
+let test_schema_enum_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("red")
+    let allowed: List[Json] = Cons(JString("red"), Cons(JString("green"), Cons(JString("blue"), Nil)))
+    let schema: Schema = schema_enum(allowed)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "value in enum should pass")
+    return
+}
+
+let test_schema_enum_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("yellow")
+    let allowed: List[Json] = Cons(JString("red"), Cons(JString("green"), Cons(JString("blue"), Nil)))
+    let schema: Schema = schema_enum(allowed)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "value not in enum should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(EnumViolation { path: _ }, _) => { }
+                _ => { assert(false, "should be EnumViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Nested Validation Tests ---
+
+let test_schema_nested_object_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json_result: Result[Json, JsonError] = parse("{\"user\": {\"name\": \"Alice\", \"age\": 30}}")
+    var json: Json = JNull
+    match json_result {
+        Ok(j) => { json = j }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+
+    let user_schema: Schema = schema_object(
+        Some(Cons("name", Nil)),
+        Some(Cons(
+            schema_property("name", schema_string(Some(1), None)),
+            Cons(
+                schema_property("age", schema_number(Some(0.0), Some(150.0))),
+                Nil
+            )
+        ))
+    )
+    let schema: Schema = schema_object(
+        Some(Cons("user", Nil)),
+        Some(Cons(schema_property("user", user_schema), Nil))
+    )
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "valid nested object should pass")
+    return
+}
+
+let test_schema_nested_object_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json_result: Result[Json, JsonError] = parse("{\"user\": {\"name\": \"\", \"age\": 200}}")
+    var json: Json = JNull
+    match json_result {
+        Ok(j) => { json = j }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+
+    let user_schema: Schema = schema_object(
+        None,
+        Some(Cons(
+            schema_property("name", schema_string(Some(1), None)),
+            Cons(
+                schema_property("age", schema_number(Some(0.0), Some(150.0))),
+                Nil
+            )
+        ))
+    )
+    let schema: Schema = schema_object(
+        None,
+        Some(Cons(schema_property("user", user_schema), Nil))
+    )
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "invalid nested object should fail")
+    return
+}
+
+let test_schema_array_items_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Cons(JNumber(3.0), Nil))))
+    let item_schema: Schema = schema_number(Some(0.0), Some(10.0))
+    let schema: Schema = schema_array(Some(item_schema), None, None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok[void, List[SchemaError]](result, "valid array items should pass")
+    return
+}
+
+let test_schema_array_items_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(20.0), Cons(JNumber(3.0), Nil))))
+    let item_schema: Schema = schema_number(Some(0.0), Some(10.0))
+    let schema: Schema = schema_array(Some(item_schema), None, None)
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "invalid array item should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MaximumViolation { value: _, maximum: _, path: p }, _) => {
+                    assert(std.string.equals(p, "$[1]"), "path should be $[1]")
+                }
+                _ => { assert(false, "should be MaximumViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Multiple Error Collection Tests ---
+
+let test_schema_collects_multiple_errors: fn() -> void = fn() -> void {
+    // Arrange - object with multiple violations
+    let json_result: Result[Json, JsonError] = parse("{\"count\": -5, \"name\": \"\"}")
+    var json: Json = JNull
+    match json_result {
+        Ok(j) => { json = j }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+
+    let schema: Schema = schema_object(
+        Some(Cons("count", Cons("name", Cons("missing", Nil)))),  // missing field
+        Some(Cons(
+            schema_property("count", schema_number(Some(0.0), None)),  // minimum violation
+            Cons(
+                schema_property("name", schema_string(Some(1), None)),  // minLength violation
+                Nil
+            )
+        ))
+    )
+
+    // Act
+    let result: Result[void, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err[void, List[SchemaError]](result, "should have multiple errors")
+    match result {
+        Err(errors) => {
+            // Count errors
+            let count_errors: fn(List[SchemaError]) -> i32 = fn(errs: List[SchemaError]) -> i32 {
+                match errs {
+                    Nil => { return 0 }
+                    Cons(_, rest) => { return 1 + count_errors(rest) }
+                }
+            }
+            let count: i32 = count_errors(errors)
+            assert(count >= 3, "should have at least 3 errors")
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Error Formatting Tests ---
+
+let test_format_schema_error_type_mismatch: fn() -> void = fn() -> void {
+    // Arrange
+    let err: SchemaError = TypeMismatch { expected: "number", actual: "string", path: "$.age" }
+
+    // Act
+    let formatted: string = format_schema_error(err)
+
+    // Assert
+    assert(std.string.contains(formatted, "Type mismatch"), "should contain 'Type mismatch'")
+    assert(std.string.contains(formatted, "number"), "should contain expected type")
+    assert(std.string.contains(formatted, "string"), "should contain actual type")
+    assert(std.string.contains(formatted, "$.age"), "should contain path")
+    return
+}
+
+let test_format_schema_errors_multiple: fn() -> void = fn() -> void {
+    // Arrange
+    let errors: List[SchemaError] = Cons(
+        MissingRequired { field: "name", path: "$" },
+        Cons(
+            MinimumViolation { value: -5.0, minimum: 0.0, path: "$.count" },
+            Nil
+        )
+    )
+
+    // Act
+    let formatted: string = format_schema_errors(errors)
+
+    // Assert
+    assert(std.string.contains(formatted, "Missing required"), "should contain first error")
+    assert(std.string.contains(formatted, "Minimum violation"), "should contain second error")
+    return
+}
+
+// --- Schema Any Tests ---
+
+let test_schema_any_accepts_all_types: fn() -> void = fn() -> void {
+    // Arrange
+    let schema: Schema = schema_any()
+
+    // Act & Assert - should accept all types
+    assert_ok[void, List[SchemaError]](validate(JNull, schema), "should accept null")
+    assert_ok[void, List[SchemaError]](validate(JBool(true), schema), "should accept bool")
+    assert_ok[void, List[SchemaError]](validate(JNumber(42.0), schema), "should accept number")
+    assert_ok[void, List[SchemaError]](validate(JString("hi"), schema), "should accept string")
+    assert_ok[void, List[SchemaError]](validate(JArray(Nil), schema), "should accept array")
+    assert_ok[void, List[SchemaError]](validate(json_object_empty(), schema), "should accept object")
+    return
+}
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -4253,6 +4925,70 @@ effect fn main() -> IO[void] {
     std.io.println("Property Tests - Parse Consistency:")
     run_test("test_parse_consistency_valid_never_crashes", test_parse_consistency_valid_never_crashes)
     run_test("test_parse_consistency_invalid_never_crashes", test_parse_consistency_invalid_never_crashes)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Type Constraints:")
+    run_test("test_schema_type_null_valid", test_schema_type_null_valid)
+    run_test("test_schema_type_null_invalid", test_schema_type_null_invalid)
+    run_test("test_schema_type_boolean_valid", test_schema_type_boolean_valid)
+    run_test("test_schema_type_number_valid", test_schema_type_number_valid)
+    run_test("test_schema_type_string_valid", test_schema_type_string_valid)
+    run_test("test_schema_type_array_valid", test_schema_type_array_valid)
+    run_test("test_schema_type_object_valid", test_schema_type_object_valid)
+    run_test("test_schema_type_integer_valid", test_schema_type_integer_valid)
+    run_test("test_schema_type_integer_invalid_fractional", test_schema_type_integer_invalid_fractional)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Required Fields:")
+    run_test("test_schema_required_present", test_schema_required_present)
+    run_test("test_schema_required_missing", test_schema_required_missing)
+    run_test("test_schema_required_multiple_missing", test_schema_required_multiple_missing)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Numeric Range:")
+    run_test("test_schema_number_minimum_valid", test_schema_number_minimum_valid)
+    run_test("test_schema_number_minimum_invalid", test_schema_number_minimum_invalid)
+    run_test("test_schema_number_maximum_valid", test_schema_number_maximum_valid)
+    run_test("test_schema_number_maximum_invalid", test_schema_number_maximum_invalid)
+    std.io.println("")
+
+    std.io.println("Schema Validation - String Length:")
+    run_test("test_schema_string_min_length_valid", test_schema_string_min_length_valid)
+    run_test("test_schema_string_min_length_invalid", test_schema_string_min_length_invalid)
+    run_test("test_schema_string_max_length_valid", test_schema_string_max_length_valid)
+    run_test("test_schema_string_max_length_invalid", test_schema_string_max_length_invalid)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Array Length:")
+    run_test("test_schema_array_min_items_valid", test_schema_array_min_items_valid)
+    run_test("test_schema_array_min_items_invalid", test_schema_array_min_items_invalid)
+    run_test("test_schema_array_max_items_valid", test_schema_array_max_items_valid)
+    run_test("test_schema_array_max_items_invalid", test_schema_array_max_items_invalid)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Enum:")
+    run_test("test_schema_enum_valid", test_schema_enum_valid)
+    run_test("test_schema_enum_invalid", test_schema_enum_invalid)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Nested:")
+    run_test("test_schema_nested_object_valid", test_schema_nested_object_valid)
+    run_test("test_schema_nested_object_invalid", test_schema_nested_object_invalid)
+    run_test("test_schema_array_items_valid", test_schema_array_items_valid)
+    run_test("test_schema_array_items_invalid", test_schema_array_items_invalid)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Error Collection:")
+    run_test("test_schema_collects_multiple_errors", test_schema_collects_multiple_errors)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Error Formatting:")
+    run_test("test_format_schema_error_type_mismatch", test_format_schema_error_type_mismatch)
+    run_test("test_format_schema_errors_multiple", test_format_schema_errors_multiple)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Any:")
+    run_test("test_schema_any_accepts_all_types", test_schema_any_accepts_all_types)
     std.io.println("")
 
     std.io.println("==========================")
