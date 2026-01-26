@@ -1577,6 +1577,75 @@ let parse_4_hex_digits: fn(ParserState) -> ParseResult[i32] = fn(state: ParserSt
     return ParseOk(code_point, current_state)
 }
 
+/// Converts a code point to a string character.
+/// Returns the replacement character (U+FFFD) if the code point is invalid.
+let code_point_to_string: fn(i32) -> string = fn(code: i32) -> string {
+    match std.char.from_i32(code) {
+        Some(ch) => {
+            let b: StringBuilder = std.builder.new()
+            let b2: StringBuilder = std.builder.append_char(b, ch)
+            return std.builder.build(b2)
+        }
+        None => {
+            return "\uFFFD"
+        }
+    }
+}
+
+/// Tries to parse a low surrogate (\uXXXX) following a high surrogate.
+/// Returns Some((code_point, new_state)) if successful, None otherwise.
+/// Does not consume input on failure.
+let try_parse_low_surrogate: fn(ParserState) -> Option[(i32, ParserState)] = fn(state: ParserState) -> Option[(i32, ParserState)] {
+    // Check for backslash
+    match peek_str(state) {
+        None => { return None }
+        Some(c1) => {
+            if not std.string.equals(c1, "\\") {
+                return None
+            }
+            let after_backslash: ParserState = advance(state)
+            // Check for 'u'
+            match peek_str(after_backslash) {
+                None => { return None }
+                Some(c2) => {
+                    if not std.string.equals(c2, "u") {
+                        return None
+                    }
+                    let after_u: ParserState = advance(after_backslash)
+                    // Try to parse 4 hex digits
+                    match parse_4_hex_digits(after_u) {
+                        ParseErr(_) => { return None }
+                        ParseOk(code_point, after_hex) => {
+                            // Check if it's a valid low surrogate
+                            if is_low_surrogate(code_point) {
+                                return Some((code_point, after_hex))
+                            }
+                            return None
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Handles a high surrogate by attempting to parse a following low surrogate.
+/// Returns the combined character or replacement character if no valid pair.
+let parse_surrogate_pair: fn(i32, ParserState) -> ParseResult[string] = fn(high: i32, state: ParserState) -> ParseResult[string] {
+    match try_parse_low_surrogate(state) {
+        Some(pair) => {
+            let low: i32 = pair.0
+            let after_low: ParserState = pair.1
+            let combined: i32 = combine_surrogates(high, low)
+            return ParseOk(code_point_to_string(combined), after_low)
+        }
+        None => {
+            // Lone high surrogate - use replacement character
+            return ParseOk("\uFFFD", state)
+        }
+    }
+}
+
 /// Parses a \uXXXX unicode escape sequence.
 /// Handles UTF-16 surrogate pairs: \uD83D\uDE00 becomes a single emoji.
 /// Converts the hex code point to a character using std.char.from_i32.
@@ -1585,82 +1654,16 @@ let parse_unicode_escape_str: fn(ParserState) -> ParseResult[string] = fn(state:
     match parse_4_hex_digits(state) {
         ParseErr(e) => { return ParseErr(e) }
         ParseOk(code_point, after_first) => {
-            // Check if this is a high surrogate (start of a pair)
             if is_high_surrogate(code_point) {
-                // Must be followed by \uXXXX with a low surrogate
-                match peek_str(after_first) {
-                    None => {
-                        // Lone high surrogate at end of input - use replacement character
-                        return ParseOk("\uFFFD", after_first)
-                    }
-                    Some(c1) => {
-                        if std.string.equals(c1, "\\") {
-                            let after_backslash: ParserState = advance(after_first)
-                            match peek_str(after_backslash) {
-                                None => {
-                                    // Backslash at end - lone high surrogate
-                                    return ParseOk("\uFFFD", after_first)
-                                }
-                                Some(c2) => {
-                                    if std.string.equals(c2, "u") {
-                                        // Try to parse the second escape
-                                        let after_u: ParserState = advance(after_backslash)
-                                        match parse_4_hex_digits(after_u) {
-                                            ParseErr(_) => {
-                                                // Invalid second escape - lone high surrogate
-                                                return ParseOk("\uFFFD", after_first)
-                                            }
-                                            ParseOk(second_code, after_second) => {
-                                                if is_low_surrogate(second_code) {
-                                                    // Valid surrogate pair - combine them
-                                                    let combined: i32 = combine_surrogates(code_point, second_code)
-                                                    match std.char.from_i32(combined) {
-                                                        Some(ch) => {
-                                                            let b: StringBuilder = std.builder.new()
-                                                            let b2: StringBuilder = std.builder.append_char(b, ch)
-                                                            return ParseOk(std.builder.build(b2), after_second)
-                                                        }
-                                                        None => {
-                                                            // Should not happen with valid surrogates, but handle it
-                                                            return ParseOk("\uFFFD", after_second)
-                                                        }
-                                                    }
-                                                } else {
-                                                    // Second escape is not a low surrogate - lone high surrogate
-                                                    // Don't consume the second escape, let it be parsed separately
-                                                    return ParseOk("\uFFFD", after_first)
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        // Backslash not followed by 'u' - lone high surrogate
-                                        return ParseOk("\uFFFD", after_first)
-                                    }
-                                }
-                            }
-                        } else {
-                            // Not followed by backslash - lone high surrogate
-                            return ParseOk("\uFFFD", after_first)
-                        }
-                    }
-                }
-            } else if is_low_surrogate(code_point) {
-                // Lone low surrogate (not preceded by high) - use replacement character
-                return ParseOk("\uFFFD", after_first)
-            } else {
-                // Regular BMP character
-                match std.char.from_i32(code_point) {
-                    Some(ch) => {
-                        let b: StringBuilder = std.builder.new()
-                        let b2: StringBuilder = std.builder.append_char(b, ch)
-                        return ParseOk(std.builder.build(b2), after_first)
-                    }
-                    None => {
-                        // Invalid Unicode code point, use replacement character
-                        return ParseOk("\uFFFD", after_first)
-                    }
-                }
+                // High surrogate - attempt to parse a following low surrogate
+                return parse_surrogate_pair(code_point, after_first)
             }
+            if is_low_surrogate(code_point) {
+                // Lone low surrogate - use replacement character
+                return ParseOk("\uFFFD", after_first)
+            }
+            // Regular BMP character
+            return ParseOk(code_point_to_string(code_point), after_first)
         }
     }
 }

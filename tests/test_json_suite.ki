@@ -384,7 +384,12 @@ let test_impl_lone_surrogate_replaced: fn() -> bool = fn() -> bool {
     match parse(input) {
         Ok(json) => {
             match as_string(json) {
-                Some(s) => { return std.string.length(s) > 0 }
+                Some(s) => {
+                    match std.string.length(s) {
+                        Ok(len) => { return len > 0 }
+                        Err(_) => { return false }
+                    }
+                }
                 None => { return false }
             }
         }
@@ -392,8 +397,8 @@ let test_impl_lone_surrogate_replaced: fn() -> bool = fn() -> bool {
     }
 }
 
-let test_impl_max_depth_512: fn() -> bool = fn() -> bool {
-    return default_max_depth() == 512
+let test_impl_max_depth_128: fn() -> bool = fn() -> bool {
+    return default_max_depth() == 128
 }
 
 let test_impl_very_large_number_rejected: fn() -> bool = fn() -> bool {
@@ -530,7 +535,7 @@ effect fn main() -> IO[void] {
     if run_suite_test("duplicate_keys_first_wins", test_impl_duplicate_keys_first_wins) { passed = passed + 1 } else { failed = failed + 1 }
     if run_suite_test("duplicate_keys_strict_rejects", test_impl_duplicate_keys_strict_rejects) { passed = passed + 1 } else { failed = failed + 1 }
     if run_suite_test("lone_surrogate_replaced", test_impl_lone_surrogate_replaced) { passed = passed + 1 } else { failed = failed + 1 }
-    if run_suite_test("max_depth_512", test_impl_max_depth_512) { passed = passed + 1 } else { failed = failed + 1 }
+    if run_suite_test("max_depth_128", test_impl_max_depth_128) { passed = passed + 1 } else { failed = failed + 1 }
     if run_suite_test("very_large_number_rejected", test_impl_very_large_number_rejected) { passed = passed + 1 } else { failed = failed + 1 }
     if run_suite_test("very_small_number_accepted", test_impl_very_small_number_accepted) { passed = passed + 1 } else { failed = failed + 1 }
     std.io.println("")

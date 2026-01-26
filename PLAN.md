@@ -297,18 +297,17 @@ pub type ParseLimits = {
 
 **Files:** `src/json.ki`, `tests/test_json.ki`, `docs/api.md`, `docs/guide.md`
 
-### 7.2 Refactor Surrogate Pair Handling (High Priority)
+### 7.2 Refactor Surrogate Pair Handling ✓
 
 Extract surrogate pair logic from `parse_unicode_escape_str` to reduce nesting depth from 5 levels to 2-3.
 
-**Current State:** Lines 1477-1562 have deeply nested pattern matching for UTF-16 surrogate pairs.
-
-**Refactoring Plan:**
-- [ ] Extract `parse_surrogate_pair: fn(i32, ParserState) -> ParseResult[string]`
-- [ ] Extract `try_parse_low_surrogate: fn(ParserState) -> Option[(i32, ParserState)]`
-- [ ] Simplify `parse_unicode_escape_str` to delegate to helpers
-- [ ] Maintain identical behavior (lone surrogates → U+FFFD)
-- [ ] Verify all existing unicode tests still pass
+**Refactoring Complete:**
+- [x] Extract `code_point_to_string: fn(i32) -> string` - converts code point to string or replacement char
+- [x] Extract `try_parse_low_surrogate: fn(ParserState) -> Option[(i32, ParserState)]` - attempts to parse `\uXXXX` low surrogate
+- [x] Extract `parse_surrogate_pair: fn(i32, ParserState) -> ParseResult[string]` - handles high surrogate with optional low pair
+- [x] Simplify `parse_unicode_escape_str` to delegate to helpers (reduced from ~80 lines to ~15 lines)
+- [x] Maintain identical behavior (lone surrogates → U+FFFD)
+- [x] All 375 existing tests pass (291 in test_json.ki + 84 in test_json_suite.ki)
 
 **Files:** `src/json.ki`
 
@@ -447,7 +446,7 @@ pub let get_index: fn(Json, i32) -> Option[Json]
 18. ~~**Phase 5.4** - Fuzzing~~ ✓
 19. ~~**Phase 6** - Documentation~~ ✓
 20. ~~**Phase 7.1** - Resource limits for untrusted input~~ ✓
-21. **Phase 7.2** - Refactor surrogate pair handling
+21. ~~**Phase 7.2** - Refactor surrogate pair handling~~ ✓
 22. **Phase 7.4** - Performance benchmarks
 23. **Phase 7.6** - Performance documentation in code
 24. **Phase 7.5** - Standardize internal naming
