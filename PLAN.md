@@ -85,9 +85,9 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 ### 2.3 Stack Safety ✓
 - [x] Add depth limit parameter to parser (`parse_with_max_depth`)
-- [x] Default reasonable limit (512 levels via `default_max_depth()`)
+- [x] Default reasonable limit (128 levels via `default_max_depth()`)
 - [x] Return error on excessive nesting (`MaxDepthExceeded` error variant)
-- [ ] Consider iterative parsing for deeply nested structures (optional, recursive works for 512)
+- [ ] Consider iterative parsing for deeply nested structures (optional, recursive works for 128)
 
 **Files:** `src/json.ki` (parse_value, parse_array, parse_object)
 
@@ -229,30 +229,31 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 ---
 
-## Phase 6: Documentation
+## Phase 6: Documentation ✓
 
-### 6.1 API Reference
-- [ ] Document all public functions with examples
-- [ ] Document error conditions
-- [ ] Document performance characteristics
+### 6.1 API Reference ✓
+- [x] Document all public functions with examples
+- [x] Document error conditions
+- [x] Document performance characteristics
 
-**New file:** `docs/api.md`
+**File:** `docs/api.md`
 
-### 6.2 Usage Guide
-- [ ] Getting started example
-- [ ] Parsing examples
-- [ ] Building JSON programmatically
-- [ ] Transformation examples
-- [ ] Error handling examples
+### 6.2 Usage Guide ✓
+- [x] Getting started example
+- [x] Parsing examples
+- [x] Building JSON programmatically
+- [x] Transformation examples
+- [x] Error handling examples
+- [x] Schema validation examples
 
-**New file:** `docs/guide.md`
+**File:** `docs/guide.md`
 
-### 6.3 Performance Guide
-- [ ] When to use HashMap objects
-- [ ] Memory considerations
-- [ ] Streaming large files
+### 6.3 Performance Guide ✓
+- [x] When to use HashMap objects
+- [x] Memory considerations
+- [x] Best practices for large JSON handling
 
-**New file:** `docs/performance.md`
+**File:** `docs/performance.md`
 
 ---
 
@@ -276,7 +277,7 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 16. ~~**Phase 2.1** - HashMap objects~~ ✓
 17. ~~**Phase 3.3** - JSON Schema validation~~ ✓
 18. ~~**Phase 5.4** - Fuzzing~~ ✓
-19. **Phase 6** - Documentation
+19. ~~**Phase 6** - Documentation~~ ✓
 
 ---
 
