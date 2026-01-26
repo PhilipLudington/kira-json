@@ -394,16 +394,16 @@ Establish consistent naming conventions for internal helper functions.
 
 **Files:** `src/json.ki`
 
-### 7.6 Add Performance Documentation in Code (Low Priority)
+### 7.6 Add Performance Documentation in Code ✓
 
 Add inline documentation for operations with non-obvious performance characteristics.
 
 **Locations to Document:**
-- [ ] `get_index` - O(n) array traversal warning
-- [ ] `size` for arrays - O(n) list length
-- [ ] `as_object` - O(n) HashMap to List conversion
-- [ ] `map_array`, `filter_array` - O(n) with new list allocation
-- [ ] Path operations with array indices - O(n) per index segment
+- [x] `get_index` - O(n) array traversal warning
+- [x] `size` for arrays - O(n) list length
+- [x] `as_object` - O(n) HashMap to List conversion
+- [x] `map_array`, `filter_array` - O(n) with new list allocation
+- [x] Path operations with array indices - O(n) per index segment (`get_path`, `set_path`, `has_path`, `remove_path`)
 
 **Example Format:**
 ```kira
@@ -454,7 +454,7 @@ pub let get_index: fn(Json, i32) -> Option[Json]
 20. ~~**Phase 7.1** - Resource limits for untrusted input~~ ✓
 21. ~~**Phase 7.2** - Refactor surrogate pair handling~~ ✓
 22. ~~**Phase 7.4** - Performance benchmarks~~ ✓
-23. **Phase 7.6** - Performance documentation in code
+23. ~~**Phase 7.6** - Performance documentation in code~~ ✓
 24. **Phase 7.5** - Standardize internal naming
 25. **Phase 7.3** - Modularize source code
 

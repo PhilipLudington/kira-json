@@ -417,6 +417,9 @@ pub let as_array: fn(Json) -> Option[List[Json]] = fn(json: Json) -> Option[List
 
 /// Extracts the object fields if the JSON is an object.
 /// Converts the internal HashMap to a List[JsonField] for backward compatibility.
+///
+/// **Performance:** O(n) where n is the number of fields (HashMap to List conversion).
+/// Prefer `as_object_map` for O(1) access when you need HashMap operations directly.
 pub let as_object: fn(Json) -> Option[List[JsonField]] = fn(json: Json) -> Option[List[JsonField]] {
     match json {
         JObject(map) => { return Some(hashmap_to_fields(map)) }
@@ -499,6 +502,10 @@ let find_field: fn(List[JsonField], string) -> Option[Json] =
 
 /// Gets an element from a JSON array by index.
 /// Returns None if not an array or index out of bounds.
+///
+/// **Performance:** O(n) where n is the index. Arrays are linked lists,
+/// requiring traversal to reach the target index. For frequent random
+/// access, consider using objects with string keys instead.
 pub let get_index: fn(Json, i32) -> Option[Json] = fn(json: Json, index: i32) -> Option[Json] {
     match json {
         JArray(arr) => { return list_get(arr, index) }
@@ -524,6 +531,9 @@ let list_get: fn(List[Json], i32) -> Option[Json] = fn(list: List[Json], index: 
 
 /// Returns the size of a JSON array or object.
 /// Returns None for other types.
+///
+/// **Performance:** O(n) for arrays (linked list traversal), O(1) for objects
+/// (HashMap size is cached).
 pub let size: fn(Json) -> Option[i32] = fn(json: Json) -> Option[i32] {
     match json {
         JArray(arr) => { return Some(list_length[Json](arr)) }
@@ -2465,6 +2475,9 @@ let merge_fields_deep: fn(List[JsonField], List[JsonField]) -> List[JsonField] =
 // =============================================================================
 
 /// Maps a function over a JSON array's elements.
+///
+/// **Performance:** O(n) where n is the array length. Creates a new list with
+/// transformed elements; does not modify the original.
 pub let map_array: fn(Json, fn(Json) -> Json) -> Json = fn(json: Json, f: fn(Json) -> Json) -> Json {
     match json {
         JArray(arr) => {
@@ -2475,6 +2488,9 @@ pub let map_array: fn(Json, fn(Json) -> Json) -> Json = fn(json: Json, f: fn(Jso
 }
 
 /// Filters a JSON array's elements based on a predicate.
+///
+/// **Performance:** O(n) where n is the array length. Creates a new list with
+/// matching elements; does not modify the original.
 pub let filter_array: fn(Json, fn(Json) -> bool) -> Json = fn(json: Json, pred: fn(Json) -> bool) -> Json {
     match json {
         JArray(arr) => {
@@ -2670,6 +2686,9 @@ pub let format_path_error: fn(PathError) -> string = fn(err: PathError) -> strin
 /// Gets a value at the given path.
 /// Path format: "field.nested[0].key" - dots separate object keys, [n] for array indices.
 /// Returns None if the path doesn't exist or if any intermediate value is not the expected type.
+///
+/// **Performance:** O(d) for object-only paths where d is the depth (O(1) per field lookup).
+/// Array indices add O(i) per index segment where i is the index value (list traversal).
 pub let get_path: fn(Json, string) -> Option[Json] = fn(json: Json, path: string) -> Option[Json] {
     if std.string.byte_length(path) == 0 {
         return Some(json)
@@ -2852,6 +2871,10 @@ let apply_segment: fn(Json, PathSegment) -> Option[Json] = fn(json: Json, segmen
 
 /// Sets a value at the given path, creating intermediate objects/arrays as needed.
 /// Returns the modified JSON. If the path is invalid or can't be set, returns the original JSON.
+///
+/// **Performance:** O(d) for object-only paths where d is the depth (O(1) per field access).
+/// Array indices add O(i) per index segment where i is the index value (list traversal).
+/// Creates new nodes along the path (immutable update).
 pub let set_path: fn(Json, string, Json) -> Json = fn(json: Json, path: string, value: Json) -> Json {
     if std.string.byte_length(path) == 0 {
         return value
@@ -2985,6 +3008,8 @@ let set_at_index_impl: fn(List[Json], i32, Json) -> List[Json] =
     }
 
 /// Checks if a path exists in the JSON value.
+///
+/// **Performance:** Same as `get_path` - O(d) for object-only paths, plus O(i) per array index.
 pub let has_path: fn(Json, string) -> bool = fn(json: Json, path: string) -> bool {
     match get_path(json, path) {
         Some(_) => { return true }
@@ -2994,6 +3019,9 @@ pub let has_path: fn(Json, string) -> bool = fn(json: Json, path: string) -> boo
 
 /// Removes the value at the given path.
 /// Returns the modified JSON. If the path doesn't exist, returns the original JSON.
+///
+/// **Performance:** Same as `set_path` - O(d) for object-only paths, plus O(i) per array index.
+/// Creates new nodes along the path (immutable update).
 pub let remove_path: fn(Json, string) -> Json = fn(json: Json, path: string) -> Json {
     if std.string.byte_length(path) == 0 {
         return JNull
