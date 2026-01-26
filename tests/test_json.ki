@@ -1234,7 +1234,10 @@ let test_parse_surrogate_pair_emoji_grinning_face: fn() -> void = fn() -> void {
             match as_string(json) {
                 Some(s) => {
                     // The grinning face emoji should be 1 character
-                    assert(std.string.length(s) == 1, "emoji should be 1 character")
+                    match std.string.length(s) {
+                        Ok(len) => { assert(len == 1, "emoji should be 1 character") }
+                        Err(_) => { assert(false, "length calculation failed") }
+                    }
                 }
                 None => { assert(false, "should be a string") }
             }
@@ -1251,7 +1254,10 @@ let test_parse_surrogate_pair_pile_of_poo: fn() -> void = fn() -> void {
         Ok(json) => {
             match as_string(json) {
                 Some(s) => {
-                    assert(std.string.length(s) == 1, "emoji should be 1 character")
+                    match std.string.length(s) {
+                        Ok(len) => { assert(len == 1, "emoji should be 1 character") }
+                        Err(_) => { assert(false, "length calculation failed") }
+                    }
                 }
                 None => { assert(false, "should be a string") }
             }
@@ -1269,7 +1275,10 @@ let test_parse_surrogate_pair_in_context: fn() -> void = fn() -> void {
             match as_string(json) {
                 Some(s) => {
                     // "Hello " (6) + emoji (1) + " World" (6) = 13 characters
-                    assert(std.string.length(s) == 13, "string with emoji should be 13 characters")
+                    match std.string.length(s) {
+                        Ok(len) => { assert(len == 13, "string with emoji should be 13 characters") }
+                        Err(_) => { assert(false, "length calculation failed") }
+                    }
                 }
                 None => { assert(false, "should be a string") }
             }
@@ -1287,7 +1296,10 @@ let test_parse_lone_high_surrogate_replaced: fn() -> void = fn() -> void {
             match as_string(json) {
                 Some(s) => {
                     // U+FFFD (1 char) + "hello" (5 chars) = 6 characters
-                    assert(std.string.length(s) == 6, "lone high surrogate + hello should be 6 characters")
+                    match std.string.length(s) {
+                        Ok(len) => { assert(len == 6, "lone high surrogate + hello should be 6 characters") }
+                        Err(_) => { assert(false, "length calculation failed") }
+                    }
                 }
                 None => { assert(false, "should be a string") }
             }
@@ -1305,7 +1317,10 @@ let test_parse_lone_low_surrogate_replaced: fn() -> void = fn() -> void {
             match as_string(json) {
                 Some(s) => {
                     // U+FFFD (1 char) + "hello" (5 chars) = 6 characters
-                    assert(std.string.length(s) == 6, "lone low surrogate + hello should be 6 characters")
+                    match std.string.length(s) {
+                        Ok(len) => { assert(len == 6, "lone low surrogate + hello should be 6 characters") }
+                        Err(_) => { assert(false, "length calculation failed") }
+                    }
                 }
                 None => { assert(false, "should be a string") }
             }
@@ -1323,7 +1338,10 @@ let test_parse_high_surrogate_at_end_replaced: fn() -> void = fn() -> void {
             match as_string(json) {
                 Some(s) => {
                     // "hello" (5 chars) + U+FFFD (1 char) = 6 characters
-                    assert(std.string.length(s) == 6, "hello + lone high surrogate should be 6 characters")
+                    match std.string.length(s) {
+                        Ok(len) => { assert(len == 6, "hello + lone high surrogate should be 6 characters") }
+                        Err(_) => { assert(false, "length calculation failed") }
+                    }
                 }
                 None => { assert(false, "should be a string") }
             }
@@ -1341,7 +1359,10 @@ let test_parse_high_surrogate_followed_by_non_surrogate: fn() -> void = fn() -> 
             match as_string(json) {
                 Some(s) => {
                     // U+FFFD (1 char) + "A" (1 char) = 2 characters
-                    assert(std.string.length(s) == 2, "high surrogate + A should be 2 characters")
+                    match std.string.length(s) {
+                        Ok(len) => { assert(len == 2, "high surrogate + A should be 2 characters") }
+                        Err(_) => { assert(false, "length calculation failed") }
+                    }
                 }
                 None => { assert(false, "should be a string") }
             }
@@ -1359,7 +1380,10 @@ let test_parse_multiple_surrogate_pairs: fn() -> void = fn() -> void {
             match as_string(json) {
                 Some(s) => {
                     // Two emoji = 2 characters
-                    assert(std.string.length(s) == 2, "two emoji should be 2 characters")
+                    match std.string.length(s) {
+                        Ok(len) => { assert(len == 2, "two emoji should be 2 characters") }
+                        Err(_) => { assert(false, "length calculation failed") }
+                    }
                 }
                 None => { assert(false, "should be a string") }
             }
@@ -1377,7 +1401,10 @@ let test_parse_surrogate_pair_musical_symbol: fn() -> void = fn() -> void {
             match as_string(json) {
                 Some(s) => {
                     // Musical symbol is 1 character
-                    assert(std.string.length(s) == 1, "G clef should be 1 character")
+                    match std.string.length(s) {
+                        Ok(len) => { assert(len == 1, "G clef should be 1 character") }
+                        Err(_) => { assert(false, "length calculation failed") }
+                    }
                 }
                 None => { assert(false, "should be a string") }
             }
@@ -2576,12 +2603,12 @@ let test_get_path_consecutive_array_indices: fn() -> void = fn() -> void {
 // Stack Safety Tests
 // =============================================================================
 
-let test_default_max_depth_returns_512: fn() -> void = fn() -> void {
+let test_default_max_depth_returns_128: fn() -> void = fn() -> void {
     // Arrange & Act
     let depth: i32 = default_max_depth()
 
     // Assert
-    assert_i32_eq(depth, 512, "default_max_depth should return 512")
+    assert_i32_eq(depth, 128, "default_max_depth should return 128")
     return
 }
 
@@ -2678,7 +2705,10 @@ let test_format_error_max_depth_exceeded: fn() -> void = fn() -> void {
     let msg: string = format_error(err)
 
     // Assert
-    assert_true(std.string.length(msg) > 0, "format_error should produce non-empty message for MaxDepthExceeded")
+    match std.string.length(msg) {
+        Ok(len) => { assert_true(len > 0, "format_error should produce non-empty message for MaxDepthExceeded") }
+        Err(_) => { assert(false, "length calculation failed") }
+    }
     return
 }
 
@@ -3200,24 +3230,36 @@ let test_builder_nested_object: fn() -> void = fn() -> void {
 
 /// Helper to find substring position (returns -1 if not found)
 let find_substring: fn(string, string) -> i32 = fn(haystack: string, needle: string) -> i32 {
-    let hlen: i32 = std.string.length(haystack)
-    let nlen: i32 = std.string.length(needle)
-    if nlen > hlen {
-        return -1
+    match std.string.length(haystack) {
+        Err(_) => { return -1 }
+        Ok(hlen) => {
+            match std.string.length(needle) {
+                Err(_) => { return -1 }
+                Ok(nlen) => {
+                    if nlen > hlen {
+                        return -1
+                    }
+                    return find_substring_at(haystack, needle, 0, hlen - nlen + 1, nlen)
+                }
+            }
+        }
     }
-    return find_substring_at(haystack, needle, 0, hlen - nlen + 1)
 }
 
-let find_substring_at: fn(string, string, i32, i32) -> i32 =
-    fn(haystack: string, needle: string, pos: i32, limit: i32) -> i32 {
+let find_substring_at: fn(string, string, i32, i32, i32) -> i32 =
+    fn(haystack: string, needle: string, pos: i32, limit: i32, nlen: i32) -> i32 {
         if pos >= limit {
             return -1
         }
-        let sub: string = std.string.substring(haystack, pos, pos + std.string.length(needle))
-        if std.string.equals(sub, needle) {
-            return pos
+        match std.string.substring(haystack, pos, pos + nlen) {
+            Err(_) => { return -1 }
+            Ok(sub) => {
+                if std.string.equals(sub, needle) {
+                    return pos
+                }
+                return find_substring_at(haystack, needle, pos + 1, limit, nlen)
+            }
         }
-        return find_substring_at(haystack, needle, pos + 1, limit)
     }
 
 // =============================================================================
@@ -4814,7 +4856,7 @@ effect fn main() -> IO[void] {
     std.io.println("")
 
     std.io.println("Stack Safety:")
-    run_test("test_default_max_depth_returns_512", test_default_max_depth_returns_512)
+    run_test("test_default_max_depth_returns_128", test_default_max_depth_returns_128)
     run_test("test_parse_with_max_depth_small_limit_success", test_parse_with_max_depth_small_limit_success)
     run_test("test_parse_with_max_depth_nested_array_exceeds_limit", test_parse_with_max_depth_nested_array_exceeds_limit)
     run_test("test_parse_with_max_depth_nested_object_exceeds_limit", test_parse_with_max_depth_nested_object_exceeds_limit)

@@ -3436,8 +3436,9 @@ let validate_string: fn(string, Schema, string) -> List[SchemaError] =
     fn(value: string, schema: Schema, path: string) -> List[SchemaError] {
         var errors: List[SchemaError] = Nil
         // JSON strings from parse are valid UTF-8, but handle the Result type
-        let len: i32 = match std.string.length(value) {
-            Ok(l) => { l }
+        var len: i32 = 0
+        match std.string.length(value) {
+            Ok(l) => { len = l }
             Err(_) => { return errors }  // If invalid UTF-8, skip length validation
         }
 
