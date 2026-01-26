@@ -1081,32 +1081,43 @@ let parse_string_contents_str: fn(ParserState, string) -> ParseResult[string] =
     }
 
 /// Internal helper that uses StringBuilder for efficient string accumulation.
+/// Uses iterative approach (while loop) instead of recursion to avoid stack overflow
+/// on long strings.
 let parse_string_contents_builder: fn(ParserState, StringBuilder) -> ParseResult[string] =
     fn(state: ParserState, builder: StringBuilder) -> ParseResult[string] {
-        match peek_str(state) {
-            None => { return ParseErr(UnterminatedString { line: state.line, col: state.column }) }
-            Some(c) => {
-                if std.string.equals(c, "\"") {
-                    return ParseOk(std.builder.build(builder), advance(state))
-                }
-                if std.string.equals(c, "\\") {
-                    let escape_result: ParseResult[string] = parse_escape_sequence_str(advance(state))
-                    match escape_result {
-                        ParseOk(escaped, new_state) => {
-                            let new_builder: StringBuilder = std.builder.append(builder, escaped)
-                            return parse_string_contents_builder(new_state, new_builder)
+        var current_state: ParserState = state
+        var current_builder: StringBuilder = builder
+
+        while true {
+            match peek_str(current_state) {
+                None => { return ParseErr(UnterminatedString { line: current_state.line, col: current_state.column }) }
+                Some(c) => {
+                    if std.string.equals(c, "\"") {
+                        // Found closing quote - return the built string
+                        return ParseOk(std.builder.build(current_builder), advance(current_state))
+                    }
+                    if std.string.equals(c, "\\") {
+                        // Handle escape sequence
+                        let escape_result: ParseResult[string] = parse_escape_sequence_str(advance(current_state))
+                        match escape_result {
+                            ParseOk(escaped, new_state) => {
+                                current_builder = std.builder.append(current_builder, escaped)
+                                current_state = new_state
+                                // Continue loop (no recursive call)
+                            }
+                            ParseErr(e) => { return ParseErr(e) }
                         }
-                        ParseErr(e) => { return ParseErr(e) }
+                    } else {
+                        // Not a backslash - check for control characters
+                        if is_control_char_str(c) {
+                            let code: i32 = get_char_code(c)
+                            return ParseErr(ControlChar { code: code, line: current_state.line, col: current_state.column })
+                        }
+                        // Regular character - add to builder and advance
+                        current_builder = std.builder.append(current_builder, c)
+                        current_state = advance(current_state)
                     }
                 }
-                // Reject unescaped control characters (0x00-0x1F) per JSON spec
-                if is_control_char_str(c) {
-                    let code: i32 = get_char_code(c)
-                    return ParseErr(ControlChar { code: code, line: state.line, col: state.column })
-                }
-                // Regular character - add to builder
-                let new_builder: StringBuilder = std.builder.append(builder, c)
-                return parse_string_contents_builder(advance(state), new_builder)
             }
         }
     }
