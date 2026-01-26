@@ -8,17 +8,18 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 ### What Works
 - Core types: `Json`, `JsonField`, `JsonError` (structured error types)
+- **HashMap-based objects**: `JObject(HashMap)` with O(1) field lookup via `std.map`
 - Type predicates: `is_null`, `is_bool`, `is_number`, `is_string`, `is_array`, `is_object`
-- Value extraction: `as_string`, `as_number`, `as_int`, `as_bool`, `as_array`, `as_object`
-- Accessors: `get_field`, `get_index`, `size`, `keys`, `values`
+- Value extraction: `as_string`, `as_number`, `as_int`, `as_bool`, `as_array`, `as_object`, `as_object_map`
+- Accessors: `get_field` (O(1)), `get_index`, `size`, `keys`, `values`
 - Serialization: `stringify`, `stringify_pretty`, `stringify_pretty_with`
 - Parsing: `parse`, `parse_strict`, `parse_with_max_depth` with line/column error tracking
-- Transforms: `map_values`, `filter_fields`, `set_field`, `remove_field`, `merge`, `merge_deep`, `map_array`, `filter_array`
+- Transforms: `map_values`, `filter_fields`, `set_field` (O(1)), `remove_field` (O(1)), `merge`, `merge_deep`, `map_array`, `filter_array`
 - Unicode escapes: `\uXXXX` parsing and serialization (including surrogate pairs)
 - Control character escaping
 - Path-based access: `get_path`, `set_path`, `has_path`, `remove_path`
 - Deep equality: `equals(a, b)`
-- Convenience constructors: `json_null`, `json_bool`, `json_number`, `json_int`, `json_string`, `json_array`, `json_object`
+- Convenience constructors: `json_null`, `json_bool`, `json_number`, `json_int`, `json_string`, `json_array`, `json_object`, `json_object_from_map`
 - Builder pattern: `builder()`, `with_field`, `with_string`, `with_number`, `with_int`, `with_bool`, `with_null`, `with_array`, `with_object`, `build`
 - Error context: `format_error_with_context(input, error)` shows source line with caret indicator
 
@@ -62,13 +63,16 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 
 ## Phase 2: Performance Optimization
 
-### 2.1 HashMap-Based Objects (Requires std.map)
-- [ ] Create `JsonObjectMap` type using `std.map`
-- [ ] O(1) field lookup instead of O(n) list traversal
-- [ ] Preserve insertion order for serialization
+### 2.1 HashMap-Based Objects ✓
+- [x] Changed `JObject(List[JsonField])` to `JObject(HashMap)` using `std.map`
+- [x] O(1) field lookup via `std.map.get` (previously O(n) list traversal)
+- [x] Preserved insertion order (std.map uses ordered hash map internally)
+- [x] Added `json_object_from_map` and `as_object_map` for direct HashMap access
+- [x] `as_object` returns `List[JsonField]` for backward compatibility
+- [x] Parser uses first-wins semantics for duplicate keys (non-strict mode)
 - [ ] Benchmark before/after
 
-**Files:** `src/json.ki` (new type, update accessors)
+**Files:** `src/json.ki`, `tests/test_json.ki`, `examples/*.ki`
 
 ### 2.2 Parser String Building
 - [x] Use StringBuilder in `parse_string_contents_str`
@@ -244,7 +248,7 @@ The library provides functional JSON parsing, serialization, and manipulation wi
 13. ~~**Phase 5.1** - Test suite (validation)~~ ✓
 14. ~~**Phase 5.2** - Property-based tests~~ ✓
 15. ~~**Phase 5.3** - Edge case tests~~ ✓
-16. **Phase 2.1** - HashMap objects (if perf needed)
+16. ~~**Phase 2.1** - HashMap objects~~ ✓
 17. **Phase 3.3** - JSON Schema validation
 18. **Phase 6** - Documentation
 

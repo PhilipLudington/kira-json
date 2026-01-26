@@ -3,7 +3,7 @@
 
 module test_json
 
-import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, default_max_depth, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error }
+import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, default_max_depth, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error, json_object, json_object_empty }
 
 // =============================================================================
 // Test Utilities
@@ -198,7 +198,7 @@ let test_is_array_with_empty_array: fn() -> void = fn() -> void {
 let test_is_object_with_object: fn() -> void = fn() -> void {
     // Arrange
     let field: JsonField = JsonField { key: "x", value: JNull }
-    let value: Json = JObject(Cons(field, Nil))
+    let value: Json = json_object(Cons(field, Nil))
 
     // Act
     let result: bool = is_object(value)
@@ -210,7 +210,7 @@ let test_is_object_with_object: fn() -> void = fn() -> void {
 
 let test_is_object_with_empty_object: fn() -> void = fn() -> void {
     // Arrange
-    let value: Json = JObject(Nil)
+    let value: Json = json_object_empty()
 
     // Act
     let result: bool = is_object(value)
@@ -255,7 +255,7 @@ let test_type_name_array: fn() -> void = fn() -> void {
 }
 
 let test_type_name_object: fn() -> void = fn() -> void {
-    let result: string = type_name(JObject(Nil))
+    let result: string = type_name(json_object_empty())
     assert_str_eq(result, "object", "type_name of JObject should be 'object'")
     return
 }
@@ -393,7 +393,7 @@ let test_as_array_with_array: fn() -> void = fn() -> void {
 let test_as_object_with_object: fn() -> void = fn() -> void {
     // Arrange
     let field: JsonField = JsonField { key: "x", value: JNull }
-    let value: Json = JObject(Cons(field, Nil))
+    let value: Json = json_object(Cons(field, Nil))
 
     // Act
     let result: Option[List[JsonField]] = as_object(value)
@@ -410,7 +410,7 @@ let test_as_object_with_object: fn() -> void = fn() -> void {
 let test_get_field_existing: fn() -> void = fn() -> void {
     // Arrange
     let field: JsonField = JsonField { key: "name", value: JString("Alice") }
-    let obj: Json = JObject(Cons(field, Nil))
+    let obj: Json = json_object(Cons(field, Nil))
 
     // Act
     let result: Option[Json] = get_field(obj, "name")
@@ -431,7 +431,7 @@ let test_get_field_existing: fn() -> void = fn() -> void {
 let test_get_field_non_existing: fn() -> void = fn() -> void {
     // Arrange
     let field: JsonField = JsonField { key: "name", value: JString("Alice") }
-    let obj: Json = JObject(Cons(field, Nil))
+    let obj: Json = json_object(Cons(field, Nil))
 
     // Act
     let result: Option[Json] = get_field(obj, "age")
@@ -537,7 +537,7 @@ let test_size_object: fn() -> void = fn() -> void {
     // Arrange
     let field1: JsonField = JsonField { key: "a", value: JNull }
     let field2: JsonField = JsonField { key: "b", value: JNull }
-    let obj: Json = JObject(Cons(field1, Cons(field2, Nil)))
+    let obj: Json = json_object(Cons(field1, Cons(field2, Nil)))
 
     // Act
     let result: Option[i32] = size(obj)
@@ -566,7 +566,7 @@ let test_keys_object: fn() -> void = fn() -> void {
     // Arrange
     let field1: JsonField = JsonField { key: "name", value: JNull }
     let field2: JsonField = JsonField { key: "age", value: JNull }
-    let obj: Json = JObject(Cons(field1, Cons(field2, Nil)))
+    let obj: Json = json_object(Cons(field1, Cons(field2, Nil)))
 
     // Act
     let result: Option[List[string]] = keys(obj)
@@ -591,7 +591,7 @@ let test_keys_non_object: fn() -> void = fn() -> void {
 let test_values_object: fn() -> void = fn() -> void {
     // Arrange
     let field: JsonField = JsonField { key: "x", value: JNumber(1.0) }
-    let obj: Json = JObject(Cons(field, Nil))
+    let obj: Json = json_object(Cons(field, Nil))
 
     // Act
     let result: Option[List[Json]] = values(obj)
@@ -679,14 +679,14 @@ let test_stringify_array_with_elements: fn() -> void = fn() -> void {
 }
 
 let test_stringify_empty_object: fn() -> void = fn() -> void {
-    let result: string = stringify(JObject(Nil))
+    let result: string = stringify(json_object_empty())
     assert_str_eq(result, "{}", "stringify empty object should produce '{}'")
     return
 }
 
 let test_stringify_object_with_fields: fn() -> void = fn() -> void {
     let field: JsonField = JsonField { key: "x", value: JNumber(1.0) }
-    let obj: Json = JObject(Cons(field, Nil))
+    let obj: Json = json_object(Cons(field, Nil))
     let result: string = stringify(obj)
     assert_true(std.string.contains(result, "\"x\""), "stringify object should have quoted key")
     assert_true(std.string.contains(result, ":"), "stringify object should have colon")
@@ -695,7 +695,7 @@ let test_stringify_object_with_fields: fn() -> void = fn() -> void {
 
 let test_stringify_pretty_indentation: fn() -> void = fn() -> void {
     let field: JsonField = JsonField { key: "x", value: JNumber(1.0) }
-    let obj: Json = JObject(Cons(field, Nil))
+    let obj: Json = json_object(Cons(field, Nil))
     let result: string = stringify_pretty(obj)
     assert_true(std.string.contains(result, "\n"), "stringify_pretty should have newlines")
     assert_true(std.string.contains(result, "  "), "stringify_pretty should have indentation")
@@ -1432,7 +1432,7 @@ let test_parse_string_bare_backslash_rejected: fn() -> void = fn() -> void {
 
 let test_set_field_new: fn() -> void = fn() -> void {
     // Arrange
-    let obj: Json = JObject(Nil)
+    let obj: Json = json_object_empty()
 
     // Act
     let result: Json = set_field(obj, "x", JNumber(1.0))
@@ -1453,7 +1453,7 @@ let test_set_field_new: fn() -> void = fn() -> void {
 let test_set_field_update: fn() -> void = fn() -> void {
     // Arrange
     let field: JsonField = JsonField { key: "x", value: JNumber(1.0) }
-    let obj: Json = JObject(Cons(field, Nil))
+    let obj: Json = json_object(Cons(field, Nil))
 
     // Act
     let result: Json = set_field(obj, "x", JNumber(99.0))
@@ -1487,7 +1487,7 @@ let test_remove_field_existing: fn() -> void = fn() -> void {
     // Arrange
     let field1: JsonField = JsonField { key: "a", value: JNumber(1.0) }
     let field2: JsonField = JsonField { key: "b", value: JNumber(2.0) }
-    let obj: Json = JObject(Cons(field1, Cons(field2, Nil)))
+    let obj: Json = json_object(Cons(field1, Cons(field2, Nil)))
 
     // Act
     let result: Json = remove_field(obj, "a")
@@ -1501,7 +1501,7 @@ let test_remove_field_existing: fn() -> void = fn() -> void {
 let test_remove_field_non_existing: fn() -> void = fn() -> void {
     // Arrange
     let field: JsonField = JsonField { key: "a", value: JNumber(1.0) }
-    let obj: Json = JObject(Cons(field, Nil))
+    let obj: Json = json_object(Cons(field, Nil))
 
     // Act
     let result: Json = remove_field(obj, "nonexistent")
@@ -1518,8 +1518,8 @@ let test_merge_objects: fn() -> void = fn() -> void {
     // Arrange
     let field_a: JsonField = JsonField { key: "a", value: JNumber(1.0) }
     let field_b: JsonField = JsonField { key: "b", value: JNumber(2.0) }
-    let obj1: Json = JObject(Cons(field_a, Nil))
-    let obj2: Json = JObject(Cons(field_b, Nil))
+    let obj1: Json = json_object(Cons(field_a, Nil))
+    let obj2: Json = json_object(Cons(field_b, Nil))
 
     // Act
     let result: Json = merge(obj1, obj2)
@@ -1534,8 +1534,8 @@ let test_merge_override: fn() -> void = fn() -> void {
     // Arrange
     let field1: JsonField = JsonField { key: "x", value: JNumber(1.0) }
     let field2: JsonField = JsonField { key: "x", value: JNumber(99.0) }
-    let obj1: Json = JObject(Cons(field1, Nil))
-    let obj2: Json = JObject(Cons(field2, Nil))
+    let obj1: Json = json_object(Cons(field1, Nil))
+    let obj2: Json = json_object(Cons(field2, Nil))
 
     // Act
     let result: Json = merge(obj1, obj2)
@@ -1624,7 +1624,7 @@ let test_filter_fields_predicate: fn() -> void = fn() -> void {
     // Arrange
     let field1: JsonField = JsonField { key: "keep", value: JNumber(1.0) }
     let field2: JsonField = JsonField { key: "remove", value: JNumber(2.0) }
-    let obj: Json = JObject(Cons(field1, Cons(field2, Nil)))
+    let obj: Json = json_object(Cons(field1, Cons(field2, Nil)))
 
     // Act - keep only fields starting with "keep"
     let result: Json = filter_fields(obj, fn(key: string, value: Json) -> bool {
@@ -1733,7 +1733,7 @@ let test_roundtrip_array: fn() -> void = fn() -> void {
 
 let test_roundtrip_object: fn() -> void = fn() -> void {
     let field: JsonField = JsonField { key: "name", value: JString("Alice") }
-    let original: Json = JObject(Cons(field, Nil))
+    let original: Json = json_object(Cons(field, Nil))
     let json_str: string = stringify(original)
     let parsed: Result[Json, JsonError] = parse(json_str)
     match parsed {
@@ -1912,9 +1912,9 @@ let test_equals_array_empty: fn() -> void = fn() -> void {
 let test_equals_object_same: fn() -> void = fn() -> void {
     // Arrange
     let field_a: JsonField = JsonField { key: "x", value: JNumber(1.0) }
-    let a: Json = JObject(Cons(field_a, Nil))
+    let a: Json = json_object(Cons(field_a, Nil))
     let field_b: JsonField = JsonField { key: "x", value: JNumber(1.0) }
-    let b: Json = JObject(Cons(field_b, Nil))
+    let b: Json = json_object(Cons(field_b, Nil))
 
     // Act & Assert
     assert_true(equals(a, b), "{\"x\": 1} should equal {\"x\": 1}")
@@ -1924,9 +1924,9 @@ let test_equals_object_same: fn() -> void = fn() -> void {
 let test_equals_object_different_value: fn() -> void = fn() -> void {
     // Arrange
     let field_a: JsonField = JsonField { key: "x", value: JNumber(1.0) }
-    let a: Json = JObject(Cons(field_a, Nil))
+    let a: Json = json_object(Cons(field_a, Nil))
     let field_b: JsonField = JsonField { key: "x", value: JNumber(2.0) }
-    let b: Json = JObject(Cons(field_b, Nil))
+    let b: Json = json_object(Cons(field_b, Nil))
 
     // Act & Assert
     assert_true(not equals(a, b), "{\"x\": 1} should not equal {\"x\": 2}")
@@ -1936,9 +1936,9 @@ let test_equals_object_different_value: fn() -> void = fn() -> void {
 let test_equals_object_different_key: fn() -> void = fn() -> void {
     // Arrange
     let field_a: JsonField = JsonField { key: "x", value: JNumber(1.0) }
-    let a: Json = JObject(Cons(field_a, Nil))
+    let a: Json = json_object(Cons(field_a, Nil))
     let field_b: JsonField = JsonField { key: "y", value: JNumber(1.0) }
-    let b: Json = JObject(Cons(field_b, Nil))
+    let b: Json = json_object(Cons(field_b, Nil))
 
     // Act & Assert
     assert_true(not equals(a, b), "{\"x\": 1} should not equal {\"y\": 1}")
@@ -1949,11 +1949,11 @@ let test_equals_object_key_order_independent: fn() -> void = fn() -> void {
     // Arrange - same keys/values, different order in list
     let field_a1: JsonField = JsonField { key: "x", value: JNumber(1.0) }
     let field_a2: JsonField = JsonField { key: "y", value: JNumber(2.0) }
-    let a: Json = JObject(Cons(field_a1, Cons(field_a2, Nil)))
+    let a: Json = json_object(Cons(field_a1, Cons(field_a2, Nil)))
 
     let field_b1: JsonField = JsonField { key: "y", value: JNumber(2.0) }
     let field_b2: JsonField = JsonField { key: "x", value: JNumber(1.0) }
-    let b: Json = JObject(Cons(field_b1, Cons(field_b2, Nil)))
+    let b: Json = json_object(Cons(field_b1, Cons(field_b2, Nil)))
 
     // Act & Assert
     assert_true(equals(a, b), "{\"x\": 1, \"y\": 2} should equal {\"y\": 2, \"x\": 1}")
@@ -1962,8 +1962,8 @@ let test_equals_object_key_order_independent: fn() -> void = fn() -> void {
 
 let test_equals_object_empty: fn() -> void = fn() -> void {
     // Arrange
-    let a: Json = JObject(Nil)
-    let b: Json = JObject(Nil)
+    let a: Json = json_object_empty()
+    let b: Json = json_object_empty()
 
     // Act & Assert
     assert_true(equals(a, b), "{} should equal {}")
@@ -1973,16 +1973,16 @@ let test_equals_object_empty: fn() -> void = fn() -> void {
 let test_equals_nested_objects: fn() -> void = fn() -> void {
     // Arrange
     let inner_field: JsonField = JsonField { key: "inner", value: JNumber(42.0) }
-    let inner: Json = JObject(Cons(inner_field, Nil))
+    let inner: Json = json_object(Cons(inner_field, Nil))
     let outer_field: JsonField = JsonField { key: "outer", value: inner }
 
-    let a: Json = JObject(Cons(outer_field, Nil))
+    let a: Json = json_object(Cons(outer_field, Nil))
 
     let inner_field2: JsonField = JsonField { key: "inner", value: JNumber(42.0) }
-    let inner2: Json = JObject(Cons(inner_field2, Nil))
+    let inner2: Json = json_object(Cons(inner_field2, Nil))
     let outer_field2: JsonField = JsonField { key: "outer", value: inner2 }
 
-    let b: Json = JObject(Cons(outer_field2, Nil))
+    let b: Json = json_object(Cons(outer_field2, Nil))
 
     // Act & Assert
     assert_true(equals(a, b), "nested objects should be deeply compared")
@@ -2005,16 +2005,16 @@ let test_equals_nested_arrays: fn() -> void = fn() -> void {
 let test_equals_mixed_nested: fn() -> void = fn() -> void {
     // Arrange - object containing array containing objects
     let inner_field: JsonField = JsonField { key: "v", value: JNumber(1.0) }
-    let inner_obj: Json = JObject(Cons(inner_field, Nil))
+    let inner_obj: Json = json_object(Cons(inner_field, Nil))
     let arr: Json = JArray(Cons(inner_obj, Nil))
     let outer_field: JsonField = JsonField { key: "items", value: arr }
-    let a: Json = JObject(Cons(outer_field, Nil))
+    let a: Json = json_object(Cons(outer_field, Nil))
 
     let inner_field2: JsonField = JsonField { key: "v", value: JNumber(1.0) }
-    let inner_obj2: Json = JObject(Cons(inner_field2, Nil))
+    let inner_obj2: Json = json_object(Cons(inner_field2, Nil))
     let arr2: Json = JArray(Cons(inner_obj2, Nil))
     let outer_field2: JsonField = JsonField { key: "items", value: arr2 }
-    let b: Json = JObject(Cons(outer_field2, Nil))
+    let b: Json = json_object(Cons(outer_field2, Nil))
 
     // Act & Assert
     assert_true(equals(a, b), "deeply nested mixed structures should be compared correctly")
@@ -2026,7 +2026,7 @@ let test_equals_different_types: fn() -> void = fn() -> void {
     let num: Json = JNumber(1.0)
     let str: Json = JString("1")
     let arr: Json = JArray(Nil)
-    let obj: Json = JObject(Nil)
+    let obj: Json = json_object_empty()
 
     // Act & Assert
     assert_true(not equals(num, str), "number should not equal string")
@@ -2039,7 +2039,7 @@ let test_equals_roundtrip: fn() -> void = fn() -> void {
     // Property: parse(stringify(x)) equals x
     let field1: JsonField = JsonField { key: "name", value: JString("Alice") }
     let field2: JsonField = JsonField { key: "age", value: JNumber(30.0) }
-    let original: Json = JObject(Cons(field1, Cons(field2, Nil)))
+    let original: Json = json_object(Cons(field1, Cons(field2, Nil)))
 
     let json_str: string = stringify(original)
     let parsed: Result[Json, JsonError] = parse(json_str)
@@ -2230,7 +2230,7 @@ let test_error_column_helper: fn() -> void = fn() -> void {
 
 let test_get_path_simple_key: fn() -> void = fn() -> void {
     // Arrange
-    let json: Json = JObject(Cons(JsonField { key: "name", value: JString("Alice") }, Nil))
+    let json: Json = json_object(Cons(JsonField { key: "name", value: JString("Alice") }, Nil))
 
     // Act
     let result: Option[Json] = get_path(json, "name")
@@ -2250,9 +2250,9 @@ let test_get_path_simple_key: fn() -> void = fn() -> void {
 
 let test_get_path_nested_keys: fn() -> void = fn() -> void {
     // Arrange: {"user": {"address": {"city": "NYC"}}}
-    let city: Json = JObject(Cons(JsonField { key: "city", value: JString("NYC") }, Nil))
-    let address: Json = JObject(Cons(JsonField { key: "address", value: city }, Nil))
-    let user: Json = JObject(Cons(JsonField { key: "user", value: address }, Nil))
+    let city: Json = json_object(Cons(JsonField { key: "city", value: JString("NYC") }, Nil))
+    let address: Json = json_object(Cons(JsonField { key: "address", value: city }, Nil))
+    let user: Json = json_object(Cons(JsonField { key: "user", value: address }, Nil))
 
     // Act
     let result: Option[Json] = get_path(user, "user.address.city")
@@ -2273,7 +2273,7 @@ let test_get_path_nested_keys: fn() -> void = fn() -> void {
 let test_get_path_array_index: fn() -> void = fn() -> void {
     // Arrange: {"items": [1, 2, 3]}
     let arr: List[Json] = Cons(JNumber(1.0), Cons(JNumber(2.0), Cons(JNumber(3.0), Nil)))
-    let json: Json = JObject(Cons(JsonField { key: "items", value: JArray(arr) }, Nil))
+    let json: Json = json_object(Cons(JsonField { key: "items", value: JArray(arr) }, Nil))
 
     // Act
     let result: Option[Json] = get_path(json, "items[1]")
@@ -2293,10 +2293,10 @@ let test_get_path_array_index: fn() -> void = fn() -> void {
 
 let test_get_path_mixed_access: fn() -> void = fn() -> void {
     // Arrange: {"users": [{"name": "Alice"}, {"name": "Bob"}]}
-    let user1: Json = JObject(Cons(JsonField { key: "name", value: JString("Alice") }, Nil))
-    let user2: Json = JObject(Cons(JsonField { key: "name", value: JString("Bob") }, Nil))
+    let user1: Json = json_object(Cons(JsonField { key: "name", value: JString("Alice") }, Nil))
+    let user2: Json = json_object(Cons(JsonField { key: "name", value: JString("Bob") }, Nil))
     let users: Json = JArray(Cons(user1, Cons(user2, Nil)))
-    let json: Json = JObject(Cons(JsonField { key: "users", value: users }, Nil))
+    let json: Json = json_object(Cons(JsonField { key: "users", value: users }, Nil))
 
     // Act
     let result: Option[Json] = get_path(json, "users[1].name")
@@ -2336,7 +2336,7 @@ let test_get_path_empty_path: fn() -> void = fn() -> void {
 
 let test_get_path_nonexistent_key: fn() -> void = fn() -> void {
     // Arrange
-    let json: Json = JObject(Cons(JsonField { key: "a", value: JNumber(1.0) }, Nil))
+    let json: Json = json_object(Cons(JsonField { key: "a", value: JNumber(1.0) }, Nil))
 
     // Act
     let result: Option[Json] = get_path(json, "b")
@@ -2372,7 +2372,7 @@ let test_get_path_type_mismatch: fn() -> void = fn() -> void {
 
 let test_set_path_simple_key: fn() -> void = fn() -> void {
     // Arrange
-    let json: Json = JObject(Cons(JsonField { key: "x", value: JNumber(1.0) }, Nil))
+    let json: Json = json_object(Cons(JsonField { key: "x", value: JNumber(1.0) }, Nil))
 
     // Act
     let result: Json = set_path(json, "y", JNumber(2.0))
@@ -2392,7 +2392,7 @@ let test_set_path_simple_key: fn() -> void = fn() -> void {
 
 let test_set_path_nested_keys: fn() -> void = fn() -> void {
     // Arrange: start with empty object
-    let json: Json = JObject(Nil)
+    let json: Json = json_object_empty()
 
     // Act
     let result: Json = set_path(json, "a.b.c", JNumber(42.0))
@@ -2471,7 +2471,7 @@ let test_set_path_empty_path: fn() -> void = fn() -> void {
 
 let test_has_path_exists: fn() -> void = fn() -> void {
     // Arrange
-    let json: Json = JObject(Cons(JsonField { key: "x", value: JNumber(1.0) }, Nil))
+    let json: Json = json_object(Cons(JsonField { key: "x", value: JNumber(1.0) }, Nil))
 
     // Act
     let result: bool = has_path(json, "x")
@@ -2483,7 +2483,7 @@ let test_has_path_exists: fn() -> void = fn() -> void {
 
 let test_has_path_not_exists: fn() -> void = fn() -> void {
     // Arrange
-    let json: Json = JObject(Cons(JsonField { key: "x", value: JNumber(1.0) }, Nil))
+    let json: Json = json_object(Cons(JsonField { key: "x", value: JNumber(1.0) }, Nil))
 
     // Act
     let result: bool = has_path(json, "y")
@@ -2495,7 +2495,7 @@ let test_has_path_not_exists: fn() -> void = fn() -> void {
 
 let test_remove_path_simple_key: fn() -> void = fn() -> void {
     // Arrange
-    let json: Json = JObject(Cons(
+    let json: Json = json_object(Cons(
         JsonField { key: "a", value: JNumber(1.0) },
         Cons(JsonField { key: "b", value: JNumber(2.0) }, Nil)
     ))
@@ -2511,11 +2511,11 @@ let test_remove_path_simple_key: fn() -> void = fn() -> void {
 
 let test_remove_path_nested: fn() -> void = fn() -> void {
     // Arrange: {"outer": {"inner": 1, "other": 2}}
-    let inner_obj: Json = JObject(Cons(
+    let inner_obj: Json = json_object(Cons(
         JsonField { key: "inner", value: JNumber(1.0) },
         Cons(JsonField { key: "other", value: JNumber(2.0) }, Nil)
     ))
-    let json: Json = JObject(Cons(JsonField { key: "outer", value: inner_obj }, Nil))
+    let json: Json = json_object(Cons(JsonField { key: "outer", value: inner_obj }, Nil))
 
     // Act
     let result: Json = remove_path(json, "outer.inner")
@@ -3732,7 +3732,7 @@ let test_roundtrip_array_with_elements: fn() -> void = fn() -> void {
 
 let test_roundtrip_empty_object: fn() -> void = fn() -> void {
     // Arrange
-    let original: Json = JObject(Nil)
+    let original: Json = json_object_empty()
 
     // Act
     let serialized: string = stringify(original)
@@ -3752,7 +3752,7 @@ let test_roundtrip_object_with_fields: fn() -> void = fn() -> void {
     // Arrange
     let field1: JsonField = JsonField { key: "name", value: JString("Alice") }
     let field2: JsonField = JsonField { key: "age", value: JNumber(30.0) }
-    let original: Json = JObject(Cons(field1, Cons(field2, Nil)))
+    let original: Json = json_object(Cons(field1, Cons(field2, Nil)))
 
     // Act
     let serialized: string = stringify(original)
@@ -3771,9 +3771,9 @@ let test_roundtrip_object_with_fields: fn() -> void = fn() -> void {
 let test_roundtrip_nested_structure: fn() -> void = fn() -> void {
     // Arrange - complex nested structure
     let inner_field: JsonField = JsonField { key: "items", value: JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Nil))) }
-    let inner: Json = JObject(Cons(inner_field, Nil))
+    let inner: Json = json_object(Cons(inner_field, Nil))
     let outer_field: JsonField = JsonField { key: "data", value: inner }
-    let original: Json = JObject(Cons(outer_field, Nil))
+    let original: Json = json_object(Cons(outer_field, Nil))
 
     // Act
     let serialized: string = stringify(original)
@@ -3795,7 +3795,7 @@ let test_stringify_determinism_same_output: fn() -> void = fn() -> void {
     // Arrange
     let field1: JsonField = JsonField { key: "a", value: JNumber(1.0) }
     let field2: JsonField = JsonField { key: "b", value: JString("test") }
-    let json: Json = JObject(Cons(field1, Cons(field2, Nil)))
+    let json: Json = json_object(Cons(field1, Cons(field2, Nil)))
 
     // Act
     let output1: string = stringify(json)
@@ -3810,7 +3810,7 @@ let test_stringify_determinism_nested: fn() -> void = fn() -> void {
     // Arrange - complex nested structure
     let inner: Json = JArray(Cons(JBool(true), Cons(JNull, Nil)))
     let field: JsonField = JsonField { key: "nested", value: inner }
-    let json: Json = JObject(Cons(field, Nil))
+    let json: Json = json_object(Cons(field, Nil))
 
     // Act
     let output1: string = stringify(json)

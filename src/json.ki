@@ -9,13 +9,14 @@ module json
 
 /// Represents a JSON value.
 /// JSON can be null, boolean, number, string, array, or object.
+/// Note: JObject uses HashMap for O(1) field lookup.
 pub type Json =
     | JNull
     | JBool(bool)
     | JNumber(f64)
     | JString(string)
     | JArray(List[Json])
-    | JObject(List[JsonField])
+    | JObject(HashMap)
 
 /// A key-value pair in a JSON object.
 pub type JsonField = {
@@ -246,12 +247,57 @@ pub let as_array: fn(Json) -> Option[List[Json]] = fn(json: Json) -> Option[List
 }
 
 /// Extracts the object fields if the JSON is an object.
+/// Converts the internal HashMap to a List[JsonField] for backward compatibility.
 pub let as_object: fn(Json) -> Option[List[JsonField]] = fn(json: Json) -> Option[List[JsonField]] {
     match json {
-        JObject(fields) => { return Some(fields) }
+        JObject(map) => { return Some(hashmap_to_fields(map)) }
         _ => { return None }
     }
 }
+
+/// Extracts the HashMap directly if the JSON is an object.
+/// More efficient than as_object when you need HashMap operations.
+pub let as_object_map: fn(Json) -> Option[HashMap] = fn(json: Json) -> Option[HashMap] {
+    match json {
+        JObject(map) => { return Some(map) }
+        _ => { return None }
+    }
+}
+
+/// Converts a HashMap to a List[JsonField].
+let hashmap_to_fields: fn(HashMap) -> List[JsonField] = fn(map: HashMap) -> List[JsonField] {
+    let entries: List[(string, Json)] = std.map.entries(map)
+    return entries_to_fields(entries)
+}
+
+/// Converts a list of (string, Json) tuples to List[JsonField].
+let entries_to_fields: fn(List[(string, Json)]) -> List[JsonField] =
+    fn(entries: List[(string, Json)]) -> List[JsonField] {
+        match entries {
+            Nil => { return Nil }
+            Cons(entry, rest) => {
+                let field: JsonField = JsonField { key: entry.0, value: entry.1 }
+                return Cons(field, entries_to_fields(rest))
+            }
+        }
+    }
+
+/// Converts a List[JsonField] to a HashMap.
+let fields_to_hashmap: fn(List[JsonField]) -> HashMap = fn(fields: List[JsonField]) -> HashMap {
+    return fields_to_hashmap_acc(fields, std.map.new())
+}
+
+/// Helper to convert fields to HashMap with accumulator.
+let fields_to_hashmap_acc: fn(List[JsonField], HashMap) -> HashMap =
+    fn(fields: List[JsonField], acc: HashMap) -> HashMap {
+        match fields {
+            Nil => { return acc }
+            Cons(field, rest) => {
+                let new_acc: HashMap = std.map.put(acc, field.key, field.value)
+                return fields_to_hashmap_acc(rest, new_acc)
+            }
+        }
+    }
 
 // =============================================================================
 // Field/Index Accessors
@@ -259,14 +305,16 @@ pub let as_object: fn(Json) -> Option[List[JsonField]] = fn(json: Json) -> Optio
 
 /// Gets a field value from a JSON object by key.
 /// Returns None if not an object or key not found.
+/// Uses O(1) HashMap lookup.
 pub let get_field: fn(Json, string) -> Option[Json] = fn(json: Json, key: string) -> Option[Json] {
     match json {
-        JObject(fields) => { return find_field(fields, key) }
+        JObject(map) => { return std.map.get(map, key) }
         _ => { return None }
     }
 }
 
 /// Helper to find a field in a list of JsonFields.
+/// Retained for backward compatibility with code that uses List[JsonField].
 let find_field: fn(List[JsonField], string) -> Option[Json] =
     fn(fields: List[JsonField], key: string) -> Option[Json] {
         match fields {
@@ -310,7 +358,7 @@ let list_get: fn(List[Json], i32) -> Option[Json] = fn(list: List[Json], index: 
 pub let size: fn(Json) -> Option[i32] = fn(json: Json) -> Option[i32] {
     match json {
         JArray(arr) => { return Some(list_length[Json](arr)) }
-        JObject(fields) => { return Some(list_length[JsonField](fields)) }
+        JObject(map) => { return Some(std.map.size(map)) }
         _ => { return None }
     }
 }
@@ -327,12 +375,13 @@ let list_length[T]: fn(List[T]) -> i32 = fn(list: List[T]) -> i32 {
 /// Returns None if not an object.
 pub let keys: fn(Json) -> Option[List[string]] = fn(json: Json) -> Option[List[string]] {
     match json {
-        JObject(fields) => { return Some(extract_keys(fields)) }
+        JObject(map) => { return Some(std.map.keys(map)) }
         _ => { return None }
     }
 }
 
 /// Helper to extract keys from a list of JsonFields.
+/// Retained for backward compatibility.
 let extract_keys: fn(List[JsonField]) -> List[string] = fn(fields: List[JsonField]) -> List[string] {
     match fields {
         Nil => { return Nil }
@@ -344,7 +393,7 @@ let extract_keys: fn(List[JsonField]) -> List[string] = fn(fields: List[JsonFiel
 /// Returns None if not an object.
 pub let values: fn(Json) -> Option[List[Json]] = fn(json: Json) -> Option[List[Json]] {
     match json {
-        JObject(fields) => { return Some(extract_values(fields)) }
+        JObject(map) => { return Some(std.map.values(map)) }
         _ => { return None }
     }
 }
@@ -485,7 +534,7 @@ let stringify_to_builder: fn(Json, StringBuilder) -> StringBuilder = fn(json: Js
             return std.builder.append(b2, "\"")
         }
         JArray(arr) => { return stringify_array_to_builder(arr, builder) }
-        JObject(fields) => { return stringify_object_to_builder(fields, builder) }
+        JObject(map) => { return stringify_object_map_to_builder(map, builder) }
     }
 }
 
@@ -512,7 +561,35 @@ let stringify_array_contents_to_builder: fn(List[Json], StringBuilder, bool) -> 
         }
     }
 
-/// Stringifies an object into a StringBuilder.
+/// Stringifies an object HashMap into a StringBuilder.
+let stringify_object_map_to_builder: fn(HashMap, StringBuilder) -> StringBuilder = fn(map: HashMap, builder: StringBuilder) -> StringBuilder {
+    let entries: List[(string, Json)] = std.map.entries(map)
+    let b1: StringBuilder = std.builder.append(builder, "{")
+    let b2: StringBuilder = stringify_entries_to_builder(entries, b1, true)
+    return std.builder.append(b2, "}")
+}
+
+/// Stringifies map entries with comma separation into a StringBuilder.
+let stringify_entries_to_builder: fn(List[(string, Json)], StringBuilder, bool) -> StringBuilder =
+    fn(entries: List[(string, Json)], builder: StringBuilder, is_first: bool) -> StringBuilder {
+        match entries {
+            Nil => { return builder }
+            Cons(entry, rest) => {
+                var b: StringBuilder = builder
+                if not is_first {
+                    b = std.builder.append(b, ",")
+                }
+                let b1: StringBuilder = std.builder.append(b, "\"")
+                let b2: StringBuilder = std.builder.append(b1, escape_string(entry.0))
+                let b3: StringBuilder = std.builder.append(b2, "\":")
+                let b4: StringBuilder = stringify_to_builder(entry.1, b3)
+                return stringify_entries_to_builder(rest, b4, false)
+            }
+        }
+    }
+
+/// Stringifies an object into a StringBuilder (List[JsonField] version).
+/// Retained for backward compatibility.
 let stringify_object_to_builder: fn(List[JsonField], StringBuilder) -> StringBuilder = fn(fields: List[JsonField], builder: StringBuilder) -> StringBuilder {
     let b1: StringBuilder = std.builder.append(builder, "{")
     let b2: StringBuilder = stringify_object_contents_to_builder(fields, b1, true)
@@ -568,7 +645,7 @@ let stringify_indent_to_builder: fn(Json, i32, i32, StringBuilder) -> StringBuil
                 return std.builder.append(b2, "\"")
             }
             JArray(arr) => { return stringify_array_pretty_to_builder(arr, level, indent_size, builder) }
-            JObject(fields) => { return stringify_object_pretty_to_builder(fields, level, indent_size, builder) }
+            JObject(map) => { return stringify_object_map_pretty_to_builder(map, level, indent_size, builder) }
         }
     }
 
@@ -619,7 +696,42 @@ let stringify_array_contents_pretty_to_builder: fn(List[Json], i32, i32, StringB
         }
     }
 
-/// Pretty-prints an object into a StringBuilder.
+/// Pretty-prints an object HashMap into a StringBuilder.
+let stringify_object_map_pretty_to_builder: fn(HashMap, i32, i32, StringBuilder) -> StringBuilder =
+    fn(map: HashMap, level: i32, indent_size: i32, builder: StringBuilder) -> StringBuilder {
+        if std.map.is_empty(map) {
+            return std.builder.append(builder, "{}")
+        }
+        let entries: List[(string, Json)] = std.map.entries(map)
+        let b1: StringBuilder = std.builder.append(builder, "{\n")
+        let b2: StringBuilder = stringify_entries_pretty_to_builder(entries, level + 1, indent_size, b1, true)
+        let b3: StringBuilder = std.builder.append(b2, "\n")
+        let b4: StringBuilder = append_indent(b3, level, indent_size)
+        return std.builder.append(b4, "}")
+    }
+
+/// Pretty-prints map entries into a StringBuilder.
+let stringify_entries_pretty_to_builder: fn(List[(string, Json)], i32, i32, StringBuilder, bool) -> StringBuilder =
+    fn(entries: List[(string, Json)], level: i32, indent_size: i32, builder: StringBuilder, is_first: bool) -> StringBuilder {
+        match entries {
+            Nil => { return builder }
+            Cons(entry, rest) => {
+                var b: StringBuilder = builder
+                if not is_first {
+                    b = std.builder.append(b, ",\n")
+                }
+                let b1: StringBuilder = append_indent(b, level, indent_size)
+                let b2: StringBuilder = std.builder.append(b1, "\"")
+                let b3: StringBuilder = std.builder.append(b2, escape_string(entry.0))
+                let b4: StringBuilder = std.builder.append(b3, "\": ")
+                let b5: StringBuilder = stringify_indent_to_builder(entry.1, level, indent_size, b4)
+                return stringify_entries_pretty_to_builder(rest, level, indent_size, b5, false)
+            }
+        }
+    }
+
+/// Pretty-prints an object into a StringBuilder (List[JsonField] version).
+/// Retained for backward compatibility.
 let stringify_object_pretty_to_builder: fn(List[JsonField], i32, i32, StringBuilder) -> StringBuilder =
     fn(fields: List[JsonField], level: i32, indent_size: i32, builder: StringBuilder) -> StringBuilder {
         match fields {
@@ -635,6 +747,7 @@ let stringify_object_pretty_to_builder: fn(List[JsonField], i32, i32, StringBuil
     }
 
 /// Pretty-prints object contents into a StringBuilder.
+/// Retained for backward compatibility.
 let stringify_object_contents_pretty_to_builder: fn(List[JsonField], i32, i32, StringBuilder, bool) -> StringBuilder =
     fn(fields: List[JsonField], level: i32, indent_size: i32, builder: StringBuilder, is_first: bool) -> StringBuilder {
         match fields {
@@ -1402,9 +1515,9 @@ let parse_object: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
                         match peek_str(after_brace) {
                             Some(c2) => {
                                 if std.string.equals(c2, "}") {
-                                    return ParseOk(JObject(Nil), decrement_depth(advance(after_brace)))
+                                    return ParseOk(JObject(std.map.new()), decrement_depth(advance(after_brace)))
                                 }
-                                let result: ParseResult[Json] = parse_object_fields(after_brace, Nil)
+                                let result: ParseResult[Json] = parse_object_fields_map(after_brace, std.map.new())
                                 // Decrement depth on successful exit
                                 match result {
                                     ParseOk(json, final_state) => {
@@ -1414,7 +1527,7 @@ let parse_object: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
                                 }
                             }
                             None => {
-                                let result: ParseResult[Json] = parse_object_fields(after_brace, Nil)
+                                let result: ParseResult[Json] = parse_object_fields_map(after_brace, std.map.new())
                                 match result {
                                     ParseOk(json, final_state) => {
                                         return ParseOk(json, decrement_depth(final_state))
@@ -1432,7 +1545,65 @@ let parse_object: fn(ParserState) -> ParseResult[Json] = fn(state: ParserState) 
     }
 }
 
-/// Parses object fields.
+/// Parses object fields into a HashMap.
+let parse_object_fields_map: fn(ParserState, HashMap) -> ParseResult[Json] =
+    fn(state: ParserState, acc: HashMap) -> ParseResult[Json] {
+        // Parse key (save position for error reporting)
+        let key_line: i32 = state.line
+        let key_col: i32 = state.column
+        let key_result: ParseResult[string] = parse_string(state)
+        match key_result {
+            ParseErr(e) => { return ParseErr(e) }
+            ParseOk(key, after_key) => {
+                // Check for duplicate key in strict mode
+                if after_key.strict {
+                    if std.map.contains(acc, key) {
+                        return ParseErr(DuplicateKey { key: key, line: key_line, col: key_col })
+                    }
+                }
+                let after_key_ws: ParserState = skip_whitespace(after_key)
+                // Expect colon
+                match peek_str(after_key_ws) {
+                    Some(c) => {
+                        if std.string.equals(c, ":") {
+                            let after_colon: ParserState = skip_whitespace(advance(after_key_ws))
+                            // Parse value
+                            let value_result: ParseResult[Json] = parse_value(after_colon)
+                            match value_result {
+                                ParseErr(e) => { return ParseErr(e) }
+                                ParseOk(value, after_value) => {
+                                    // First-wins: only add if key doesn't already exist
+                                    var new_acc: HashMap = acc
+                                    if not std.map.contains(acc, key) {
+                                        new_acc = std.map.put(acc, key, value)
+                                    }
+                                    let after_ws: ParserState = skip_whitespace(after_value)
+                                    match peek_str(after_ws) {
+                                        Some(c2) => {
+                                            if std.string.equals(c2, "}") {
+                                                return ParseOk(JObject(new_acc), advance(after_ws))
+                                            }
+                                            if std.string.equals(c2, ",") {
+                                                let after_comma: ParserState = skip_whitespace(advance(after_ws))
+                                                return parse_object_fields_map(after_comma, new_acc)
+                                            }
+                                            return ParseErr(UnexpectedToken { expected: "',' or '}'", found: c2, line: after_ws.line, col: after_ws.column })
+                                        }
+                                        None => { return ParseErr(UnexpectedEof { expected: "',' or '}'", context: "object", line: after_ws.line, col: after_ws.column }) }
+                                    }
+                                }
+                            }
+                        }
+                        return ParseErr(UnexpectedToken { expected: "':'", found: c, line: after_key_ws.line, col: after_key_ws.column })
+                    }
+                    None => { return ParseErr(UnexpectedEof { expected: "':'", context: "object field", line: after_key_ws.line, col: after_key_ws.column }) }
+                }
+            }
+        }
+    }
+
+/// Parses object fields (List[JsonField] version).
+/// Retained for backward compatibility.
 let parse_object_fields: fn(ParserState, List[JsonField]) -> ParseResult[Json] =
     fn(state: ParserState, acc: List[JsonField]) -> ParseResult[Json] {
         // Parse key (save position for error reporting)
@@ -1465,7 +1636,7 @@ let parse_object_fields: fn(ParserState, List[JsonField]) -> ParseResult[Json] =
                                     match peek_str(after_ws) {
                                         Some(c2) => {
                                             if std.string.equals(c2, "}") {
-                                                return ParseOk(JObject(list_reverse[JsonField](new_acc)), advance(after_ws))
+                                                return ParseOk(JObject(fields_to_hashmap(list_reverse[JsonField](new_acc))), advance(after_ws))
                                             }
                                             if std.string.equals(c2, ",") {
                                                 let after_comma: ParserState = skip_whitespace(advance(after_ws))
@@ -1602,14 +1773,43 @@ pub let map_values: fn(Json, fn(Json) -> Json) -> Json = fn(json: Json, f: fn(Js
         JArray(arr) => {
             return JArray(map_list[Json](arr, fn(elem: Json) -> Json { return map_values(elem, f) }))
         }
-        JObject(fields) => {
-            return JObject(map_list[JsonField](fields, fn(field: JsonField) -> JsonField {
-                return JsonField { key: field.key, value: map_values(field.value, f) }
-            }))
+        JObject(map) => {
+            let entries: List[(string, Json)] = std.map.entries(map)
+            let mapped_entries: List[(string, Json)] = map_entries_values(entries, f)
+            return JObject(entries_to_hashmap(mapped_entries))
         }
         _ => { return mapped }
     }
 }
+
+/// Maps a function over entry values.
+let map_entries_values: fn(List[(string, Json)], fn(Json) -> Json) -> List[(string, Json)] =
+    fn(entries: List[(string, Json)], f: fn(Json) -> Json) -> List[(string, Json)] {
+        match entries {
+            Nil => { return Nil }
+            Cons(entry, rest) => {
+                let new_entry: (string, Json) = (entry.0, map_values(entry.1, f))
+                return Cons(new_entry, map_entries_values(rest, f))
+            }
+        }
+    }
+
+/// Converts a list of (string, Json) tuples to a HashMap.
+let entries_to_hashmap: fn(List[(string, Json)]) -> HashMap = fn(entries: List[(string, Json)]) -> HashMap {
+    return entries_to_hashmap_acc(entries, std.map.new())
+}
+
+/// Helper to convert entries to HashMap with accumulator.
+let entries_to_hashmap_acc: fn(List[(string, Json)], HashMap) -> HashMap =
+    fn(entries: List[(string, Json)], acc: HashMap) -> HashMap {
+        match entries {
+            Nil => { return acc }
+            Cons(entry, rest) => {
+                let new_acc: HashMap = std.map.put(acc, entry.0, entry.1)
+                return entries_to_hashmap_acc(rest, new_acc)
+            }
+        }
+    }
 
 /// Maps a function over a list.
 let map_list[A]: fn(List[A], fn(A) -> A) -> List[A] = fn(list: List[A], f: fn(A) -> A) -> List[A] {
@@ -1627,9 +1827,10 @@ let map_list[A]: fn(List[A], fn(A) -> A) -> List[A] = fn(list: List[A], f: fn(A)
 pub let filter_fields: fn(Json, fn(string, Json) -> bool) -> Json =
     fn(json: Json, pred: fn(string, Json) -> bool) -> Json {
         match json {
-            JObject(fields) => {
-                let filtered: List[JsonField] = filter_fields_list(fields, pred)
-                return JObject(filtered)
+            JObject(map) => {
+                let entries: List[(string, Json)] = std.map.entries(map)
+                let filtered: List[(string, Json)] = filter_entries(entries, pred)
+                return JObject(entries_to_hashmap(filtered))
             }
             _ => { return json }
         }
@@ -1644,14 +1845,38 @@ pub let filter_fields_deep: fn(Json, fn(string, Json) -> bool) -> Json =
                     return filter_fields_deep(elem, pred)
                 }))
             }
-            JObject(fields) => {
-                let filtered: List[JsonField] = filter_fields_list(fields, pred)
-                let deep_filtered: List[JsonField] = map_list[JsonField](filtered, fn(field: JsonField) -> JsonField {
-                    return JsonField { key: field.key, value: filter_fields_deep(field.value, pred) }
+            JObject(map) => {
+                let entries: List[(string, Json)] = std.map.entries(map)
+                let filtered: List[(string, Json)] = filter_entries(entries, pred)
+                let deep_filtered: List[(string, Json)] = map_list_entry(filtered, fn(entry: (string, Json)) -> (string, Json) {
+                    return (entry.0, filter_fields_deep(entry.1, pred))
                 })
-                return JObject(deep_filtered)
+                return JObject(entries_to_hashmap(deep_filtered))
             }
             _ => { return json }
+        }
+    }
+
+/// Filters entries based on a predicate.
+let filter_entries: fn(List[(string, Json)], fn(string, Json) -> bool) -> List[(string, Json)] =
+    fn(entries: List[(string, Json)], pred: fn(string, Json) -> bool) -> List[(string, Json)] {
+        match entries {
+            Nil => { return Nil }
+            Cons(entry, rest) => {
+                if pred(entry.0, entry.1) {
+                    return Cons(entry, filter_entries(rest, pred))
+                }
+                return filter_entries(rest, pred)
+            }
+        }
+    }
+
+/// Maps a function over entries (different type signature than map_list).
+let map_list_entry: fn(List[(string, Json)], fn((string, Json)) -> (string, Json)) -> List[(string, Json)] =
+    fn(entries: List[(string, Json)], f: fn((string, Json)) -> (string, Json)) -> List[(string, Json)] {
+        match entries {
+            Nil => { return Nil }
+            Cons(entry, rest) => { return Cons(f(entry), map_list_entry(rest, f)) }
         }
     }
 
@@ -1674,10 +1899,11 @@ let filter_fields_list: fn(List[JsonField], fn(string, Json) -> bool) -> List[Js
 // =============================================================================
 
 /// Sets a field in a JSON object. If the key exists, updates it; otherwise adds it.
+/// Uses O(1) HashMap put operation.
 pub let set_field: fn(Json, string, Json) -> Json = fn(json: Json, key: string, value: Json) -> Json {
     match json {
-        JObject(fields) => {
-            let updated: List[JsonField] = set_field_in_list(fields, key, value, false)
+        JObject(map) => {
+            let updated: HashMap = std.map.put(map, key, value)
             return JObject(updated)
         }
         _ => { return json }
@@ -1685,6 +1911,7 @@ pub let set_field: fn(Json, string, Json) -> Json = fn(json: Json, key: string, 
 }
 
 /// Helper to set a field in a list of JsonFields.
+/// Retained for backward compatibility.
 let set_field_in_list: fn(List[JsonField], string, Json, bool) -> List[JsonField] =
     fn(fields: List[JsonField], key: string, value: Json, found: bool) -> List[JsonField] {
         match fields {
@@ -1706,10 +1933,11 @@ let set_field_in_list: fn(List[JsonField], string, Json, bool) -> List[JsonField
     }
 
 /// Removes a field from a JSON object.
+/// Uses O(1) HashMap remove operation.
 pub let remove_field: fn(Json, string) -> Json = fn(json: Json, key: string) -> Json {
     match json {
-        JObject(fields) => {
-            let filtered: List[JsonField] = remove_field_from_list(fields, key)
+        JObject(map) => {
+            let filtered: HashMap = std.map.remove(map, key)
             return JObject(filtered)
         }
         _ => { return json }
@@ -1717,6 +1945,7 @@ pub let remove_field: fn(Json, string) -> Json = fn(json: Json, key: string) -> 
 }
 
 /// Helper to remove a field from a list of JsonFields.
+/// Retained for backward compatibility.
 let remove_field_from_list: fn(List[JsonField], string) -> List[JsonField] =
     fn(fields: List[JsonField], key: string) -> List[JsonField] {
         match fields {
@@ -1737,15 +1966,38 @@ let remove_field_from_list: fn(List[JsonField], string) -> List[JsonField] =
 /// Shallow merges two JSON values. For objects, b's fields override a's.
 pub let merge: fn(Json, Json) -> Json = fn(a: Json, b: Json) -> Json {
     match (a, b) {
-        (JObject(fields_a), JObject(fields_b)) => {
-            let merged: List[JsonField] = merge_fields(fields_a, fields_b)
+        (JObject(map_a), JObject(map_b)) => {
+            let merged: HashMap = merge_hashmaps(map_a, map_b)
             return JObject(merged)
         }
         _ => { return b }
     }
 }
 
+/// Merges two HashMaps, with the second map's fields taking precedence.
+let merge_hashmaps: fn(HashMap, HashMap) -> HashMap = fn(map_a: HashMap, map_b: HashMap) -> HashMap {
+    // Start with all entries from a
+    let entries_a: List[(string, Json)] = std.map.entries(map_a)
+    let entries_b: List[(string, Json)] = std.map.entries(map_b)
+    // Add entries from b, overwriting any from a
+    let base: HashMap = entries_to_hashmap(entries_a)
+    return merge_entries_into(base, entries_b)
+}
+
+/// Merges entries into a HashMap.
+let merge_entries_into: fn(HashMap, List[(string, Json)]) -> HashMap =
+    fn(map: HashMap, entries: List[(string, Json)]) -> HashMap {
+        match entries {
+            Nil => { return map }
+            Cons(entry, rest) => {
+                let new_map: HashMap = std.map.put(map, entry.0, entry.1)
+                return merge_entries_into(new_map, rest)
+            }
+        }
+    }
+
 /// Merges two field lists, with the second list's fields taking precedence.
+/// Retained for backward compatibility.
 let merge_fields: fn(List[JsonField], List[JsonField]) -> List[JsonField] =
     fn(fields_a: List[JsonField], fields_b: List[JsonField]) -> List[JsonField] {
         // Start with fields from a that are not in b, then add all of b
@@ -1791,15 +2043,62 @@ let list_concat[T]: fn(List[T], List[T]) -> List[T] = fn(a: List[T], b: List[T])
 /// Deep merges two JSON values. For objects, recursively merges nested objects.
 pub let merge_deep: fn(Json, Json) -> Json = fn(a: Json, b: Json) -> Json {
     match (a, b) {
-        (JObject(fields_a), JObject(fields_b)) => {
-            let merged: List[JsonField] = merge_fields_deep(fields_a, fields_b)
+        (JObject(map_a), JObject(map_b)) => {
+            let merged: HashMap = merge_hashmaps_deep(map_a, map_b)
             return JObject(merged)
         }
         _ => { return b }
     }
 }
 
+/// Deep merges two HashMaps.
+let merge_hashmaps_deep: fn(HashMap, HashMap) -> HashMap = fn(map_a: HashMap, map_b: HashMap) -> HashMap {
+    let entries_a: List[(string, Json)] = std.map.entries(map_a)
+    let entries_b: List[(string, Json)] = std.map.entries(map_b)
+
+    // Process entries from a, merging with b if key exists in both
+    let a_processed: List[(string, Json)] = map_list_entry(entries_a, fn(entry_a: (string, Json)) -> (string, Json) {
+        match std.map.get(map_b, entry_a.0) {
+            Some(value_b) => {
+                return (entry_a.0, merge_deep(entry_a.1, value_b))
+            }
+            None => { return entry_a }
+        }
+    })
+
+    // Get entries from b that are not in a
+    let b_only: List[(string, Json)] = filter_entries_not_in_map(entries_b, map_a)
+
+    // Combine processed a entries with b-only entries
+    let combined: List[(string, Json)] = list_concat_entries(a_processed, b_only)
+    return entries_to_hashmap(combined)
+}
+
+/// Filters entries not present in a HashMap.
+let filter_entries_not_in_map: fn(List[(string, Json)], HashMap) -> List[(string, Json)] =
+    fn(entries: List[(string, Json)], map: HashMap) -> List[(string, Json)] {
+        match entries {
+            Nil => { return Nil }
+            Cons(entry, rest) => {
+                if std.map.contains(map, entry.0) {
+                    return filter_entries_not_in_map(rest, map)
+                }
+                return Cons(entry, filter_entries_not_in_map(rest, map))
+            }
+        }
+    }
+
+/// Concatenates two entry lists.
+let list_concat_entries: fn(List[(string, Json)], List[(string, Json)]) -> List[(string, Json)] =
+    fn(a: List[(string, Json)], b: List[(string, Json)]) -> List[(string, Json)] {
+        match a {
+            Nil => { return b }
+            Cons(head, tail) => { return Cons(head, list_concat_entries(tail, b)) }
+        }
+    }
+
 /// Deep merges two field lists.
+/// Retained for backward compatibility.
 let merge_fields_deep: fn(List[JsonField], List[JsonField]) -> List[JsonField] =
     fn(fields_a: List[JsonField], fields_b: List[JsonField]) -> List[JsonField] {
         let a_processed: List[JsonField] = map_list[JsonField](fields_a, fn(field_a: JsonField) -> JsonField {
@@ -1865,7 +2164,7 @@ pub let equals: fn(Json, Json) -> bool = fn(a: Json, b: Json) -> bool {
         (JNumber(a_val), JNumber(b_val)) => { return numbers_equal(a_val, b_val) }
         (JString(a_val), JString(b_val)) => { return std.string.equals(a_val, b_val) }
         (JArray(a_arr), JArray(b_arr)) => { return arrays_equal(a_arr, b_arr) }
-        (JObject(a_fields), JObject(b_fields)) => { return objects_equal(a_fields, b_fields) }
+        (JObject(a_map), JObject(b_map)) => { return objects_equal_map(a_map, b_map) }
         _ => { return false }
     }
 }
@@ -1921,6 +2220,39 @@ let arrays_equal: fn(List[Json], List[Json]) -> bool = fn(a: List[Json], b: List
 
 /// Compares two JSON objects for equality (key-order independent).
 /// Two objects are equal if they have the same keys with equal values.
+let objects_equal_map: fn(HashMap, HashMap) -> bool =
+    fn(a_map: HashMap, b_map: HashMap) -> bool {
+        // First check if they have the same number of fields
+        if std.map.size(a_map) != std.map.size(b_map) {
+            return false
+        }
+
+        // Check that every field in 'a' exists in 'b' with equal value
+        let entries_a: List[(string, Json)] = std.map.entries(a_map)
+        return all_entries_match(entries_a, b_map)
+    }
+
+/// Checks if all entries in the list have matching values in the HashMap.
+let all_entries_match: fn(List[(string, Json)], HashMap) -> bool =
+    fn(entries: List[(string, Json)], b_map: HashMap) -> bool {
+        match entries {
+            Nil => { return true }
+            Cons(entry, rest) => {
+                match std.map.get(b_map, entry.0) {
+                    Some(b_value) => {
+                        if equals(entry.1, b_value) {
+                            return all_entries_match(rest, b_map)
+                        }
+                        return false
+                    }
+                    None => { return false }
+                }
+            }
+        }
+    }
+
+/// Compares two JSON objects for equality (key-order independent).
+/// Retained for backward compatibility.
 let objects_equal: fn(List[JsonField], List[JsonField]) -> bool =
     fn(a_fields: List[JsonField], b_fields: List[JsonField]) -> bool {
         // First check if they have the same number of fields
@@ -2193,15 +2525,15 @@ let set_path_segments: fn(Json, List[PathSegment], Json) -> Json =
                 match segment {
                     PathKey(key) => {
                         // Ensure we have an object, or create one
-                        var obj_fields: List[JsonField] = Nil
+                        var obj_map: HashMap = std.map.new()
                         match json {
-                            JObject(fields) => { obj_fields = fields }
+                            JObject(m) => { obj_map = m }
                             _ => {}
                         }
                         // Get or create nested value
-                        let nested: Json = get_or_default_for_segment(obj_fields, key, rest)
+                        let nested: Json = get_or_default_for_segment_map(obj_map, key, rest)
                         let new_value: Json = set_path_segments(nested, rest, value)
-                        return set_field_in_object(obj_fields, key, new_value)
+                        return set_field_in_object_map(obj_map, key, new_value)
                     }
                     PathIndex(idx) => {
                         // Ensure we have an array, or create one
@@ -2221,6 +2553,16 @@ let set_path_segments: fn(Json, List[PathSegment], Json) -> Json =
     }
 
 /// Gets the current value at a key, or creates a default based on next segment.
+let get_or_default_for_segment_map: fn(HashMap, string, List[PathSegment]) -> Json =
+    fn(map: HashMap, key: string, next_segments: List[PathSegment]) -> Json {
+        match std.map.get(map, key) {
+            Some(v) => { return v }
+            None => { return default_for_next_segment(next_segments) }
+        }
+    }
+
+/// Gets the current value at a key, or creates a default based on next segment.
+/// Retained for backward compatibility.
 let get_or_default_for_segment: fn(List[JsonField], string, List[PathSegment]) -> Json =
     fn(fields: List[JsonField], key: string, next_segments: List[PathSegment]) -> Json {
         match find_field(fields, key) {
@@ -2244,18 +2586,26 @@ let default_for_next_segment: fn(List[PathSegment]) -> Json = fn(segments: List[
         Nil => { return JNull }
         Cons(segment, _) => {
             match segment {
-                PathKey(_) => { return JObject(Nil) }
+                PathKey(_) => { return JObject(std.map.new()) }
                 PathIndex(_) => { return JArray(Nil) }
             }
         }
     }
 }
 
+/// Sets a field in an object HashMap, returning a new JObject.
+let set_field_in_object_map: fn(HashMap, string, Json) -> Json =
+    fn(map: HashMap, key: string, value: Json) -> Json {
+        let updated: HashMap = std.map.put(map, key, value)
+        return JObject(updated)
+    }
+
 /// Sets a field in an object, returning a new JObject.
+/// Retained for backward compatibility.
 let set_field_in_object: fn(List[JsonField], string, Json) -> Json =
     fn(fields: List[JsonField], key: string, value: Json) -> Json {
         let updated: List[JsonField] = set_field_in_list(fields, key, value, false)
-        return JObject(updated)
+        return JObject(fields_to_hashmap(updated))
     }
 
 /// Sets a value at an index in a list, extending with JNull if needed.
@@ -2415,13 +2765,19 @@ pub let json_array_empty: fn() -> Json = fn() -> Json {
 }
 
 /// Creates a JSON object from a list of fields.
+/// Converts the List[JsonField] to internal HashMap representation.
 pub let json_object: fn(List[JsonField]) -> Json = fn(fields: List[JsonField]) -> Json {
-    return JObject(fields)
+    return JObject(fields_to_hashmap(fields))
+}
+
+/// Creates a JSON object from a HashMap.
+pub let json_object_from_map: fn(HashMap) -> Json = fn(map: HashMap) -> Json {
+    return JObject(map)
 }
 
 /// Creates an empty JSON object.
 pub let json_object_empty: fn() -> Json = fn() -> Json {
-    return JObject(Nil)
+    return JObject(std.map.new())
 }
 
 // =============================================================================
@@ -2489,7 +2845,7 @@ pub let with_object: fn(JsonBuilder, string, JsonBuilder) -> JsonBuilder =
 /// Builds the final JSON object from the builder.
 /// Fields are in reverse order of addition (last added is first).
 pub let build: fn(JsonBuilder) -> Json = fn(b: JsonBuilder) -> Json {
-    return JObject(reverse_fields(b.fields))
+    return JObject(fields_to_hashmap(reverse_fields(b.fields)))
 }
 
 /// Reverses a list of fields to maintain insertion order.

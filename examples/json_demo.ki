@@ -3,7 +3,7 @@
 
 module json_demo
 
-import src.json.{ Json, JsonField, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, type_name, parse, stringify, get_field, as_string, as_int, set_field, remove_field, merge }
+import src.json.{ Json, JsonField, JNull, JBool, JNumber, JString, JArray, is_null, is_bool, type_name, parse, stringify, get_field, as_string, as_int, set_field, remove_field, merge, json_object }
 import std.list.{ List, Cons, Nil }
 
 // =============================================================================
@@ -18,7 +18,7 @@ effect fn demo_building() -> IO[void] {
     let name_field: JsonField = JsonField { key: "name", value: JString("Alice") }
     let age_field: JsonField = JsonField { key: "age", value: JNumber(30.0) }
     let active_field: JsonField = JsonField { key: "active", value: JBool(true) }
-    let person: Json = JObject(Cons(name_field, Cons(age_field, Cons(active_field, Nil))))
+    let person: Json = json_object(Cons(name_field, Cons(age_field, Cons(active_field, Nil))))
 
     std.io.println("Built object:")
     std.io.println(stringify(person))
@@ -123,11 +123,11 @@ effect fn demo_serialization() -> IO[void] {
 
     let alice_field: JsonField = JsonField { key: "name", value: JString("Alice") }
     let bob_field: JsonField = JsonField { key: "name", value: JString("Bob") }
-    let alice_obj: Json = JObject(Cons(alice_field, Nil))
-    let bob_obj: Json = JObject(Cons(bob_field, Nil))
+    let alice_obj: Json = json_object(Cons(alice_field, Nil))
+    let bob_obj: Json = json_object(Cons(bob_field, Nil))
     let users_arr: Json = JArray(Cons(alice_obj, Cons(bob_obj, Nil)))
     let users_field: JsonField = JsonField { key: "users", value: users_arr }
-    let data: Json = JObject(Cons(users_field, Nil))
+    let data: Json = json_object(Cons(users_field, Nil))
 
     std.io.println("Compact:")
     std.io.println(stringify(data))
@@ -146,7 +146,7 @@ effect fn demo_transforms() -> IO[void] {
 
     let x_field: JsonField = JsonField { key: "x", value: JNumber(10.0) }
     let y_field: JsonField = JsonField { key: "y", value: JNumber(20.0) }
-    let obj: Json = JObject(Cons(x_field, Cons(y_field, Nil)))
+    let obj: Json = json_object(Cons(x_field, Cons(y_field, Nil)))
 
     std.io.println("Original:")
     std.io.println(stringify(obj))
@@ -175,11 +175,11 @@ effect fn demo_merge() -> IO[void] {
 
     let a_field: JsonField = JsonField { key: "a", value: JNumber(1.0) }
     let b_field: JsonField = JsonField { key: "b", value: JNumber(2.0) }
-    let base: Json = JObject(Cons(a_field, Cons(b_field, Nil)))
+    let base: Json = json_object(Cons(a_field, Cons(b_field, Nil)))
 
     let b2_field: JsonField = JsonField { key: "b", value: JNumber(20.0) }
     let c_field: JsonField = JsonField { key: "c", value: JNumber(30.0) }
-    let overlay: Json = JObject(Cons(b2_field, Cons(c_field, Nil)))
+    let overlay: Json = json_object(Cons(b2_field, Cons(c_field, Nil)))
 
     std.io.println("Base:")
     std.io.println(stringify(base))
