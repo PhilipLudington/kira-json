@@ -4,7 +4,10 @@
 
 module fuzz_json
 
-import src.json.{ Json, JsonError, parse, parse_strict, parse_with_max_depth, stringify, equals }
+import src.json.types.{ Json, JsonError }
+import src.json.parser.{ parse, parse_strict, parse_with_max_depth }
+import src.json.serializer.{ stringify }
+import src.json.equality.{ equals }
 
 // =============================================================================
 // Pseudo-Random Number Generator (Linear Congruential Generator)

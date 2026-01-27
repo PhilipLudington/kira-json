@@ -1,0 +1,700 @@
+/// Core type definitions for the JSON library.
+/// This module contains all public types, error types, and basic type utilities.
+
+module json.types
+
+// =============================================================================
+// Core Types
+// =============================================================================
+
+/// Represents a JSON value.
+/// JSON can be null, boolean, number, string, array, or object.
+/// Note: JObject uses HashMap for O(1) field lookup.
+pub type Json =
+    | JNull
+    | JBool(bool)
+    | JNumber(f64)
+    | JString(string)
+    | JArray(List[Json])
+    | JObject(HashMap)
+
+/// A key-value pair in a JSON object.
+pub type JsonField = {
+    key: string,
+    value: Json
+}
+
+/// Creates a JsonField from a key and value.
+pub let make_field: fn(string, Json) -> JsonField = fn(key: string, value: Json) -> JsonField {
+    return JsonField { key: key, value: value }
+}
+
+/// Error information from parsing, including position in the input.
+/// @deprecated Use JsonError for pattern matching on specific error types.
+pub type ParseError = {
+    message: string,
+    line: i32,
+    column: i32
+}
+
+/// Structured error type for JSON parsing failures.
+/// Enables pattern matching on specific error categories.
+pub type JsonError =
+    | UnexpectedEof { expected: string, context: string, line: i32, col: i32 }
+    | UnexpectedToken { expected: string, found: string, line: i32, col: i32 }
+    | UnterminatedString { line: i32, col: i32 }
+    | InvalidEscape { sequence: string, reason: string, line: i32, col: i32 }
+    | ControlChar { code: i32, line: i32, col: i32 }
+    | InvalidNumber { value: string, reason: string, line: i32, col: i32 }
+    | TrailingContent { found: string, line: i32, col: i32 }
+    | MaxDepthExceeded { depth: i32, max_depth: i32, line: i32, col: i32 }
+    | DuplicateKey { key: string, line: i32, col: i32 }
+    | StringTooLong { length: i32, max_length: i32, line: i32, col: i32 }
+    | TooManyArrayItems { count: i32, max_items: i32, line: i32, col: i32 }
+    | TooManyObjectFields { count: i32, max_fields: i32, line: i32, col: i32 }
+
+/// Resource limits for parsing untrusted JSON input.
+/// Used to prevent resource exhaustion attacks from malicious input.
+pub type ParseLimits = {
+    /// Maximum nesting depth for arrays and objects (default: 128)
+    max_depth: i32,
+    /// Maximum string length in characters (None = unlimited)
+    max_string_length: Option[i32],
+    /// Maximum number of array items (None = unlimited)
+    max_array_items: Option[i32],
+    /// Maximum number of object fields (None = unlimited)
+    max_object_fields: Option[i32]
+}
+
+/// Default maximum nesting depth for JSON parsing.
+/// This prevents stack overflow from deeply nested structures.
+/// Set conservatively to stay well under Kira's 1000 call depth limit,
+/// since each nesting level uses multiple call frames.
+pub let default_max_depth: fn() -> i32 = fn() -> i32 {
+    return 128
+}
+
+/// Returns sensible default limits for parsing untrusted JSON input.
+/// - max_depth: 128 (prevents stack overflow from deep nesting)
+/// - max_string_length: 10_000_000 (10 MB of characters)
+/// - max_array_items: 1_000_000 (1 million items)
+/// - max_object_fields: 100_000 (100 thousand fields)
+pub let default_limits: fn() -> ParseLimits = fn() -> ParseLimits {
+    return ParseLimits {
+        max_depth: 128,
+        max_string_length: Some(10000000),
+        max_array_items: Some(1000000),
+        max_object_fields: Some(100000)
+    }
+}
+
+/// Returns unlimited limits (no restrictions except max_depth).
+/// Use with caution on untrusted input.
+pub let unlimited_limits: fn() -> ParseLimits = fn() -> ParseLimits {
+    return ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: None,
+        max_object_fields: None
+    }
+}
+
+// =============================================================================
+// Error Formatting
+// =============================================================================
+
+/// Converts a JsonError to a human-readable string.
+pub let format_error: fn(JsonError) -> string = fn(err: JsonError) -> string {
+    match err {
+        DuplicateKey { key: k, line: l, col: c } => {
+            return std.string.concat("Duplicate key '", std.string.concat(k, std.string.concat("' at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))))
+        }
+        InvalidNumber { value: val, reason: rsn, line: l, col: c } => {
+            return std.string.concat("Invalid number '", std.string.concat(val, std.string.concat("' at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": ", rsn)))))))
+        }
+        InvalidEscape { sequence: seq, reason: rsn, line: l, col: c } => {
+            return std.string.concat("Invalid escape sequence '", std.string.concat(seq, std.string.concat("' at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": ", rsn)))))))
+        }
+        UnexpectedEof { expected: exp, context: ctx, line: l, col: c } => {
+            return std.string.concat("Unexpected end of input at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": expected ", std.string.concat(exp, std.string.concat(" in ", ctx)))))))
+        }
+        UnexpectedToken { expected: exp, found: fnd, line: l, col: c } => {
+            return std.string.concat("Unexpected token at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": expected ", std.string.concat(exp, std.string.concat(", found '", std.string.concat(fnd, "'"))))))))
+        }
+        TrailingContent { found: fnd, line: l, col: c } => {
+            return std.string.concat("Unexpected content after JSON value at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": found '", std.string.concat(fnd, "'"))))))
+        }
+        ControlChar { code: cd, line: l, col: c } => {
+            return std.string.concat("Unescaped control character (code ", std.string.concat(std.int.to_string(cd), std.string.concat(") at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))))
+        }
+        MaxDepthExceeded { depth: d, max_depth: m, line: l, col: c } => {
+            return std.string.concat("Maximum nesting depth exceeded at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": depth ", std.string.concat(std.int.to_string(d), std.string.concat(" exceeds limit ", std.int.to_string(m))))))))
+        }
+        StringTooLong { length: len, max_length: max, line: l, col: c } => {
+            return std.string.concat("String too long at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": length ", std.string.concat(std.int.to_string(len), std.string.concat(" exceeds limit ", std.int.to_string(max))))))))
+        }
+        TooManyArrayItems { count: cnt, max_items: max, line: l, col: c } => {
+            return std.string.concat("Too many array items at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": count ", std.string.concat(std.int.to_string(cnt), std.string.concat(" exceeds limit ", std.int.to_string(max))))))))
+        }
+        TooManyObjectFields { count: cnt, max_fields: max, line: l, col: c } => {
+            return std.string.concat("Too many object fields at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.string.concat(std.int.to_string(c), std.string.concat(": count ", std.string.concat(std.int.to_string(cnt), std.string.concat(" exceeds limit ", std.int.to_string(max))))))))
+        }
+        UnterminatedString { line: l, col: c } => {
+            return std.string.concat("Unterminated string at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))
+        }
+    }
+}
+
+/// Returns the line number from a JsonError.
+pub let error_line: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
+    match err {
+        DuplicateKey { key: _, line: l, col: _ } => { return l }
+        InvalidNumber { value: _, reason: _, line: l, col: _ } => { return l }
+        InvalidEscape { sequence: _, reason: _, line: l, col: _ } => { return l }
+        UnexpectedEof { expected: _, context: _, line: l, col: _ } => { return l }
+        UnexpectedToken { expected: _, found: _, line: l, col: _ } => { return l }
+        TrailingContent { found: _, line: l, col: _ } => { return l }
+        ControlChar { code: _, line: l, col: _ } => { return l }
+        MaxDepthExceeded { depth: _, max_depth: _, line: l, col: _ } => { return l }
+        StringTooLong { length: _, max_length: _, line: l, col: _ } => { return l }
+        TooManyArrayItems { count: _, max_items: _, line: l, col: _ } => { return l }
+        TooManyObjectFields { count: _, max_fields: _, line: l, col: _ } => { return l }
+        UnterminatedString { line: l, col: _ } => { return l }
+    }
+}
+
+/// Returns the column number from a JsonError.
+pub let error_column: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
+    match err {
+        DuplicateKey { key: _, line: _, col: c } => { return c }
+        InvalidNumber { value: _, reason: _, line: _, col: c } => { return c }
+        InvalidEscape { sequence: _, reason: _, line: _, col: c } => { return c }
+        UnexpectedEof { expected: _, context: _, line: _, col: c } => { return c }
+        UnexpectedToken { expected: _, found: _, line: _, col: c } => { return c }
+        TrailingContent { found: _, line: _, col: c } => { return c }
+        ControlChar { code: _, line: _, col: c } => { return c }
+        MaxDepthExceeded { depth: _, max_depth: _, line: _, col: c } => { return c }
+        StringTooLong { length: _, max_length: _, line: _, col: c } => { return c }
+        TooManyArrayItems { count: _, max_items: _, line: _, col: c } => { return c }
+        TooManyObjectFields { count: _, max_fields: _, line: _, col: c } => { return c }
+        UnterminatedString { line: _, col: c } => { return c }
+    }
+}
+
+// =============================================================================
+// JSON Schema Validation Types
+// =============================================================================
+
+/// Schema for validating JSON values.
+/// Recursive through SchemaProperty list for nested object validation.
+pub type Schema = {
+    /// Expected type: "null", "boolean", "number", "integer", "string", "array", "object"
+    type_constraint: Option[string],
+    /// List of required property names (for objects)
+    required: Option[List[string]],
+    /// Schemas for specific properties (for objects)
+    properties: Option[List[SchemaProperty]],
+    /// Minimum value (for numbers)
+    minimum: Option[f64],
+    /// Maximum value (for numbers)
+    maximum: Option[f64],
+    /// Minimum string length
+    min_length: Option[i32],
+    /// Maximum string length
+    max_length: Option[i32],
+    /// Minimum array length
+    min_items: Option[i32],
+    /// Maximum array length
+    max_items: Option[i32],
+    /// Schema for array items (recursive through SchemaRef)
+    items: Option[SchemaRef],
+    /// Allowed values (any type)
+    enum_values: Option[List[Json]]
+}
+
+/// A named property with its schema.
+pub type SchemaProperty = {
+    name: string,
+    schema: SchemaRef
+}
+
+/// Reference wrapper for recursive schema definition.
+/// Uses sum type pattern for recursion like List[T].
+pub type SchemaRef =
+    | SchemaInline(Schema)
+
+/// Validation error with path context.
+pub type SchemaError =
+    | TypeMismatch { expected: string, actual: string, path: string }
+    | MissingRequired { field: string, path: string }
+    | MinimumViolation { value: f64, minimum: f64, path: string }
+    | MaximumViolation { value: f64, maximum: f64, path: string }
+    | MinLengthViolation { actual: i32, min_length: i32, path: string }
+    | MaxLengthViolation { actual: i32, max_length: i32, path: string }
+    | MinItemsViolation { actual: i32, min_items: i32, path: string }
+    | MaxItemsViolation { actual: i32, max_items: i32, path: string }
+    | EnumViolation { path: string }
+    | IntegerRequired { value: f64, path: string }
+
+/// Formats a schema error as a human-readable string.
+pub let format_schema_error: fn(SchemaError) -> string = fn(err: SchemaError) -> string {
+    match err {
+        TypeMismatch { expected: exp, actual: act, path: p } => {
+            return std.string.concat("Type mismatch at '", std.string.concat(p, std.string.concat("': expected ", std.string.concat(exp, std.string.concat(", got ", act)))))
+        }
+        MissingRequired { field: f, path: p } => {
+            return std.string.concat("Missing required field '", std.string.concat(f, std.string.concat("' at '", std.string.concat(p, "'"))))
+        }
+        MinimumViolation { value: v, minimum: m, path: p } => {
+            return std.string.concat("Minimum violation at '", std.string.concat(p, std.string.concat("': value ", std.string.concat(std.float.to_string(v), std.string.concat(" is less than minimum ", std.float.to_string(m))))))
+        }
+        MaximumViolation { value: v, maximum: m, path: p } => {
+            return std.string.concat("Maximum violation at '", std.string.concat(p, std.string.concat("': value ", std.string.concat(std.float.to_string(v), std.string.concat(" exceeds maximum ", std.float.to_string(m))))))
+        }
+        MinLengthViolation { actual: a, min_length: m, path: p } => {
+            return std.string.concat("Minimum length violation at '", std.string.concat(p, std.string.concat("': length ", std.string.concat(std.int.to_string(a), std.string.concat(" is less than minimum ", std.int.to_string(m))))))
+        }
+        MaxLengthViolation { actual: a, max_length: m, path: p } => {
+            return std.string.concat("Maximum length violation at '", std.string.concat(p, std.string.concat("': length ", std.string.concat(std.int.to_string(a), std.string.concat(" exceeds maximum ", std.int.to_string(m))))))
+        }
+        MinItemsViolation { actual: a, min_items: m, path: p } => {
+            return std.string.concat("Minimum items violation at '", std.string.concat(p, std.string.concat("': count ", std.string.concat(std.int.to_string(a), std.string.concat(" is less than minimum ", std.int.to_string(m))))))
+        }
+        MaxItemsViolation { actual: a, max_items: m, path: p } => {
+            return std.string.concat("Maximum items violation at '", std.string.concat(p, std.string.concat("': count ", std.string.concat(std.int.to_string(a), std.string.concat(" exceeds maximum ", std.int.to_string(m))))))
+        }
+        EnumViolation { path: p } => {
+            return std.string.concat("Enum violation at '", std.string.concat(p, "': value not in allowed set"))
+        }
+        IntegerRequired { value: v, path: p } => {
+            return std.string.concat("Integer required at '", std.string.concat(p, std.string.concat("': value ", std.string.concat(std.float.to_string(v), " is not an integer"))))
+        }
+    }
+}
+
+/// Formats multiple schema errors as a newline-separated string.
+pub let format_schema_errors: fn(List[SchemaError]) -> string = fn(errors: List[SchemaError]) -> string {
+    return format_schema_errors_acc(errors, std.builder.new())
+}
+
+let format_schema_errors_acc: fn(List[SchemaError], StringBuilder) -> string =
+    fn(errors: List[SchemaError], sb: StringBuilder) -> string {
+        match errors {
+            Nil => { return std.builder.build(sb) }
+            Cons(err, Nil) => {
+                let new_sb: StringBuilder = std.builder.append(sb, format_schema_error(err))
+                return std.builder.build(new_sb)
+            }
+            Cons(err, rest) => {
+                let new_sb: StringBuilder = std.builder.append(std.builder.append(sb, format_schema_error(err)), "\n")
+                return format_schema_errors_acc(rest, new_sb)
+            }
+        }
+    }
+
+// =============================================================================
+// Path Error Type
+// =============================================================================
+
+/// Error type for path parsing failures.
+pub type PathError =
+    | EmptyPath
+    | InvalidIndex { segment: string }
+    | UnterminatedBracket { path: string }
+
+/// Formats a PathError as a human-readable string.
+pub let format_path_error: fn(PathError) -> string = fn(err: PathError) -> string {
+    match err {
+        EmptyPath => { return "Empty path" }
+        InvalidIndex { segment: s } => {
+            return std.string.concat("Invalid array index: ", s)
+        }
+        UnterminatedBracket { path: p } => {
+            return std.string.concat("Unterminated bracket in path: ", p)
+        }
+    }
+}
+
+// =============================================================================
+// Type Checking Predicates
+// =============================================================================
+
+/// Returns true if the JSON value is null.
+pub let is_null: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JNull => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns true if the JSON value is a boolean.
+pub let is_bool: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JBool(_) => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns true if the JSON value is a number.
+pub let is_number: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JNumber(_) => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns true if the JSON value is a string.
+pub let is_string: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JString(_) => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns true if the JSON value is an array.
+pub let is_array: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JArray(_) => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns true if the JSON value is an object.
+pub let is_object: fn(Json) -> bool = fn(json: Json) -> bool {
+    match json {
+        JObject(_) => { return true }
+        _ => { return false }
+    }
+}
+
+/// Returns the type name of a JSON value as a string.
+pub let type_name: fn(Json) -> string = fn(json: Json) -> string {
+    match json {
+        JNull => { return "null" }
+        JBool(_) => { return "boolean" }
+        JNumber(_) => { return "number" }
+        JString(_) => { return "string" }
+        JArray(_) => { return "array" }
+        JObject(_) => { return "object" }
+    }
+}
+
+// =============================================================================
+// Value Extractors
+// =============================================================================
+
+/// Extracts the string value if the JSON is a string.
+pub let as_string: fn(Json) -> Option[string] = fn(json: Json) -> Option[string] {
+    match json {
+        JString(s) => { return Some(s) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the number value if the JSON is a number.
+pub let as_number: fn(Json) -> Option[f64] = fn(json: Json) -> Option[f64] {
+    match json {
+        JNumber(n) => { return Some(n) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the number as an integer if the JSON is a number.
+/// Truncates the number towards zero.
+pub let as_int: fn(Json) -> Option[i64] = fn(json: Json) -> Option[i64] {
+    match json {
+        JNumber(n) => { return Some(std.math.trunc_to_i64(n)) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the boolean value if the JSON is a boolean.
+pub let as_bool: fn(Json) -> Option[bool] = fn(json: Json) -> Option[bool] {
+    match json {
+        JBool(b) => { return Some(b) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the array if the JSON is an array.
+pub let as_array: fn(Json) -> Option[List[Json]] = fn(json: Json) -> Option[List[Json]] {
+    match json {
+        JArray(arr) => { return Some(arr) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the object fields if the JSON is an object.
+/// Converts the internal HashMap to a List[JsonField] for backward compatibility.
+///
+/// **Performance:** O(n) where n is the number of fields (HashMap to List conversion).
+/// Prefer `as_object_map` for O(1) access when you need HashMap operations directly.
+pub let as_object: fn(Json) -> Option[List[JsonField]] = fn(json: Json) -> Option[List[JsonField]] {
+    match json {
+        JObject(map) => { return Some(hashmap_to_fields(map)) }
+        _ => { return None }
+    }
+}
+
+/// Extracts the HashMap directly if the JSON is an object.
+/// More efficient than as_object when you need HashMap operations.
+pub let as_object_map: fn(Json) -> Option[HashMap] = fn(json: Json) -> Option[HashMap] {
+    match json {
+        JObject(map) => { return Some(map) }
+        _ => { return None }
+    }
+}
+
+// =============================================================================
+// Field/Index Accessors
+// =============================================================================
+
+/// Gets a field value from a JSON object by key.
+/// Returns None if not an object or key not found.
+/// Uses O(1) HashMap lookup.
+pub let get_field: fn(Json, string) -> Option[Json] = fn(json: Json, key: string) -> Option[Json] {
+    match json {
+        JObject(map) => { return std.map.get(map, key) }
+        _ => { return None }
+    }
+}
+
+/// Gets an element from a JSON array by index.
+/// Returns None if not an array or index out of bounds.
+///
+/// **Performance:** O(n) where n is the index. Arrays are linked lists,
+/// requiring traversal to reach the target index. For frequent random
+/// access, consider using objects with string keys instead.
+pub let get_index: fn(Json, i32) -> Option[Json] = fn(json: Json, index: i32) -> Option[Json] {
+    match json {
+        JArray(arr) => { return list_get(arr, index) }
+        _ => { return None }
+    }
+}
+
+/// Returns the size of a JSON array or object.
+/// Returns None for other types.
+///
+/// **Performance:** O(n) for arrays (linked list traversal), O(1) for objects
+/// (HashMap size is cached).
+pub let size: fn(Json) -> Option[i32] = fn(json: Json) -> Option[i32] {
+    match json {
+        JArray(arr) => { return Some(list_length[Json](arr)) }
+        JObject(map) => { return Some(std.map.size(map)) }
+        _ => { return None }
+    }
+}
+
+/// Returns the keys of a JSON object.
+/// Returns None if not an object.
+pub let keys: fn(Json) -> Option[List[string]] = fn(json: Json) -> Option[List[string]] {
+    match json {
+        JObject(map) => { return Some(std.map.keys(map)) }
+        _ => { return None }
+    }
+}
+
+/// Returns the values of a JSON object.
+/// Returns None if not an object.
+pub let values: fn(Json) -> Option[List[Json]] = fn(json: Json) -> Option[List[Json]] {
+    match json {
+        JObject(map) => { return Some(std.map.values(map)) }
+        _ => { return None }
+    }
+}
+
+// =============================================================================
+// Internal Utilities (needed by this module)
+// =============================================================================
+
+/// Converts a HashMap to a List[JsonField].
+pub let hashmap_to_fields: fn(HashMap) -> List[JsonField] = fn(map: HashMap) -> List[JsonField] {
+    let entries: List[(string, Json)] = std.map.entries(map)
+    return entries_to_fields(entries)
+}
+
+/// Converts a list of (string, Json) tuples to List[JsonField].
+let entries_to_fields: fn(List[(string, Json)]) -> List[JsonField] =
+    fn(entries: List[(string, Json)]) -> List[JsonField] {
+        match entries {
+            Nil => { return Nil }
+            Cons(entry, rest) => {
+                let field: JsonField = JsonField { key: entry.0, value: entry.1 }
+                return Cons(field, entries_to_fields(rest))
+            }
+        }
+    }
+
+/// Converts a List[JsonField] to a HashMap.
+pub let fields_to_hashmap: fn(List[JsonField]) -> HashMap = fn(fields: List[JsonField]) -> HashMap {
+    return fields_to_hashmap_acc(fields, std.map.new())
+}
+
+/// Helper to convert fields to HashMap with accumulator.
+let fields_to_hashmap_acc: fn(List[JsonField], HashMap) -> HashMap =
+    fn(fields: List[JsonField], acc: HashMap) -> HashMap {
+        match fields {
+            Nil => { return acc }
+            Cons(field, rest) => {
+                let new_acc: HashMap = std.map.put(acc, field.key, field.value)
+                return fields_to_hashmap_acc(rest, new_acc)
+            }
+        }
+    }
+
+/// Helper to get an element from a list by index.
+pub let list_get: fn(List[Json], i32) -> Option[Json] = fn(list: List[Json], index: i32) -> Option[Json] {
+    if index < 0 {
+        return None
+    }
+    match list {
+        Nil => { return None }
+        Cons(head, tail) => {
+            if index == 0 {
+                return Some(head)
+            }
+            return list_get(tail, index - 1)
+        }
+    }
+}
+
+/// Helper to get the length of a list.
+pub let list_length[T]: fn(List[T]) -> i32 = fn(list: List[T]) -> i32 {
+    match list {
+        Nil => { return 0 }
+        Cons(_, tail) => { return 1 + list_length[T](tail) }
+    }
+}
+
+/// Reverses a list.
+pub let list_reverse[T]: fn(List[T]) -> List[T] = fn(list: List[T]) -> List[T] {
+    return list_reverse_acc[T](list, Nil)
+}
+
+/// Helper to reverse a list with accumulator.
+let list_reverse_acc[T]: fn(List[T], List[T]) -> List[T] =
+    fn(list: List[T], acc: List[T]) -> List[T] {
+        match list {
+            Nil => { return acc }
+            Cons(head, tail) => { return list_reverse_acc[T](tail, Cons(head, acc)) }
+        }
+    }
+
+/// Appends two lists.
+pub let list_append[T]: fn(List[T], List[T]) -> List[T] = fn(a: List[T], b: List[T]) -> List[T] {
+    match a {
+        Nil => { return b }
+        Cons(head, tail) => { return Cons(head, list_append[T](tail, b)) }
+    }
+}
+
+// =============================================================================
+// Error Context Formatting
+// =============================================================================
+
+/// Formats an error with context from the input string.
+/// Shows the line where the error occurred with a column indicator.
+pub let format_error_with_context: fn(string, JsonError) -> string =
+    fn(input: string, err: JsonError) -> string {
+        let line_num: i32 = error_line(err)
+        let col_num: i32 = error_column(err)
+        let error_msg: string = format_error(err)
+
+        let line_content: string = get_line_at(input, line_num)
+        let indicator: string = build_indicator(col_num)
+
+        let sb: StringBuilder = std.builder.new()
+        let sb2: StringBuilder = std.builder.append(sb, error_msg)
+        let sb3: StringBuilder = std.builder.append(sb2, "\n")
+        let sb4: StringBuilder = std.builder.append(sb3, line_content)
+        let sb5: StringBuilder = std.builder.append(sb4, "\n")
+        let sb6: StringBuilder = std.builder.append(sb5, indicator)
+        return std.builder.build(sb6)
+    }
+
+/// Helper for safe substring extraction.
+let safe_substring: fn(string, i32, i32) -> string = fn(s: string, start: i32, end: i32) -> string {
+    match std.string.substring(s, start, end) {
+        Ok(sub) => { return sub }
+        Err(_) => { return "" }
+    }
+}
+
+/// Gets a specific line from the input (1-indexed).
+let get_line_at: fn(string, i32) -> string = fn(input: string, target_line: i32) -> string {
+    let lines: List[string] = split_lines(input)
+    return get_nth_line(lines, target_line, 1)
+}
+
+let get_nth_line: fn(List[string], i32, i32) -> string =
+    fn(lines: List[string], target: i32, current: i32) -> string {
+        match lines {
+            Nil => { return "" }
+            Cons(line, rest) => {
+                if current == target {
+                    return line
+                }
+                return get_nth_line(rest, target, current + 1)
+            }
+        }
+    }
+
+/// Splits a string into lines.
+let split_lines: fn(string) -> List[string] = fn(input: string) -> List[string] {
+    return split_lines_acc(input, 0, std.builder.new())
+}
+
+let split_lines_acc: fn(string, i32, StringBuilder) -> List[string] =
+    fn(input: string, pos: i32, current: StringBuilder) -> List[string] {
+        let len: i32 = std.string.byte_length(input)
+        if pos >= len {
+            let final_line: string = std.builder.build(current)
+            if std.string.byte_length(final_line) > 0 {
+                return Cons(final_line, Nil)
+            }
+            return Nil
+        }
+        let c: string = safe_substring(input, pos, pos + 1)
+        if std.string.equals(c, "\n") {
+            let line: string = std.builder.build(current)
+            return Cons(line, split_lines_acc(input, pos + 1, std.builder.new()))
+        }
+        if std.string.equals(c, "\r") {
+            let next_pos: i32 = pos + 1
+            if next_pos < len {
+                let next_c: string = safe_substring(input, next_pos, next_pos + 1)
+                if std.string.equals(next_c, "\n") {
+                    let line: string = std.builder.build(current)
+                    return Cons(line, split_lines_acc(input, pos + 2, std.builder.new()))
+                }
+            }
+            let line: string = std.builder.build(current)
+            return Cons(line, split_lines_acc(input, pos + 1, std.builder.new()))
+        }
+        let new_current: StringBuilder = std.builder.append(current, c)
+        return split_lines_acc(input, pos + 1, new_current)
+    }
+
+/// Builds a column indicator string (spaces followed by ^).
+let build_indicator: fn(i32) -> string = fn(col: i32) -> string {
+    let spaces: string = repeat_char(" ", col - 1)
+    return std.string.concat(spaces, "^")
+}
+
+/// Repeats a character n times.
+let repeat_char: fn(string, i32) -> string = fn(c: string, n: i32) -> string {
+    if n <= 0 {
+        return ""
+    }
+    let sb: StringBuilder = std.builder.new()
+    return repeat_char_acc(sb, c, n)
+}
+
+let repeat_char_acc: fn(StringBuilder, string, i32) -> string =
+    fn(sb: StringBuilder, c: string, n: i32) -> string {
+        if n <= 0 {
+            return std.builder.build(sb)
+        }
+        let new_sb: StringBuilder = std.builder.append(sb, c)
+        return repeat_char_acc(new_sb, c, n - 1)
+    }

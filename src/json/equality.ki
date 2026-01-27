@@ -1,0 +1,100 @@
+/// JSON equality comparison.
+/// Provides deep structural equality for JSON values.
+
+module json.equality
+
+import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField, list_length }
+
+// =============================================================================
+// Public API
+// =============================================================================
+
+/// Compares two JSON values for deep structural equality.
+/// Objects are compared by key-value pairs, independent of key order.
+/// Numbers are compared with tolerance for floating point precision issues.
+pub let equals: fn(Json, Json) -> bool = fn(a: Json, b: Json) -> bool {
+    match (a, b) {
+        (JNull, JNull) => { return true }
+        (JBool(a_val), JBool(b_val)) => { return a_val == b_val }
+        (JNumber(a_val), JNumber(b_val)) => { return numbers_equal(a_val, b_val) }
+        (JString(a_val), JString(b_val)) => { return std.string.equals(a_val, b_val) }
+        (JArray(a_arr), JArray(b_arr)) => { return arrays_equal(a_arr, b_arr) }
+        (JObject(a_map), JObject(b_map)) => { return objects_equal_map(a_map, b_map) }
+        _ => { return false }
+    }
+}
+
+// =============================================================================
+// Internal Helpers
+// =============================================================================
+
+/// Compares two floating-point numbers for equality.
+let numbers_equal: fn(f64, f64) -> bool = fn(a: f64, b: f64) -> bool {
+    if a == b {
+        return true
+    }
+
+    if std.float.is_nan(a) and std.float.is_nan(b) {
+        return true
+    }
+
+    if std.float.is_infinite(a) or std.float.is_infinite(b) {
+        return false
+    }
+
+    let diff: f64 = std.float.abs(a - b)
+    let max_val: f64 = std.float.max(std.float.abs(a), std.float.abs(b))
+
+    let small_threshold: f64 = 0.0000000001
+    let abs_epsilon: f64 = 0.000000000000001
+    let rel_epsilon: f64 = 0.00000000000001
+
+    if max_val < small_threshold {
+        return diff < abs_epsilon
+    }
+    return diff < max_val * rel_epsilon
+}
+
+/// Compares two JSON arrays for equality (order-dependent).
+let arrays_equal: fn(List[Json], List[Json]) -> bool = fn(a: List[Json], b: List[Json]) -> bool {
+    match (a, b) {
+        (Nil, Nil) => { return true }
+        (Cons(a_head, a_tail), Cons(b_head, b_tail)) => {
+            if equals(a_head, b_head) {
+                return arrays_equal(a_tail, b_tail)
+            }
+            return false
+        }
+        _ => { return false }
+    }
+}
+
+/// Compares two JSON objects for equality (key-order independent).
+let objects_equal_map: fn(HashMap, HashMap) -> bool =
+    fn(a_map: HashMap, b_map: HashMap) -> bool {
+        if std.map.size(a_map) != std.map.size(b_map) {
+            return false
+        }
+
+        let entries_a: List[(string, Json)] = std.map.entries(a_map)
+        return all_entries_match(entries_a, b_map)
+    }
+
+/// Checks if all entries in the list have matching values in the HashMap.
+let all_entries_match: fn(List[(string, Json)], HashMap) -> bool =
+    fn(entries: List[(string, Json)], b_map: HashMap) -> bool {
+        match entries {
+            Nil => { return true }
+            Cons(entry, rest) => {
+                match std.map.get(b_map, entry.0) {
+                    Some(b_value) => {
+                        if equals(entry.1, b_value) {
+                            return all_entries_match(rest, b_map)
+                        }
+                        return false
+                    }
+                    None => { return false }
+                }
+            }
+        }
+    }

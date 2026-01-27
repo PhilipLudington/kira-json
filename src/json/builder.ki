@@ -1,0 +1,141 @@
+/// JSON builder pattern and convenience constructors.
+/// Provides fluent object construction and type-safe constructors.
+
+module json.builder
+
+import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField, fields_to_hashmap }
+
+// =============================================================================
+// Convenience Constructors
+// =============================================================================
+
+/// Creates a JSON null value.
+pub let json_null: fn() -> Json = fn() -> Json {
+    return JNull
+}
+
+/// Creates a JSON boolean value.
+pub let json_bool: fn(bool) -> Json = fn(b: bool) -> Json {
+    return JBool(b)
+}
+
+/// Creates a JSON number value from a float.
+pub let json_number: fn(f64) -> Json = fn(n: f64) -> Json {
+    return JNumber(n)
+}
+
+/// Creates a JSON number value from an integer.
+pub let json_int: fn(i64) -> Json = fn(n: i64) -> Json {
+    return JNumber(std.float.from_int(n))
+}
+
+/// Creates a JSON string value.
+pub let json_string: fn(string) -> Json = fn(s: string) -> Json {
+    return JString(s)
+}
+
+/// Creates a JSON array from a list of JSON values.
+pub let json_array: fn(List[Json]) -> Json = fn(items: List[Json]) -> Json {
+    return JArray(items)
+}
+
+/// Creates an empty JSON array.
+pub let json_array_empty: fn() -> Json = fn() -> Json {
+    return JArray(Nil)
+}
+
+/// Creates a JSON object from a list of fields.
+pub let json_object: fn(List[JsonField]) -> Json = fn(fields: List[JsonField]) -> Json {
+    return JObject(fields_to_hashmap(fields))
+}
+
+/// Creates a JSON object from a HashMap.
+pub let json_object_from_map: fn(HashMap) -> Json = fn(map: HashMap) -> Json {
+    return JObject(map)
+}
+
+/// Creates an empty JSON object.
+pub let json_object_empty: fn() -> Json = fn() -> Json {
+    return JObject(std.map.new())
+}
+
+// =============================================================================
+// Builder Pattern
+// =============================================================================
+
+/// A builder for constructing JSON objects fluently.
+pub type JsonBuilder = {
+    fields: List[JsonField]
+}
+
+/// Creates a new empty JSON object builder.
+pub let builder: fn() -> JsonBuilder = fn() -> JsonBuilder {
+    return JsonBuilder { fields: Nil }
+}
+
+/// Adds a field to the builder.
+pub let with_field: fn(JsonBuilder, string, Json) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, value: Json) -> JsonBuilder {
+        return JsonBuilder { fields: Cons(JsonField { key: key, value: value }, b.fields) }
+    }
+
+/// Adds a string field to the builder.
+pub let with_string: fn(JsonBuilder, string, string) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, value: string) -> JsonBuilder {
+        return with_field(b, key, JString(value))
+    }
+
+/// Adds a number field to the builder.
+pub let with_number: fn(JsonBuilder, string, f64) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, value: f64) -> JsonBuilder {
+        return with_field(b, key, JNumber(value))
+    }
+
+/// Adds an integer field to the builder.
+pub let with_int: fn(JsonBuilder, string, i64) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, value: i64) -> JsonBuilder {
+        return with_field(b, key, JNumber(std.float.from_int(value)))
+    }
+
+/// Adds a boolean field to the builder.
+pub let with_bool: fn(JsonBuilder, string, bool) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, value: bool) -> JsonBuilder {
+        return with_field(b, key, JBool(value))
+    }
+
+/// Adds a null field to the builder.
+pub let with_null: fn(JsonBuilder, string) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string) -> JsonBuilder {
+        return with_field(b, key, JNull)
+    }
+
+/// Adds an array field to the builder.
+pub let with_array: fn(JsonBuilder, string, List[Json]) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, items: List[Json]) -> JsonBuilder {
+        return with_field(b, key, JArray(items))
+    }
+
+/// Adds an object field to the builder (from another builder).
+pub let with_object: fn(JsonBuilder, string, JsonBuilder) -> JsonBuilder =
+    fn(b: JsonBuilder, key: string, nested: JsonBuilder) -> JsonBuilder {
+        return with_field(b, key, build(nested))
+    }
+
+/// Builds the final JSON object from the builder.
+pub let build: fn(JsonBuilder) -> Json = fn(b: JsonBuilder) -> Json {
+    return JObject(fields_to_hashmap(reverse_fields(b.fields)))
+}
+
+/// Reverses a list of fields to maintain insertion order.
+let reverse_fields: fn(List[JsonField]) -> List[JsonField] =
+    fn(fields: List[JsonField]) -> List[JsonField] {
+        return reverse_fields_acc(fields, Nil)
+    }
+
+let reverse_fields_acc: fn(List[JsonField], List[JsonField]) -> List[JsonField] =
+    fn(fields: List[JsonField], acc: List[JsonField]) -> List[JsonField] {
+        match fields {
+            Nil => { return acc }
+            Cons(head, tail) => { return reverse_fields_acc(tail, Cons(head, acc)) }
+        }
+    }

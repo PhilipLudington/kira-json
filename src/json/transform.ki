@@ -1,0 +1,336 @@
+/// JSON transformation functions.
+/// Provides map_values, filter_fields, set_field, remove_field, merge, map_array, filter_array.
+
+module json.transform
+
+import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField }
+
+// =============================================================================
+// Internal Utilities
+// =============================================================================
+
+/// Converts a list of (string, Json) tuples to a HashMap.
+let entries_to_hashmap: fn(List[(string, Json)]) -> HashMap = fn(entries: List[(string, Json)]) -> HashMap {
+    return entries_to_hashmap_acc(entries, std.map.new())
+}
+
+/// Helper to convert entries to HashMap with accumulator.
+let entries_to_hashmap_acc: fn(List[(string, Json)], HashMap) -> HashMap =
+    fn(entries: List[(string, Json)], acc: HashMap) -> HashMap {
+        match entries {
+            Nil => { return acc }
+            Cons(entry, rest) => {
+                let new_acc: HashMap = std.map.put(acc, entry.0, entry.1)
+                return entries_to_hashmap_acc(rest, new_acc)
+            }
+        }
+    }
+
+/// Maps a function over a list.
+let map_list[A]: fn(List[A], fn(A) -> A) -> List[A] = fn(list: List[A], f: fn(A) -> A) -> List[A] {
+    match list {
+        Nil => { return Nil }
+        Cons(head, tail) => { return Cons(f(head), map_list[A](tail, f)) }
+    }
+}
+
+/// Filters a list based on a predicate.
+let filter_list[T]: fn(List[T], fn(T) -> bool) -> List[T] = fn(list: List[T], pred: fn(T) -> bool) -> List[T] {
+    match list {
+        Nil => { return Nil }
+        Cons(head, tail) => {
+            if pred(head) {
+                return Cons(head, filter_list[T](tail, pred))
+            }
+            return filter_list[T](tail, pred)
+        }
+    }
+}
+
+/// Concatenates two lists.
+let list_concat[T]: fn(List[T], List[T]) -> List[T] = fn(a: List[T], b: List[T]) -> List[T] {
+    match a {
+        Nil => { return b }
+        Cons(head, tail) => { return Cons(head, list_concat[T](tail, b)) }
+    }
+}
+
+/// Concatenates two entry lists.
+let list_concat_entries: fn(List[(string, Json)], List[(string, Json)]) -> List[(string, Json)] =
+    fn(a: List[(string, Json)], b: List[(string, Json)]) -> List[(string, Json)] {
+        match a {
+            Nil => { return b }
+            Cons(head, tail) => { return Cons(head, list_concat_entries(tail, b)) }
+        }
+    }
+
+/// Maps a function over entries.
+let map_list_entry: fn(List[(string, Json)], fn((string, Json)) -> (string, Json)) -> List[(string, Json)] =
+    fn(entries: List[(string, Json)], f: fn((string, Json)) -> (string, Json)) -> List[(string, Json)] {
+        match entries {
+            Nil => { return Nil }
+            Cons(entry, rest) => { return Cons(f(entry), map_list_entry(rest, f)) }
+        }
+    }
+
+/// Filters entries based on a predicate.
+let filter_entries: fn(List[(string, Json)], fn(string, Json) -> bool) -> List[(string, Json)] =
+    fn(entries: List[(string, Json)], pred: fn(string, Json) -> bool) -> List[(string, Json)] {
+        match entries {
+            Nil => { return Nil }
+            Cons(entry, rest) => {
+                if pred(entry.0, entry.1) {
+                    return Cons(entry, filter_entries(rest, pred))
+                }
+                return filter_entries(rest, pred)
+            }
+        }
+    }
+
+/// Filters entries not present in a HashMap.
+let filter_entries_not_in_map: fn(List[(string, Json)], HashMap) -> List[(string, Json)] =
+    fn(entries: List[(string, Json)], map: HashMap) -> List[(string, Json)] {
+        match entries {
+            Nil => { return Nil }
+            Cons(entry, rest) => {
+                if std.map.contains(map, entry.0) {
+                    return filter_entries_not_in_map(rest, map)
+                }
+                return Cons(entry, filter_entries_not_in_map(rest, map))
+            }
+        }
+    }
+
+/// Checks if a field list contains a key.
+let has_key: fn(List[JsonField], string) -> bool = fn(fields: List[JsonField], key: string) -> bool {
+    match fields {
+        Nil => { return false }
+        Cons(field, rest) => {
+            if std.string.equals(field.key, key) {
+                return true
+            }
+            return has_key(rest, key)
+        }
+    }
+}
+
+/// Filters fields from the first list that are not present in the second list.
+let filter_fields_not_in: fn(List[JsonField], List[JsonField]) -> List[JsonField] =
+    fn(fields: List[JsonField], exclude: List[JsonField]) -> List[JsonField] {
+        match fields {
+            Nil => { return Nil }
+            Cons(field, rest) => {
+                if has_key(exclude, field.key) {
+                    return filter_fields_not_in(rest, exclude)
+                }
+                return Cons(field, filter_fields_not_in(rest, exclude))
+            }
+        }
+    }
+
+/// Helper to find a field in a list of JsonFields.
+let find_field: fn(List[JsonField], string) -> Option[Json] =
+    fn(fields: List[JsonField], key: string) -> Option[Json] {
+        match fields {
+            Nil => { return None }
+            Cons(field, rest) => {
+                if std.string.equals(field.key, key) {
+                    return Some(field.value)
+                }
+                return find_field(rest, key)
+            }
+        }
+    }
+
+// =============================================================================
+// Value Mapping
+// =============================================================================
+
+/// Recursively applies a function to all JSON values.
+pub let map_values: fn(Json, fn(Json) -> Json) -> Json = fn(json: Json, f: fn(Json) -> Json) -> Json {
+    let mapped: Json = f(json)
+    match mapped {
+        JArray(arr) => {
+            return JArray(map_list[Json](arr, fn(elem: Json) -> Json { return map_values(elem, f) }))
+        }
+        JObject(map) => {
+            let entries: List[(string, Json)] = std.map.entries(map)
+            let mapped_entries: List[(string, Json)] = map_entries_values(entries, f)
+            return JObject(entries_to_hashmap(mapped_entries))
+        }
+        _ => { return mapped }
+    }
+}
+
+/// Maps a function over entry values.
+let map_entries_values: fn(List[(string, Json)], fn(Json) -> Json) -> List[(string, Json)] =
+    fn(entries: List[(string, Json)], f: fn(Json) -> Json) -> List[(string, Json)] {
+        match entries {
+            Nil => { return Nil }
+            Cons(entry, rest) => {
+                let new_entry: (string, Json) = (entry.0, map_values(entry.1, f))
+                return Cons(new_entry, map_entries_values(rest, f))
+            }
+        }
+    }
+
+// =============================================================================
+// Field Filtering
+// =============================================================================
+
+/// Filters object fields at the top level.
+pub let filter_fields: fn(Json, fn(string, Json) -> bool) -> Json =
+    fn(json: Json, pred: fn(string, Json) -> bool) -> Json {
+        match json {
+            JObject(map) => {
+                let entries: List[(string, Json)] = std.map.entries(map)
+                let filtered: List[(string, Json)] = filter_entries(entries, pred)
+                return JObject(entries_to_hashmap(filtered))
+            }
+            _ => { return json }
+        }
+    }
+
+/// Recursively filters object fields at all levels.
+pub let filter_fields_deep: fn(Json, fn(string, Json) -> bool) -> Json =
+    fn(json: Json, pred: fn(string, Json) -> bool) -> Json {
+        match json {
+            JArray(arr) => {
+                return JArray(map_list[Json](arr, fn(elem: Json) -> Json {
+                    return filter_fields_deep(elem, pred)
+                }))
+            }
+            JObject(map) => {
+                let entries: List[(string, Json)] = std.map.entries(map)
+                let filtered: List[(string, Json)] = filter_entries(entries, pred)
+                let deep_filtered: List[(string, Json)] = map_list_entry(filtered, fn(entry: (string, Json)) -> (string, Json) {
+                    return (entry.0, filter_fields_deep(entry.1, pred))
+                })
+                return JObject(entries_to_hashmap(deep_filtered))
+            }
+            _ => { return json }
+        }
+    }
+
+// =============================================================================
+// Object Operations
+// =============================================================================
+
+/// Sets a field in a JSON object. If the key exists, updates it; otherwise adds it.
+/// Uses O(1) HashMap put operation.
+pub let set_field: fn(Json, string, Json) -> Json = fn(json: Json, key: string, value: Json) -> Json {
+    match json {
+        JObject(map) => {
+            let updated: HashMap = std.map.put(map, key, value)
+            return JObject(updated)
+        }
+        _ => { return json }
+    }
+}
+
+/// Removes a field from a JSON object.
+/// Uses O(1) HashMap remove operation.
+pub let remove_field: fn(Json, string) -> Json = fn(json: Json, key: string) -> Json {
+    match json {
+        JObject(map) => {
+            let filtered: HashMap = std.map.remove(map, key)
+            return JObject(filtered)
+        }
+        _ => { return json }
+    }
+}
+
+// =============================================================================
+// Merge Operations
+// =============================================================================
+
+/// Shallow merges two JSON values. For objects, b's fields override a's.
+pub let merge: fn(Json, Json) -> Json = fn(a: Json, b: Json) -> Json {
+    match (a, b) {
+        (JObject(map_a), JObject(map_b)) => {
+            let merged: HashMap = merge_hashmaps(map_a, map_b)
+            return JObject(merged)
+        }
+        _ => { return b }
+    }
+}
+
+/// Merges two HashMaps, with the second map's fields taking precedence.
+let merge_hashmaps: fn(HashMap, HashMap) -> HashMap = fn(map_a: HashMap, map_b: HashMap) -> HashMap {
+    let entries_a: List[(string, Json)] = std.map.entries(map_a)
+    let entries_b: List[(string, Json)] = std.map.entries(map_b)
+    let base: HashMap = entries_to_hashmap(entries_a)
+    return merge_entries_into(base, entries_b)
+}
+
+/// Merges entries into a HashMap.
+let merge_entries_into: fn(HashMap, List[(string, Json)]) -> HashMap =
+    fn(map: HashMap, entries: List[(string, Json)]) -> HashMap {
+        match entries {
+            Nil => { return map }
+            Cons(entry, rest) => {
+                let new_map: HashMap = std.map.put(map, entry.0, entry.1)
+                return merge_entries_into(new_map, rest)
+            }
+        }
+    }
+
+/// Deep merges two JSON values. For objects, recursively merges nested objects.
+pub let merge_deep: fn(Json, Json) -> Json = fn(a: Json, b: Json) -> Json {
+    match (a, b) {
+        (JObject(map_a), JObject(map_b)) => {
+            let merged: HashMap = merge_hashmaps_deep(map_a, map_b)
+            return JObject(merged)
+        }
+        _ => { return b }
+    }
+}
+
+/// Deep merges two HashMaps.
+let merge_hashmaps_deep: fn(HashMap, HashMap) -> HashMap = fn(map_a: HashMap, map_b: HashMap) -> HashMap {
+    let entries_a: List[(string, Json)] = std.map.entries(map_a)
+    let entries_b: List[(string, Json)] = std.map.entries(map_b)
+
+    let a_processed: List[(string, Json)] = map_list_entry(entries_a, fn(entry_a: (string, Json)) -> (string, Json) {
+        match std.map.get(map_b, entry_a.0) {
+            Some(value_b) => {
+                return (entry_a.0, merge_deep(entry_a.1, value_b))
+            }
+            None => { return entry_a }
+        }
+    })
+
+    let b_only: List[(string, Json)] = filter_entries_not_in_map(entries_b, map_a)
+    let combined: List[(string, Json)] = list_concat_entries(a_processed, b_only)
+    return entries_to_hashmap(combined)
+}
+
+// =============================================================================
+// Array Operations
+// =============================================================================
+
+/// Maps a function over a JSON array's elements.
+///
+/// **Performance:** O(n) where n is the array length. Creates a new list with
+/// transformed elements; does not modify the original.
+pub let map_array: fn(Json, fn(Json) -> Json) -> Json = fn(json: Json, f: fn(Json) -> Json) -> Json {
+    match json {
+        JArray(arr) => {
+            return JArray(map_list[Json](arr, f))
+        }
+        _ => { return json }
+    }
+}
+
+/// Filters a JSON array's elements based on a predicate.
+///
+/// **Performance:** O(n) where n is the array length. Creates a new list with
+/// matching elements; does not modify the original.
+pub let filter_array: fn(Json, fn(Json) -> bool) -> Json = fn(json: Json, pred: fn(Json) -> bool) -> Json {
+    match json {
+        JArray(arr) => {
+            return JArray(filter_list[Json](arr, pred))
+        }
+        _ => { return json }
+    }
+}

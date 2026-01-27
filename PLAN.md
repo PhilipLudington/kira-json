@@ -2,11 +2,21 @@
 
 ## Current Status
 
-The library provides functional JSON parsing, serialization, and manipulation with **375 passing tests** (291 in test_json.ki + 84 in test_json_suite.ki). Recent improvements leverage new compiler features (StringBuilder, std.char.from_i32, std.math.trunc_to_i64). Now includes JSON Schema validation with type constraints, required fields, numeric/string/array length constraints, enum values, and nested validation.
+**All phases complete.** The library provides functional JSON parsing, serialization, and manipulation with **375+ passing tests** across multiple test files. The codebase has been modularized into 8 logical submodules under `src/json/` for better maintainability.
+
+**Module Structure:**
+- `src.json.types` - Core types, predicates, accessors
+- `src.json.parser` - Parsing functions
+- `src.json.serializer` - Serialization functions
+- `src.json.transform` - Transformation functions
+- `src.json.path` - Path-based access
+- `src.json.builder` - Builder pattern and constructors
+- `src.json.schema` - Schema validation
+- `src.json.equality` - Deep equality comparison
 
 **Note:** Tests updated to use `std.string.length` as character count (not byte count) after compiler update.
 
-**Note:** Kira stdlib API change - `std.string.chars`, `std.string.length`, and `std.string.substring` now return `Result` types. The json.ki library has been updated; test_json.ki needs updating for tests that use these functions directly.
+**Note:** Kira stdlib API change - `std.string.chars`, `std.string.length`, and `std.string.substring` now return `Result` types. The json library has been updated accordingly.
 
 ### What Works
 - Core types: `Json`, `JsonField`, `JsonError` (structured error types)
@@ -311,42 +321,52 @@ Extract surrogate pair logic from `parse_unicode_escape_str` to reduce nesting d
 
 **Files:** `src/json.ki`
 
-### 7.3 Modularize Source Code (Medium Priority)
+### 7.3 Modularize Source Code ✓
 
 Split `src/json.ki` (3,626 lines) into logical submodules for better maintainability.
 
-**Proposed Structure:**
+**Final Structure:**
 ```
 src/
-├── json.ki              (re-exports, ~50 lines)
+├── json.ki              (documentation only, ~80 lines - no re-exports, Kira doesn't support them)
 ├── json/
-│   ├── types.ki         (Json, JsonField, JsonError, ~150 lines)
+│   ├── types.ki         (Json, JsonField, JsonError, type predicates, accessors, ~600 lines)
 │   ├── parser.ki        (parse functions, ParserState, ~1200 lines)
-│   ├── serializer.ki    (stringify functions, ~400 lines)
+│   ├── serializer.ki    (stringify functions, ~200 lines)
 │   ├── schema.ki        (Schema types, validate, ~500 lines)
-│   ├── transform.ki     (map, filter, merge, set/remove, ~400 lines)
-│   ├── path.ki          (get_path, set_path, PathError, ~400 lines)
-│   ├── builder.ki       (JsonBuilder, with_* functions, ~100 lines)
-│   └── util.ki          (internal helpers, ~400 lines)
+│   ├── transform.ki     (map, filter, merge, set/remove, ~300 lines)
+│   ├── path.ki          (get_path, set_path, PathError, ~350 lines)
+│   ├── builder.ki       (JsonBuilder, with_* functions, convenience constructors, ~250 lines)
+│   └── equality.ki      (equals function, ~80 lines)
 ```
 
 **Implementation Steps:**
-- [ ] Create `src/json/` directory
-- [ ] Extract types to `src/json/types.ki`
-- [ ] Extract parser to `src/json/parser.ki`
-- [ ] Extract serializer to `src/json/serializer.ki`
-- [ ] Extract schema validation to `src/json/schema.ki`
-- [ ] Extract transformations to `src/json/transform.ki`
-- [ ] Extract path operations to `src/json/path.ki`
-- [ ] Extract builder to `src/json/builder.ki`
-- [ ] Extract internal utilities to `src/json/util.ki`
-- [ ] Update `src/json.ki` to re-export public API
-- [ ] Update all imports in tests and examples
-- [ ] Verify all tests pass after refactoring
+- [x] Create `src/json/` directory
+- [x] Extract types to `src/json/types.ki`
+- [x] Extract parser to `src/json/parser.ki`
+- [x] Extract serializer to `src/json/serializer.ki`
+- [x] Extract schema validation to `src/json/schema.ki`
+- [x] Extract transformations to `src/json/transform.ki`
+- [x] Extract path operations to `src/json/path.ki`
+- [x] Extract builder to `src/json/builder.ki`
+- [x] Extract equality to `src/json/equality.ki`
+- [x] Update `src/json.ki` to documentation-only (Kira doesn't support re-exports)
+- [x] Update all imports in tests and examples
+- [x] Verify all tests pass after refactoring
 
-**Files:** `src/json.ki` → `src/json/*.ki`, `tests/*.ki`, `examples/*.ki`
+**Import Pattern (Kira doesn't support re-exports):**
+```kira
+import src.json.types.{ Json, JNull, JString, ... }
+import src.json.parser.{ parse, parse_strict }
+import src.json.serializer.{ stringify, stringify_pretty }
+import src.json.transform.{ set_field, remove_field, merge }
+import src.json.path.{ get_path, set_path }
+import src.json.builder.{ json_object, builder, with_string, build }
+import src.json.schema.{ validate, schema_object, schema_type }
+import src.json.equality.{ equals }
+```
 
-**Note:** Depends on Kira module system supporting nested modules. Verify capability first.
+**Files:** `src/json/*.ki`, `tests/*.ki`, `examples/*.ki`, `benches/*.ki`
 
 ### 7.4 Performance Benchmarks ✓
 
@@ -461,7 +481,7 @@ pub let get_index: fn(Json, i32) -> Option[Json]
 22. ~~**Phase 7.4** - Performance benchmarks~~ ✓
 23. ~~**Phase 7.6** - Performance documentation in code~~ ✓
 24. ~~**Phase 7.5** - Standardize internal naming~~ ✓
-25. **Phase 7.3** - Modularize source code
+25. ~~**Phase 7.3** - Modularize source code~~ ✓
 
 ---
 

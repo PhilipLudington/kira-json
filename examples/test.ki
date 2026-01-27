@@ -1,8 +1,10 @@
-import src.json.{ Json, JNull, JBool, JNumber, JString, JArray, JsonField, make_field, stringify, json_object }
+import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JsonField }
+import src.json.serializer.{ stringify }
+import src.json.builder.{ json_object }
 import std.list.{ Cons, Nil }
 
 effect fn main() -> IO[void] {
-    let field: JsonField = make_field("name", JString("Alice"))
+    let field: JsonField = JsonField { key: "name", value: JString("Alice") }
     let person: Json = json_object(Cons(field, Nil))
     std.io.println(stringify(person))
     return

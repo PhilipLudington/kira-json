@@ -4,7 +4,8 @@
 
 module test_json_testsuite
 
-import src.json.{ Json, JsonError, parse, parse_strict }
+import src.json.types.{ Json, JsonError }
+import src.json.parser.{ parse, parse_strict }
 
 // =============================================================================
 // Implementation-Defined Behavior Configuration

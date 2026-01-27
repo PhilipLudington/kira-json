@@ -3,7 +3,29 @@
 
 module test_json
 
-import src.json.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, StringTooLong, TooManyArrayItems, TooManyObjectFields, ParseLimits, default_limits, unlimited_limits, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, stringify, stringify_pretty, parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, parse_with_limits, parse_strict_with_limits, default_max_depth, set_field, remove_field, merge, map_array, filter_array, filter_fields, make_field, equals, get_path, set_path, has_path, remove_path, PathError, format_path_error, json_object, json_object_empty, Schema, SchemaProperty, SchemaRef, SchemaInline, SchemaError, TypeMismatch, MissingRequired, MinimumViolation, MaximumViolation, MinLengthViolation, MaxLengthViolation, MinItemsViolation, MaxItemsViolation, EnumViolation, IntegerRequired, format_schema_error, format_schema_errors, validate, schema_any, schema_type, schema_string, schema_number, schema_integer, schema_array, schema_object, schema_property, schema_ref, schema_enum }
+// Core types and predicates
+import src.json.types.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, StringTooLong, TooManyArrayItems, TooManyObjectFields, ParseLimits, default_limits, unlimited_limits, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, default_max_depth, make_field, PathError, format_path_error, Schema, SchemaProperty, SchemaRef, SchemaInline, SchemaError, TypeMismatch, MissingRequired, MinimumViolation, MaximumViolation, MinLengthViolation, MaxLengthViolation, MinItemsViolation, MaxItemsViolation, EnumViolation, IntegerRequired, format_schema_error, format_schema_errors }
+
+// Parser
+import src.json.parser.{ parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, parse_with_limits, parse_strict_with_limits }
+
+// Serializer
+import src.json.serializer.{ stringify, stringify_pretty }
+
+// Transformations
+import src.json.transform.{ set_field, remove_field, merge, map_array, filter_array, filter_fields }
+
+// Equality
+import src.json.equality.{ equals }
+
+// Path operations
+import src.json.path.{ get_path, set_path, has_path, remove_path }
+
+// Builder and constructors
+import src.json.builder.{ json_object, json_object_empty }
+
+// Schema validation
+import src.json.schema.{ validate, schema_any, schema_type, schema_string, schema_number, schema_integer, schema_array, schema_object, schema_property, schema_ref, schema_enum }
 
 // =============================================================================
 // Test Utilities

@@ -3,17 +3,13 @@
 
 module bench_json
 
-import src.json.{
-    Json, JsonField, JNull, JBool, JNumber, JString, JArray, JObject,
-    parse, stringify, stringify_pretty,
-    get_field, set_field, remove_field,
-    get_path, set_path,
-    get_index, size, keys,
-    json_null, json_bool, json_number, json_int, json_string, json_array, json_object,
-    builder, with_string, with_int, with_bool, build,
-    validate, Schema, SchemaProperty, SchemaRef, SchemaInline,
-    schema_object, schema_string, schema_integer, schema_property, schema_type
-}
+import src.json.types.{ Json, JsonField, JNull, JBool, JNumber, JString, JArray, JObject, get_field, get_index, size, keys }
+import src.json.parser.{ parse }
+import src.json.serializer.{ stringify, stringify_pretty }
+import src.json.transform.{ set_field, remove_field }
+import src.json.path.{ get_path, set_path }
+import src.json.builder.{ json_null, json_bool, json_number, json_int, json_string, json_array, json_object, builder, with_string, with_int, with_bool, build }
+import src.json.schema.{ validate, Schema, SchemaProperty, SchemaRef, SchemaInline, schema_object, schema_string, schema_integer, schema_property, schema_type }
 import std.list.{ List, Cons, Nil }
 
 // =============================================================================

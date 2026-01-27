@@ -4,7 +4,8 @@
 
 module test_json_suite
 
-import src.json.{ Json, JsonError, DuplicateKey, parse, parse_strict, default_max_depth, get_field, as_string, as_number, as_int }
+import src.json.types.{ Json, JsonError, DuplicateKey, default_max_depth, get_field, as_string, as_number, as_int }
+import src.json.parser.{ parse, parse_strict }
 
 // =============================================================================
 // Test Utilities

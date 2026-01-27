@@ -3,7 +3,11 @@
 
 module json_demo
 
-import src.json.{ Json, JsonField, JNull, JBool, JNumber, JString, JArray, is_null, is_bool, type_name, parse, stringify, get_field, as_string, as_int, set_field, remove_field, merge, json_object }
+import src.json.types.{ Json, JsonField, JNull, JBool, JNumber, JString, JArray, is_null, is_bool, type_name, get_field, as_string, as_int }
+import src.json.parser.{ parse }
+import src.json.serializer.{ stringify }
+import src.json.transform.{ set_field, remove_field, merge }
+import src.json.builder.{ json_object }
 import std.list.{ List, Cons, Nil }
 
 // =============================================================================
