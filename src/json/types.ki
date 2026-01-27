@@ -52,6 +52,7 @@ pub type JsonError =
     | StringTooLong { length: i32, max_length: i32, line: i32, col: i32 }
     | TooManyArrayItems { count: i32, max_items: i32, line: i32, col: i32 }
     | TooManyObjectFields { count: i32, max_fields: i32, line: i32, col: i32 }
+    | InvalidUtf8 { byte_position: i64, error_kind: string }
 
 /// Resource limits for parsing untrusted JSON input.
 /// Used to prevent resource exhaustion attacks from malicious input.
@@ -142,6 +143,9 @@ pub let format_error: fn(JsonError) -> string = fn(err: JsonError) -> string {
         UnterminatedString { line: l, col: c } => {
             return std.string.concat("Unterminated string at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))
         }
+        InvalidUtf8 { byte_position: pos, error_kind: kind } => {
+            return std.string.concat("Invalid UTF-8 at byte position ", std.string.concat(std.i64.to_string(pos), std.string.concat(": ", kind)))
+        }
     }
 }
 
@@ -160,6 +164,7 @@ pub let error_line: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
         TooManyArrayItems { count: _, max_items: _, line: l, col: _ } => { return l }
         TooManyObjectFields { count: _, max_fields: _, line: l, col: _ } => { return l }
         UnterminatedString { line: l, col: _ } => { return l }
+        InvalidUtf8 { byte_position: _, error_kind: _ } => { return 0 }
     }
 }
 
@@ -178,6 +183,16 @@ pub let error_column: fn(JsonError) -> i32 = fn(err: JsonError) -> i32 {
         TooManyArrayItems { count: _, max_items: _, line: _, col: c } => { return c }
         TooManyObjectFields { count: _, max_fields: _, line: _, col: c } => { return c }
         UnterminatedString { line: _, col: c } => { return c }
+        InvalidUtf8 { byte_position: _, error_kind: _ } => { return 0 }
+    }
+}
+
+/// Returns the byte position from an InvalidUtf8 error.
+/// Returns None for other error types (which use line/column instead).
+pub let error_byte_position: fn(JsonError) -> Option[i64] = fn(err: JsonError) -> Option[i64] {
+    match err {
+        InvalidUtf8 { byte_position: pos, error_kind: _ } => { return Some(pos) }
+        _ => { return None }
     }
 }
 

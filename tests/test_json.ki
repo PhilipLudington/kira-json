@@ -4,10 +4,10 @@
 module test_json
 
 // Core types and predicates
-import src.json.types.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, StringTooLong, TooManyArrayItems, TooManyObjectFields, ParseLimits, default_limits, unlimited_limits, format_error, error_line, error_column, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, default_max_depth, make_field, PathError, format_path_error, Schema, SchemaProperty, SchemaRef, SchemaInline, SchemaError, TypeMismatch, MissingRequired, MinimumViolation, MaximumViolation, MinLengthViolation, MaxLengthViolation, MinItemsViolation, MaxItemsViolation, EnumViolation, IntegerRequired, format_schema_error, format_schema_errors }
+import src.json.types.{ Json, JsonField, ParseError, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, StringTooLong, TooManyArrayItems, TooManyObjectFields, InvalidUtf8, ParseLimits, default_limits, unlimited_limits, format_error, error_line, error_column, error_byte_position, JNull, JBool, JNumber, JString, JArray, JObject, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, default_max_depth, make_field, PathError, format_path_error, Schema, SchemaProperty, SchemaRef, SchemaInline, SchemaError, TypeMismatch, MissingRequired, MinimumViolation, MaximumViolation, MinLengthViolation, MaxLengthViolation, MinItemsViolation, MaxItemsViolation, EnumViolation, IntegerRequired, format_schema_error, format_schema_errors }
 
 // Parser
-import src.json.parser.{ parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, parse_with_limits, parse_strict_with_limits }
+import src.json.parser.{ parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, parse_with_limits, parse_strict_with_limits, parse_bytes, parse_bytes_with_max_depth, parse_bytes_strict, parse_bytes_strict_with_max_depth, parse_bytes_with_limits, parse_bytes_strict_with_limits }
 
 // Serializer
 import src.json.serializer.{ stringify, stringify_pretty }
@@ -4883,6 +4883,186 @@ let test_empty_containers_with_limits: fn() -> void = fn() -> void {
 }
 
 // =============================================================================
+// Bytes-Based Parsing Tests
+// =============================================================================
+
+/// Test: parse_bytes with valid UTF-8 input
+let test_parse_bytes_valid_utf8: fn() -> void = fn() -> void {
+    let input: Bytes = std.bytes.from_string("{\"key\": \"value\"}")
+    let result: Result[Json, JsonError] = parse_bytes(input)
+    assert_ok[Json, JsonError](result, "valid UTF-8 should parse successfully")
+    match result {
+        Ok(json) => {
+            assert_true(is_object(json), "should be an object")
+            match get_field(json, "key") {
+                Some(v) => {
+                    match as_string(v) {
+                        Some(s) => { assert_true(std.string.equals(s, "value"), "value should be 'value'") }
+                        None => { assert(false, "value should be string") }
+                    }
+                }
+                None => { assert(false, "key field should exist") }
+            }
+        }
+        Err(_) => { assert(false, "should not fail") }
+    }
+    return
+}
+
+/// Test: parse_bytes with invalid UTF-8 input
+let test_parse_bytes_invalid_utf8: fn() -> void = fn() -> void {
+    // Create bytes with invalid UTF-8: { " <0x80 invalid start byte> " }
+    let invalid: Bytes = std.bytes.from_array([123, 34, 128, 34, 125])
+    let result: Result[Json, JsonError] = parse_bytes(invalid)
+    assert_err[Json, JsonError](result, "invalid UTF-8 should fail")
+    match result {
+        Err(err) => {
+            match err {
+                InvalidUtf8 { byte_position: pos, error_kind: _ } => {
+                    assert_true(pos == 2, "error position should be at byte 2")
+                }
+                _ => { assert(false, "should be InvalidUtf8 error") }
+            }
+        }
+        Ok(_) => { assert(false, "should not succeed") }
+    }
+    return
+}
+
+/// Test: parse_bytes with truncated UTF-8 sequence
+let test_parse_bytes_truncated_utf8: fn() -> void = fn() -> void {
+    // Create bytes with truncated UTF-8 sequence: starts with 0xC2 (2-byte sequence) but missing continuation
+    let truncated: Bytes = std.bytes.from_array([123, 34, 194, 34, 125])
+    let result: Result[Json, JsonError] = parse_bytes(truncated)
+    assert_err[Json, JsonError](result, "truncated UTF-8 should fail")
+    match result {
+        Err(err) => {
+            match err {
+                InvalidUtf8 { byte_position: _, error_kind: _ } => {
+                    // Error detected - position may vary based on implementation
+                    return
+                }
+                _ => { assert(false, "should be InvalidUtf8 error") }
+            }
+        }
+        Ok(_) => { assert(false, "should not succeed") }
+    }
+    return
+}
+
+/// Test: parse_bytes with empty input
+let test_parse_bytes_empty: fn() -> void = fn() -> void {
+    let empty: Bytes = std.bytes.new()
+    let result: Result[Json, JsonError] = parse_bytes(empty)
+    assert_err[Json, JsonError](result, "empty input should fail")
+    // Empty input after UTF-8 validation should fail with UnexpectedEof
+    match result {
+        Err(err) => {
+            match err {
+                UnexpectedEof { expected: _, context: _, line: _, col: _ } => { return }
+                _ => { assert(false, "should be UnexpectedEof error") }
+            }
+        }
+        Ok(_) => { assert(false, "should not succeed") }
+    }
+    return
+}
+
+/// Test: parse_bytes with unicode content (valid UTF-8 multi-byte characters)
+let test_parse_bytes_unicode_content: fn() -> void = fn() -> void {
+    let input: Bytes = std.bytes.from_string("{\"emoji\": \"😀\"}")
+    let result: Result[Json, JsonError] = parse_bytes(input)
+    assert_ok[Json, JsonError](result, "unicode content should parse successfully")
+    match result {
+        Ok(json) => {
+            match get_field(json, "emoji") {
+                Some(v) => {
+                    match as_string(v) {
+                        Some(s) => { assert_true(std.string.equals(s, "😀"), "emoji should be preserved") }
+                        None => { assert(false, "value should be string") }
+                    }
+                }
+                None => { assert(false, "emoji field should exist") }
+            }
+        }
+        Err(_) => { assert(false, "should not fail") }
+    }
+    return
+}
+
+/// Test: parse_bytes_strict rejects duplicate keys after UTF-8 validation
+let test_parse_bytes_strict_duplicate_keys: fn() -> void = fn() -> void {
+    let input: Bytes = std.bytes.from_string("{\"key\": 1, \"key\": 2}")
+    let result: Result[Json, JsonError] = parse_bytes_strict(input)
+    assert_err[Json, JsonError](result, "duplicate keys should be rejected in strict mode")
+    match result {
+        Err(err) => {
+            match err {
+                DuplicateKey { key: k, line: _, col: _ } => {
+                    assert_true(std.string.equals(k, "key"), "duplicate key should be 'key'")
+                }
+                _ => { assert(false, "should be DuplicateKey error") }
+            }
+        }
+        Ok(_) => { assert(false, "should not succeed") }
+    }
+    return
+}
+
+/// Test: parse_bytes_with_limits respects resource limits
+let test_parse_bytes_with_limits: fn() -> void = fn() -> void {
+    let input: Bytes = std.bytes.from_string("[1, 2, 3, 4, 5]")
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: Some(3),
+        max_object_fields: None
+    }
+    let result: Result[Json, JsonError] = parse_bytes_with_limits(input, limits)
+    assert_err[Json, JsonError](result, "too many array items should be rejected")
+    match result {
+        Err(err) => {
+            match err {
+                TooManyArrayItems { count: _, max_items: _, line: _, col: _ } => { return }
+                _ => { assert(false, "should be TooManyArrayItems error") }
+            }
+        }
+        Ok(_) => { assert(false, "should not succeed") }
+    }
+    return
+}
+
+/// Test: error_byte_position returns Some for InvalidUtf8
+let test_error_byte_position_invalid_utf8: fn() -> void = fn() -> void {
+    let err: JsonError = InvalidUtf8 { byte_position: 42, error_kind: "InvalidStartByte" }
+    match error_byte_position(err) {
+        Some(pos) => { assert_true(pos == 42, "byte position should be 42") }
+        None => { assert(false, "should return Some for InvalidUtf8") }
+    }
+    return
+}
+
+/// Test: error_byte_position returns None for other errors
+let test_error_byte_position_other_errors: fn() -> void = fn() -> void {
+    let err: JsonError = UnexpectedEof { expected: "value", context: "object", line: 1, col: 5 }
+    match error_byte_position(err) {
+        Some(_) => { assert(false, "should return None for non-InvalidUtf8 errors") }
+        None => { return }
+    }
+    return
+}
+
+/// Test: format_error for InvalidUtf8
+let test_format_error_invalid_utf8: fn() -> void = fn() -> void {
+    let err: JsonError = InvalidUtf8 { byte_position: 10, error_kind: "InvalidStartByte" }
+    let msg: string = format_error(err)
+    assert_true(std.string.contains(msg, "Invalid UTF-8"), "should contain 'Invalid UTF-8'")
+    assert_true(std.string.contains(msg, "10"), "should contain position")
+    assert_true(std.string.contains(msg, "InvalidStartByte"), "should contain error kind")
+    return
+}
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -5339,6 +5519,19 @@ effect fn main() -> IO[void] {
     run_test("test_format_error_too_many_object_fields", test_format_error_too_many_object_fields)
     run_test("test_error_line_new_errors", test_error_line_new_errors)
     run_test("test_error_column_new_errors", test_error_column_new_errors)
+    std.io.println("")
+
+    std.io.println("Bytes-Based Parsing:")
+    run_test("test_parse_bytes_valid_utf8", test_parse_bytes_valid_utf8)
+    run_test("test_parse_bytes_invalid_utf8", test_parse_bytes_invalid_utf8)
+    run_test("test_parse_bytes_truncated_utf8", test_parse_bytes_truncated_utf8)
+    run_test("test_parse_bytes_empty", test_parse_bytes_empty)
+    run_test("test_parse_bytes_unicode_content", test_parse_bytes_unicode_content)
+    run_test("test_parse_bytes_strict_duplicate_keys", test_parse_bytes_strict_duplicate_keys)
+    run_test("test_parse_bytes_with_limits", test_parse_bytes_with_limits)
+    run_test("test_error_byte_position_invalid_utf8", test_error_byte_position_invalid_utf8)
+    run_test("test_error_byte_position_other_errors", test_error_byte_position_other_errors)
+    run_test("test_format_error_invalid_utf8", test_format_error_invalid_utf8)
     std.io.println("")
 
     std.io.println("==========================")

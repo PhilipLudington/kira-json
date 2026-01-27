@@ -1,9 +1,16 @@
 /// JSON parsing functions.
 /// Provides parse, parse_strict, parse_with_max_depth, and related parsing utilities.
+///
+/// ## Bytes-Based Parsing
+/// For untrusted input from files, network, or other external sources, use the
+/// `parse_bytes*` functions which validate UTF-8 at the input boundary:
+/// - `parse_bytes(Bytes) -> Result[Json, JsonError]`
+/// - `parse_bytes_strict(Bytes) -> Result[Json, JsonError]`
+/// - `parse_bytes_with_limits(Bytes, ParseLimits) -> Result[Json, JsonError]`
 
 module json.parser
 
-import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, StringTooLong, TooManyArrayItems, TooManyObjectFields, ParseLimits, default_max_depth, default_limits, unlimited_limits, fields_to_hashmap, list_reverse }
+import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField, JsonError, UnexpectedEof, UnexpectedToken, UnterminatedString, InvalidEscape, ControlChar, InvalidNumber, TrailingContent, MaxDepthExceeded, DuplicateKey, StringTooLong, TooManyArrayItems, TooManyObjectFields, InvalidUtf8, ParseLimits, default_max_depth, default_limits, unlimited_limits, fields_to_hashmap, list_reverse }
 
 // =============================================================================
 // Parser State Types
@@ -1074,4 +1081,76 @@ pub let parse_with_limits: fn(string, ParseLimits) -> Result[Json, JsonError] = 
 /// Parses a JSON string in strict mode with custom resource limits.
 pub let parse_strict_with_limits: fn(string, ParseLimits) -> Result[Json, JsonError] = fn(input: string, limits: ParseLimits) -> Result[Json, JsonError] {
     return parse_impl_with_limits(input, limits, true)
+}
+
+// =============================================================================
+// Bytes-Based Parsing API
+// =============================================================================
+// These functions accept Bytes input and perform UTF-8 validation at the
+// boundary before parsing. Use these when parsing untrusted input from files,
+// network, or other external sources.
+
+/// Internal: Validates UTF-8 and converts to string, or returns InvalidUtf8 error.
+let validate_utf8: fn(Bytes) -> Result[string, JsonError] = fn(input: Bytes) -> Result[string, JsonError] {
+    match std.bytes.to_string(input) {
+        Ok(s) => { return Ok(s) }
+        Err(e) => { return Err(InvalidUtf8 { byte_position: e.position, error_kind: e.kind }) }
+    }
+}
+
+/// Parses JSON from Bytes, validating UTF-8 at the input boundary.
+/// This is the recommended entry point for parsing untrusted external input.
+///
+/// **UTF-8 Validation:** Validates that the input is valid UTF-8 before parsing.
+/// Returns `InvalidUtf8` error with byte position if validation fails.
+pub let parse_bytes: fn(Bytes) -> Result[Json, JsonError] = fn(input: Bytes) -> Result[Json, JsonError] {
+    match validate_utf8(input) {
+        Ok(s) => { return parse(s) }
+        Err(e) => { return Err(e) }
+    }
+}
+
+/// Parses JSON from Bytes with a custom maximum nesting depth.
+/// Validates UTF-8 at the input boundary before parsing.
+pub let parse_bytes_with_max_depth: fn(Bytes, i32) -> Result[Json, JsonError] = fn(input: Bytes, max_depth: i32) -> Result[Json, JsonError] {
+    match validate_utf8(input) {
+        Ok(s) => { return parse_with_max_depth(s, max_depth) }
+        Err(e) => { return Err(e) }
+    }
+}
+
+/// Parses JSON from Bytes in strict mode.
+/// Validates UTF-8 at the input boundary. Rejects duplicate object keys.
+pub let parse_bytes_strict: fn(Bytes) -> Result[Json, JsonError] = fn(input: Bytes) -> Result[Json, JsonError] {
+    match validate_utf8(input) {
+        Ok(s) => { return parse_strict(s) }
+        Err(e) => { return Err(e) }
+    }
+}
+
+/// Parses JSON from Bytes in strict mode with a custom maximum nesting depth.
+/// Validates UTF-8 at the input boundary. Rejects duplicate object keys.
+pub let parse_bytes_strict_with_max_depth: fn(Bytes, i32) -> Result[Json, JsonError] = fn(input: Bytes, max_depth: i32) -> Result[Json, JsonError] {
+    match validate_utf8(input) {
+        Ok(s) => { return parse_strict_with_max_depth(s, max_depth) }
+        Err(e) => { return Err(e) }
+    }
+}
+
+/// Parses JSON from Bytes with custom resource limits.
+/// Validates UTF-8 at the input boundary before parsing.
+pub let parse_bytes_with_limits: fn(Bytes, ParseLimits) -> Result[Json, JsonError] = fn(input: Bytes, limits: ParseLimits) -> Result[Json, JsonError] {
+    match validate_utf8(input) {
+        Ok(s) => { return parse_with_limits(s, limits) }
+        Err(e) => { return Err(e) }
+    }
+}
+
+/// Parses JSON from Bytes in strict mode with custom resource limits.
+/// Validates UTF-8 at the input boundary. Rejects duplicate object keys.
+pub let parse_bytes_strict_with_limits: fn(Bytes, ParseLimits) -> Result[Json, JsonError] = fn(input: Bytes, limits: ParseLimits) -> Result[Json, JsonError] {
+    match validate_utf8(input) {
+        Ok(s) => { return parse_strict_with_limits(s, limits) }
+        Err(e) => { return Err(e) }
+    }
 }

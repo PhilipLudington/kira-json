@@ -6,7 +6,7 @@
 /// ## Module Structure
 ///
 /// - `src.json.types` - Core types (Json, JsonField, JsonError, Schema types) and type predicates
-/// - `src.json.parser` - Parsing functions (parse, parse_strict, parse_with_limits)
+/// - `src.json.parser` - Parsing functions (parse, parse_strict, parse_bytes, parse_with_limits)
 /// - `src.json.serializer` - Serialization functions (stringify, stringify_pretty)
 /// - `src.json.transform` - Transformation functions (set_field, remove_field, merge, map_values)
 /// - `src.json.equality` - Equality comparison (equals)
@@ -19,8 +19,8 @@
 /// Import specific functions from the relevant submodules:
 ///
 /// ```kira
-/// import src.json.types.{ Json, JNull, JString, JNumber, JArray, JObject, JsonError, is_string, as_string, get_field }
-/// import src.json.parser.{ parse, parse_strict }
+/// import src.json.types.{ Json, JNull, JString, JNumber, JArray, JObject, JsonError, InvalidUtf8, is_string, as_string, get_field }
+/// import src.json.parser.{ parse, parse_strict, parse_bytes }
 /// import src.json.serializer.{ stringify, stringify_pretty }
 /// import src.json.transform.{ set_field, remove_field, merge }
 /// import src.json.equality.{ equals }
@@ -34,13 +34,18 @@
 /// ### Types
 /// - `Json` - The main JSON value type (JNull, JBool, JNumber, JString, JArray, JObject)
 /// - `JsonField` - Key-value pair in an object
-/// - `JsonError` - Structured error type with variants for specific errors
+/// - `JsonError` - Structured error type with variants (InvalidUtf8, UnexpectedEof, etc.)
 /// - `Schema` - JSON Schema for validation
 ///
-/// ### Parsing
+/// ### Parsing (String Input)
 /// - `parse(string) -> Result[Json, JsonError]` - Parse JSON string
 /// - `parse_strict(string) -> Result[Json, JsonError]` - Parse with duplicate key rejection
 /// - `parse_with_limits(string, ParseLimits) -> Result[Json, JsonError]` - Parse with resource limits
+///
+/// ### Parsing (Bytes Input - for untrusted external data)
+/// - `parse_bytes(Bytes) -> Result[Json, JsonError]` - Parse with UTF-8 validation
+/// - `parse_bytes_strict(Bytes) -> Result[Json, JsonError]` - Strict parsing with UTF-8 validation
+/// - `parse_bytes_with_limits(Bytes, ParseLimits) -> Result[Json, JsonError]` - With resource limits
 ///
 /// ### Serialization
 /// - `stringify(Json) -> string` - Compact serialization
