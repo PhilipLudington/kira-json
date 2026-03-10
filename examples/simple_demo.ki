@@ -273,5 +273,4 @@ effect fn main() -> IO[void] {
     std.io.println("")
 
     std.io.println("=== Demo Complete ===")
-    return
 }

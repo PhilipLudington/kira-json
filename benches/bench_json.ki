@@ -1,16 +1,15 @@
-/// JSON Library Benchmark Suite
-/// Measures performance characteristics for parsing, serialization, and operations.
+//! JSON Library Benchmark Suite
+//! Measures performance characteristics for parsing, serialization, and operations.
 
 module bench_json
 
-import src.json.types.{ Json, JsonField, JNull, JBool, JNumber, JString, JArray, JObject, get_field, get_index, size, keys }
-import src.json.parser.{ parse }
-import src.json.serializer.{ stringify, stringify_pretty }
-import src.json.transform.{ set_field, remove_field }
-import src.json.path.{ get_path, set_path }
-import src.json.builder.{ json_null, json_bool, json_number, json_int, json_string, json_array, json_object, builder, with_string, with_int, with_bool, build }
-import src.json.schema.{ validate, Schema, SchemaProperty, SchemaRef, SchemaInline, schema_object, schema_string, schema_integer, schema_property, schema_type }
-import std.list.{ List, Cons, Nil }
+import json.types.{ Json, JsonField, JsonError, get_field, get_index, size, keys, Schema, SchemaProperty, SchemaError }
+import json.parser.{ parse }
+import json.serializer.{ stringify, stringify_pretty }
+import json.transform.{ set_field, remove_field }
+import json.path.{ get_path, set_path }
+import json.builder.{ json_null, json_bool, json_number, json_int, json_string, json_array, json_object, builder, with_string, with_int, with_bool, build }
+import json.schema.{ validate, schema_object, schema_string, schema_integer, schema_property, schema_type }
 
 // =============================================================================
 // Helper Functions
@@ -106,7 +105,7 @@ effect fn bench_parse_small() -> IO[void] {
     let start: i64 = std.time.now()
     var i: i32 = 0
     while i < iterations {
-        let _: Result[Json, _] = parse(json_str)
+        let _: Result[Json, JsonError] = parse(json_str)
         i = i + 1
     }
     let end: i64 = std.time.now()
@@ -120,7 +119,6 @@ effect fn bench_parse_small() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per parse")
-    return
 }
 
 effect fn bench_parse_medium() -> IO[void] {
@@ -139,7 +137,7 @@ effect fn bench_parse_medium() -> IO[void] {
     let start: i64 = std.time.now()
     var i: i32 = 0
     while i < iterations {
-        let _: Result[Json, _] = parse(json_str)
+        let _: Result[Json, JsonError] = parse(json_str)
         i = i + 1
     }
     let end: i64 = std.time.now()
@@ -153,7 +151,6 @@ effect fn bench_parse_medium() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per parse")
-    return
 }
 
 effect fn bench_parse_large() -> IO[void] {
@@ -172,7 +169,7 @@ effect fn bench_parse_large() -> IO[void] {
     let start: i64 = std.time.now()
     var i: i32 = 0
     while i < iterations {
-        let _: Result[Json, _] = parse(json_str)
+        let _: Result[Json, JsonError] = parse(json_str)
         i = i + 1
     }
     let end: i64 = std.time.now()
@@ -186,7 +183,6 @@ effect fn bench_parse_large() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per parse")
-    return
 }
 
 // =============================================================================
@@ -225,7 +221,6 @@ effect fn bench_stringify_small() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per stringify")
-    return
 }
 
 effect fn bench_stringify_with_fields() -> IO[void] {
@@ -255,7 +250,6 @@ effect fn bench_stringify_with_fields() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per stringify")
-    return
 }
 
 effect fn bench_stringify_pretty() -> IO[void] {
@@ -285,7 +279,6 @@ effect fn bench_stringify_pretty() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per stringify_pretty")
-    return
 }
 
 // =============================================================================
@@ -319,7 +312,6 @@ effect fn bench_field_access_small() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per get_field")
-    return
 }
 
 effect fn bench_field_access_large() -> IO[void] {
@@ -350,7 +342,6 @@ effect fn bench_field_access_large() -> IO[void] {
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per get_field")
     std.io.println("  Note: Similar times to 10-field case indicate O(1) HashMap access")
-    return
 }
 
 effect fn bench_set_field() -> IO[void] {
@@ -380,7 +371,6 @@ effect fn bench_set_field() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per set_field")
-    return
 }
 
 // =============================================================================
@@ -417,7 +407,6 @@ effect fn bench_path_access_shallow() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per get_path")
-    return
 }
 
 effect fn bench_path_access_deep() -> IO[void] {
@@ -447,7 +436,6 @@ effect fn bench_path_access_deep() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per get_path")
-    return
 }
 
 effect fn bench_set_path() -> IO[void] {
@@ -477,7 +465,6 @@ effect fn bench_set_path() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per set_path")
-    return
 }
 
 // =============================================================================
@@ -511,7 +498,6 @@ effect fn bench_array_index_small() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per get_index")
-    return
 }
 
 effect fn bench_array_index_large() -> IO[void] {
@@ -543,7 +529,6 @@ effect fn bench_array_index_large() -> IO[void] {
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per get_index")
     std.io.println("  Note: O(n) expected for linked list arrays")
-    return
 }
 
 effect fn bench_array_size() -> IO[void] {
@@ -560,7 +545,7 @@ effect fn bench_array_size() -> IO[void] {
     let start: i64 = std.time.now()
     var i: i32 = 0
     while i < iterations {
-        let _: i32 = size(arr)
+        let _: Option[i64] = size(arr)
         i = i + 1
     }
     let end: i64 = std.time.now()
@@ -574,7 +559,6 @@ effect fn bench_array_size() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per size()")
-    return
 }
 
 // =============================================================================
@@ -603,7 +587,7 @@ effect fn bench_schema_simple() -> IO[void] {
     let start: i64 = std.time.now()
     var i: i32 = 0
     while i < iterations {
-        let _: Result[void, List[_]] = validate(obj, schema)
+        let _: Result[bool, List[SchemaError]] = validate(obj, schema)
         i = i + 1
     }
     let end: i64 = std.time.now()
@@ -617,7 +601,6 @@ effect fn bench_schema_simple() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per validate")
-    return
 }
 
 effect fn bench_schema_complex() -> IO[void] {
@@ -645,7 +628,7 @@ effect fn bench_schema_complex() -> IO[void] {
     let start: i64 = std.time.now()
     var i: i32 = 0
     while i < iterations {
-        let _: Result[void, List[_]] = validate(obj, schema)
+        let _: Result[bool, List[SchemaError]] = validate(obj, schema)
         i = i + 1
     }
     let end: i64 = std.time.now()
@@ -659,7 +642,6 @@ effect fn bench_schema_complex() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per validate")
-    return
 }
 
 // =============================================================================
@@ -711,7 +693,6 @@ effect fn bench_builder_pattern() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per build")
-    return
 }
 
 // =============================================================================
@@ -750,7 +731,6 @@ effect fn bench_roundtrip() -> IO[void] {
     std.io.print("  Average: ")
     std.io.print(to_string(avg_ms))
     std.io.println(" ms per roundtrip")
-    return
 }
 
 // =============================================================================
@@ -771,7 +751,6 @@ effect fn print_summary() -> IO[void] {
     std.io.println("- Stringify time: Linear in structure size")
     std.io.println("")
     std.io.println("See docs/performance.md for detailed analysis")
-    return
 }
 
 // =============================================================================
@@ -822,5 +801,4 @@ effect fn main() -> IO[void] {
     // Summary
     print_summary()
 
-    return
 }

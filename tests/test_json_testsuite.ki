@@ -1,11 +1,11 @@
-/// JSONTestSuite File-Based Tests
-/// Runs the official JSONTestSuite (https://github.com/nst/JSONTestSuite)
-/// Tests are loaded from testdata/JSONTestSuite/test_parsing/
+//! JSONTestSuite File-Based Tests
+//! Runs the official JSONTestSuite (https://github.com/nst/JSONTestSuite)
+//! Tests are loaded from testdata/JSONTestSuite/test_parsing/
 
 module test_json_testsuite
 
-import src.json.types.{ Json, JsonError }
-import src.json.parser.{ parse, parse_strict }
+import json.types.{ Json, JsonError }
+import json.parser.{ parse, parse_strict }
 
 // =============================================================================
 // Implementation-Defined Behavior Configuration
@@ -14,17 +14,17 @@ import src.json.parser.{ parse, parse_strict }
 /// How to handle numbers that overflow f64
 type NumberOverflowBehavior =
     | AcceptAsInfinity
-    | RejectAsError
+    | RejectOverflow
 
 /// How to handle lone/invalid surrogate pairs in \uXXXX escapes
 type SurrogateBehavior =
     | ReplaceWithReplacementChar
-    | RejectAsError
+    | RejectSurrogate
 
 /// How to handle invalid UTF-8 sequences
 type Utf8Behavior =
     | ReplaceInvalid
-    | RejectAsError
+    | RejectInvalidUtf8
 
 /// Configuration for implementation-defined test behavior
 type ImplDefinedConfig = {
@@ -38,9 +38,9 @@ type ImplDefinedConfig = {
 /// Default configuration matching kira-json's current behavior
 let default_config: fn() -> ImplDefinedConfig = fn() -> ImplDefinedConfig {
     return ImplDefinedConfig {
-        number_overflow: RejectAsError,  // Parser rejects numbers that overflow to Infinity
+        number_overflow: RejectOverflow,  // Parser rejects numbers that overflow to Infinity
         lone_surrogate: ReplaceWithReplacementChar,
-        invalid_utf8: RejectAsError,
+        invalid_utf8: RejectInvalidUtf8,
         max_nesting: 128,  // Conservative limit to stay under Kira's call stack limit
         accept_bom: false
     }
@@ -101,7 +101,7 @@ let get_impl_expected: fn(string, ImplDefinedConfig) -> ExpectedResult =
            std.string.contains(filename, "overflow") {
             match config.number_overflow {
                 AcceptAsInfinity => { return ExpectAccept }
-                RejectAsError => { return ExpectReject }
+                RejectOverflow => { return ExpectReject }
             }
         }
 
@@ -130,7 +130,7 @@ let get_impl_expected: fn(string, ImplDefinedConfig) -> ExpectedResult =
            std.string.contains(filename, "iso_latin") {
             match config.invalid_utf8 {
                 ReplaceInvalid => { return ExpectAccept }
-                RejectAsError => { return ExpectReject }
+                RejectInvalidUtf8 => { return ExpectReject }
             }
         }
 
@@ -139,7 +139,7 @@ let get_impl_expected: fn(string, ImplDefinedConfig) -> ExpectedResult =
            std.string.contains(filename, "lone_2nd") {
             match config.lone_surrogate {
                 ReplaceWithReplacementChar => { return ExpectAccept }
-                RejectAsError => { return ExpectReject }
+                RejectSurrogate => { return ExpectReject }
             }
         }
 
@@ -254,6 +254,18 @@ let format_error: fn(JsonError) -> string = fn(e: JsonError) -> string {
         DuplicateKey { key: k, line: l, col: c } => {
             return std.string.concat("DuplicateKey '", std.string.concat(k, std.string.concat("' at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))))
         }
+        StringTooLong { length: len, max_length: max, line: l, col: c } => {
+            return std.string.concat("StringTooLong at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))
+        }
+        TooManyArrayItems { count: cnt, max_items: max, line: l, col: c } => {
+            return std.string.concat("TooManyArrayItems at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))
+        }
+        TooManyObjectFields { count: cnt, max_fields: max, line: l, col: c } => {
+            return std.string.concat("TooManyObjectFields at ", std.string.concat(std.int.to_string(l), std.string.concat(":", std.int.to_string(c))))
+        }
+        InvalidUtf8 { byte_position: pos, error_kind: kind } => {
+            return std.string.concat("InvalidUtf8: ", kind)
+        }
     }
 }
 
@@ -262,27 +274,18 @@ let format_error: fn(JsonError) -> string = fn(e: JsonError) -> string {
 // =============================================================================
 
 /// Check if string ends with suffix
-/// Uses nested match since string functions now return Result for UTF-8 safety
 let ends_with: fn(string, string) -> bool = fn(s: string, suffix: string) -> bool {
-    match std.string.length(s) {
-        Err(_) => { return false }
-        Ok(s_len) => {
-            match std.string.length(suffix) {
-                Err(_) => { return false }
-                Ok(suffix_len) => {
-                    if suffix_len > s_len {
-                        return false
-                    }
-                    let start: i32 = s_len - suffix_len
-                    match std.string.substring(s, start, s_len) {
-                        Err(_) => { return false }
-                        Ok(end_part) => {
-                            return std.string.equals(end_part, suffix)
-                        }
-                    }
-                }
-            }
+    let s_len: i64 = std.string.length(s)
+    let suffix_len: i64 = std.string.length(suffix)
+    if suffix_len > s_len {
+        return false
+    }
+    let start: i64 = s_len - suffix_len
+    match std.string.substring(s, start, s_len) {
+        Some(end_part) => {
+            return std.string.equals(end_part, suffix)
         }
+        None => { return false }
     }
 }
 
@@ -303,10 +306,188 @@ let join_path: fn(string, string) -> string = fn(dir: string, filename: string) 
 }
 
 // =============================================================================
+// Accumulator for test statistics
+// =============================================================================
+
+/// Accumulates test statistics during the test run
+type TestStats = {
+    total: i32,
+    passed: i32,
+    failed: i32,
+    skipped: i32,
+    accept_passed: i32,
+    accept_failed: i32,
+    reject_passed: i32,
+    reject_failed: i32,
+    impl_passed: i32,
+    impl_failed: i32,
+    failed_msgs: string
+}
+
+/// Creates initial empty test statistics
+let empty_stats: fn() -> TestStats = fn() -> TestStats {
+    return TestStats {
+        total: 0,
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        accept_passed: 0,
+        accept_failed: 0,
+        reject_passed: 0,
+        reject_failed: 0,
+        impl_passed: 0,
+        impl_failed: 0,
+        failed_msgs: ""
+    }
+}
+
+/// Count JSON files in a list
+let count_json_files: fn(List[string]) -> i32 = fn(files: List[string]) -> i32 {
+    match files {
+        Nil => { return 0 }
+        Cons(filename, rest) => {
+            if ends_with(filename, ".json") {
+                return 1 + count_json_files(rest)
+            }
+            return count_json_files(rest)
+        }
+    }
+}
+
+/// Process all test files recursively, accumulating statistics
+effect fn process_files(files: List[string], test_dir: string, config: ImplDefinedConfig, stats: TestStats) -> TestStats {
+    match files {
+        Nil => { return stats }
+        Cons(filename, rest) => {
+            if ends_with(filename, ".json") {
+                if should_skip_file(filename) {
+                    let new_stats: TestStats = TestStats {
+                        total: stats.total,
+                        passed: stats.passed,
+                        failed: stats.failed,
+                        skipped: stats.skipped + 1,
+                        accept_passed: stats.accept_passed,
+                        accept_failed: stats.accept_failed,
+                        reject_passed: stats.reject_passed,
+                        reject_failed: stats.reject_failed,
+                        impl_passed: stats.impl_passed,
+                        impl_failed: stats.impl_failed,
+                        failed_msgs: stats.failed_msgs
+                    }
+                    return process_files(rest, test_dir, config, new_stats)
+                }
+                let filepath: string = join_path(test_dir, filename)
+                match std.fs.read_file(filepath) {
+                    Err(e) => {
+                        std.io.print("  [ERROR] ")
+                        std.io.print(filename)
+                        std.io.print(": ")
+                        std.io.println(e)
+                        let new_stats: TestStats = TestStats {
+                            total: stats.total + 1,
+                            passed: stats.passed,
+                            failed: stats.failed + 1,
+                            skipped: stats.skipped,
+                            accept_passed: stats.accept_passed,
+                            accept_failed: stats.accept_failed,
+                            reject_passed: stats.reject_passed,
+                            reject_failed: stats.reject_failed,
+                            impl_passed: stats.impl_passed,
+                            impl_failed: stats.impl_failed,
+                            failed_msgs: stats.failed_msgs
+                        }
+                        return process_files(rest, test_dir, config, new_stats)
+                    }
+                    Ok(content) => {
+                        let result: TestResult = run_test(filename, content, config)
+                        let category: TestCategory = classify_test(filename)
+                        let new_stats: TestStats = update_stats(stats, result, category, filename)
+                        return process_files(rest, test_dir, config, new_stats)
+                    }
+                    _ => {
+                        return process_files(rest, test_dir, config, stats)
+                    }
+                }
+            }
+            return process_files(rest, test_dir, config, stats)
+        }
+    }
+}
+
+/// Update statistics based on a test result
+let update_stats: fn(TestStats, TestResult, TestCategory, string) -> TestStats =
+    fn(stats: TestStats, result: TestResult, category: TestCategory, filename: string) -> TestStats {
+        match result {
+            Pass => {
+                var ap: i32 = stats.accept_passed
+                var rp: i32 = stats.reject_passed
+                var ip: i32 = stats.impl_passed
+                match category {
+                    MustAccept => { ap = ap + 1 }
+                    MustReject => { rp = rp + 1 }
+                    ImplDefined(_) => { ip = ip + 1 }
+                }
+                return TestStats {
+                    total: stats.total + 1,
+                    passed: stats.passed + 1,
+                    failed: stats.failed,
+                    skipped: stats.skipped,
+                    accept_passed: ap,
+                    accept_failed: stats.accept_failed,
+                    reject_passed: rp,
+                    reject_failed: stats.reject_failed,
+                    impl_passed: ip,
+                    impl_failed: stats.impl_failed,
+                    failed_msgs: stats.failed_msgs
+                }
+            }
+            Fail(reason) => {
+                var af: i32 = stats.accept_failed
+                var rf: i32 = stats.reject_failed
+                var imf: i32 = stats.impl_failed
+                match category {
+                    MustAccept => { af = af + 1 }
+                    MustReject => { rf = rf + 1 }
+                    ImplDefined(_) => { imf = imf + 1 }
+                }
+                let msg: string = std.string.concat("  ", std.string.concat(filename, std.string.concat(": ", std.string.concat(reason, "\n"))))
+                return TestStats {
+                    total: stats.total + 1,
+                    passed: stats.passed,
+                    failed: stats.failed + 1,
+                    skipped: stats.skipped,
+                    accept_passed: stats.accept_passed,
+                    accept_failed: af,
+                    reject_passed: stats.reject_passed,
+                    reject_failed: rf,
+                    impl_passed: stats.impl_passed,
+                    impl_failed: imf,
+                    failed_msgs: std.string.concat(stats.failed_msgs, msg)
+                }
+            }
+            Skip(_) => {
+                return TestStats {
+                    total: stats.total + 1,
+                    passed: stats.passed + 1,
+                    failed: stats.failed,
+                    skipped: stats.skipped,
+                    accept_passed: stats.accept_passed,
+                    accept_failed: stats.accept_failed,
+                    reject_passed: stats.reject_passed,
+                    reject_failed: stats.reject_failed,
+                    impl_passed: stats.impl_passed,
+                    impl_failed: stats.impl_failed,
+                    failed_msgs: stats.failed_msgs
+                }
+            }
+        }
+    }
+
+// =============================================================================
 // Main Test Runner
 // =============================================================================
 
-effect fn main() -> IO[void] {
+effect fn main() -> void {
     std.io.println("JSONTestSuite File-Based Tests")
     std.io.println("==============================")
     std.io.println("")
@@ -319,17 +500,17 @@ effect fn main() -> IO[void] {
     std.io.print("  number_overflow: ")
     match config.number_overflow {
         AcceptAsInfinity => { std.io.println("AcceptAsInfinity") }
-        RejectAsError => { std.io.println("RejectAsError") }
+        RejectOverflow => { std.io.println("RejectOverflow") }
     }
     std.io.print("  lone_surrogate: ")
     match config.lone_surrogate {
         ReplaceWithReplacementChar => { std.io.println("ReplaceWithReplacementChar") }
-        RejectAsError => { std.io.println("RejectAsError") }
+        RejectSurrogate => { std.io.println("RejectSurrogate") }
     }
     std.io.print("  invalid_utf8: ")
     match config.invalid_utf8 {
         ReplaceInvalid => { std.io.println("ReplaceInvalid") }
-        RejectAsError => { std.io.println("RejectAsError") }
+        RejectInvalidUtf8 => { std.io.println("RejectInvalidUtf8") }
     }
     std.io.print("  max_nesting: ")
     std.io.println(std.int.to_string(config.max_nesting))
@@ -348,16 +529,10 @@ effect fn main() -> IO[void] {
             std.io.println(e)
             std.io.println("Make sure JSONTestSuite submodule is initialized:")
             std.io.println("  git submodule update --init")
-            return
         }
         Ok(files) => {
             // Count JSON files
-            var file_count: i32 = 0
-            for filename in files {
-                if ends_with(filename, ".json") {
-                    file_count = file_count + 1
-                }
-            }
+            let file_count: i32 = count_json_files(files)
 
             std.io.print("Found ")
             std.io.print(std.int.to_string(file_count))
@@ -365,116 +540,56 @@ effect fn main() -> IO[void] {
             std.io.println("")
 
             // Run tests
-            var total: i32 = 0
-            var passed: i32 = 0
-            var failed: i32 = 0
-            var skipped: i32 = 0
-            var accept_passed: i32 = 0
-            var accept_failed: i32 = 0
-            var reject_passed: i32 = 0
-            var reject_failed: i32 = 0
-            var impl_passed: i32 = 0
-            var impl_failed: i32 = 0
-
-            // Store failed test messages
-            var failed_msgs: string = ""
-
-            for filename in files {
-                if ends_with(filename, ".json") {
-                    // Skip files that would crash Kira's runtime
-                    if should_skip_file(filename) {
-                        skipped = skipped + 1
-                    } else {
-                        let filepath: string = join_path(test_dir, filename)
-                        match std.fs.read_file(filepath) {
-                            Err(e) => {
-                                std.io.print("  [ERROR] ")
-                                std.io.print(filename)
-                                std.io.print(": ")
-                                std.io.println(e)
-                                failed = failed + 1
-                                total = total + 1
-                            }
-                            Ok(content) => {
-                                let result: TestResult = run_test(filename, content, config)
-                                let category: TestCategory = classify_test(filename)
-                                total = total + 1
-
-                                match result {
-                                    Pass => {
-                                        passed = passed + 1
-                                        match category {
-                                            MustAccept => { accept_passed = accept_passed + 1 }
-                                            MustReject => { reject_passed = reject_passed + 1 }
-                                            ImplDefined(_) => { impl_passed = impl_passed + 1 }
-                                        }
-                                    }
-                                    Fail(reason) => {
-                                        failed = failed + 1
-                                        failed_msgs = std.string.concat(failed_msgs, std.string.concat("  ", std.string.concat(filename, std.string.concat(": ", std.string.concat(reason, "\n")))))
-                                        match category {
-                                            MustAccept => { accept_failed = accept_failed + 1 }
-                                            MustReject => { reject_failed = reject_failed + 1 }
-                                            ImplDefined(_) => { impl_failed = impl_failed + 1 }
-                                        }
-                                    }
-                                    Skip(reason) => {
-                                        passed = passed + 1
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            let stats: TestStats = process_files(files, test_dir, config, empty_stats())
 
             // Print results
             std.io.println("Results:")
             std.io.println("--------")
             std.io.print("Must Accept (y_*): ")
-            std.io.print(std.int.to_string(accept_passed))
+            std.io.print(std.int.to_string(stats.accept_passed))
             std.io.print(" passed, ")
-            std.io.print(std.int.to_string(accept_failed))
+            std.io.print(std.int.to_string(stats.accept_failed))
             std.io.println(" failed")
 
             std.io.print("Must Reject (n_*): ")
-            std.io.print(std.int.to_string(reject_passed))
+            std.io.print(std.int.to_string(stats.reject_passed))
             std.io.print(" passed, ")
-            std.io.print(std.int.to_string(reject_failed))
+            std.io.print(std.int.to_string(stats.reject_failed))
             std.io.println(" failed")
 
             std.io.print("Impl-Defined (i_*): ")
-            std.io.print(std.int.to_string(impl_passed))
+            std.io.print(std.int.to_string(stats.impl_passed))
             std.io.print(" passed, ")
-            std.io.print(std.int.to_string(impl_failed))
+            std.io.print(std.int.to_string(stats.impl_failed))
             std.io.println(" failed")
 
             std.io.println("")
             std.io.print("Total: ")
-            std.io.print(std.int.to_string(passed))
+            std.io.print(std.int.to_string(stats.passed))
             std.io.print(" passed, ")
-            std.io.print(std.int.to_string(failed))
+            std.io.print(std.int.to_string(stats.failed))
             std.io.print(" failed, ")
-            std.io.print(std.int.to_string(skipped))
+            std.io.print(std.int.to_string(stats.skipped))
             std.io.print(" skipped (runtime limitations) out of ")
-            std.io.print(std.int.to_string(total + skipped))
+            std.io.print(std.int.to_string(stats.total + stats.skipped))
             std.io.println(" tests")
 
             // Print failures
-            if failed > 0 {
+            if stats.failed > 0 {
                 std.io.println("")
                 std.io.println("Failed tests:")
-                std.io.print(failed_msgs)
+                std.io.print(stats.failed_msgs)
             }
 
             std.io.println("")
-            if failed == 0 {
+            if stats.failed == 0 {
                 std.io.println("All tests passed!")
             } else {
                 std.io.println("Some tests failed.")
             }
         }
+        _ => {
+            std.io.println("Unexpected error reading test directory")
+        }
     }
-
-    return
 }

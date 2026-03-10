@@ -1,0 +1,28 @@
+module test_crash
+
+effect fn main() -> void {
+    // Test: does a user-created List match Cons/Nil?
+    let my_list: List[string] = Cons("a", Cons("b", Nil))
+    match my_list {
+        Cons(first, _) => {
+            std.io.print("user list first: ")
+            std.io.println(first)
+        }
+        Nil => {
+            std.io.println("empty")
+        }
+    }
+
+    // Test: read_dir returns something that is NOT Cons/Nil
+    match std.fs.read_dir("src/json") {
+        Ok(files) => {
+            std.io.println("read_dir returned Ok, but list is not Cons/Nil")
+        }
+        Err(e) => {
+            std.io.println("err")
+        }
+        _ => {
+            std.io.println("unexpected")
+        }
+    }
+}

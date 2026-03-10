@@ -1,9 +1,9 @@
-/// JSON builder pattern and convenience constructors.
-/// Provides fluent object construction and type-safe constructors.
+//! JSON builder pattern and convenience constructors.
+//! Provides fluent object construction and type-safe constructors.
 
 module json.builder
 
-import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField, fields_to_hashmap }
+import json.types.{ Json, JsonField, fields_to_hashmap }
 
 // =============================================================================
 // Convenience Constructors

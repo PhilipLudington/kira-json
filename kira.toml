@@ -1,0 +1,12 @@
+[package]
+name = "kira-json"
+version = "0.1.0"
+description = "A pure functional JSON parsing, manipulation, and serialization library for Kira"
+license = ""
+authors = []
+
+[dependencies]
+
+[modules]
+main = "src/json.ki"
+json = "src/json"

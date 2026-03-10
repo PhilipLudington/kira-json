@@ -1,9 +1,9 @@
-/// JSON serialization functions.
-/// Provides stringify and stringify_pretty for converting JSON values to strings.
+//! JSON serialization functions.
+//! Provides stringify and stringify_pretty for converting JSON values to strings.
 
 module json.serializer
 
-import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField }
+import json.types.{ Json, JsonField }
 
 // =============================================================================
 // String Escaping
@@ -12,16 +12,9 @@ import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, J
 /// Escapes a string for JSON output.
 /// Uses std.string.chars for proper character iteration.
 let escape_string: fn(string) -> string = fn(s: string) -> string {
-    match std.string.chars(s) {
-        Err(_) => {
-            // On invalid UTF-8, return the string as-is (will be caught during parsing)
-            return s
-        }
-        Ok(chars) => {
-            let builder: StringBuilder = escape_chars_to_builder(chars, std.builder.new())
-            return std.builder.build(builder)
-        }
-    }
+    let chars: List[char] = std.string.chars(s)
+    let builder: StringBuilder = escape_chars_to_builder(chars, std.builder.new())
+    return std.builder.build(builder)
 }
 
 /// Helper to escape characters into a StringBuilder.

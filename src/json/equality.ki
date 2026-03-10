@@ -1,9 +1,9 @@
-/// JSON equality comparison.
-/// Provides deep structural equality for JSON values.
+//! JSON equality comparison.
+//! Provides deep structural equality for JSON values.
 
 module json.equality
 
-import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField, list_length }
+import json.types.{ Json, JsonField }
 
 // =============================================================================
 // Public API
@@ -34,11 +34,15 @@ let numbers_equal: fn(f64, f64) -> bool = fn(a: f64, b: f64) -> bool {
         return true
     }
 
-    if std.float.is_nan(a) and std.float.is_nan(b) {
+    let a_nan: bool = std.float.is_nan(a)
+    let b_nan: bool = std.float.is_nan(b)
+    if a_nan and b_nan {
         return true
     }
 
-    if std.float.is_infinite(a) or std.float.is_infinite(b) {
+    let a_inf: bool = std.float.is_infinite(a)
+    let b_inf: bool = std.float.is_infinite(b)
+    if a_inf or b_inf {
         return false
     }
 

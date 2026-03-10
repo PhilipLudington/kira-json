@@ -1,10 +1,10 @@
-/// JSON path-based access operations.
-/// Provides get_path, set_path, has_path, remove_path for navigating JSON structures.
+//! JSON path-based access operations.
+//! Provides get_path, set_path, has_path, remove_path for navigating JSON structures.
 
 module json.path
 
-import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField, PathError, EmptyPath, InvalidIndex, UnterminatedBracket, get_field, get_index, list_get, fields_to_hashmap }
-import src.json.transform.{ set_field, remove_field }
+import json.types.{ Json, JsonField, PathError, get_field, get_index, list_get, fields_to_hashmap }
+import json.transform.{ set_field, remove_field }
 
 // =============================================================================
 // Path Types
@@ -22,8 +22,8 @@ type PathSegment =
 /// Helper for safe substring extraction.
 let safe_substring: fn(string, i32, i32) -> string = fn(s: string, start: i32, end: i32) -> string {
     match std.string.substring(s, start, end) {
-        Ok(sub) => { return sub }
-        Err(_) => { return "" }
+        Some(result) => { return result }
+        None => { return "" }
     }
 }
 
@@ -88,42 +88,42 @@ let set_field_in_list: fn(List[JsonField], string, Json, bool) -> List[JsonField
 // =============================================================================
 
 /// Parses a path and returns any parsing errors.
-pub let parse_path: fn(string) -> Result[List[PathSegment], PathError] = fn(path: string) -> Result[List[PathSegment], PathError] {
-    if std.string.byte_length(path) == 0 {
+pub let parse_path: fn(string) -> Result[List[PathSegment], PathError] = fn(pth: string) -> Result[List[PathSegment], PathError] {
+    if std.string.byte_length(pth) == 0 {
         return Ok(Nil)
     }
-    return parse_path_from(path, 0, std.string.byte_length(path))
+    return parse_path_from(pth, 0, std.string.byte_length(pth))
 }
 
 /// Internal path parser starting from a given position.
 let parse_path_from: fn(string, i32, i32) -> Result[List[PathSegment], PathError] =
-    fn(path: string, pos: i32, len: i32) -> Result[List[PathSegment], PathError] {
+    fn(pth: string, pos: i32, len: i32) -> Result[List[PathSegment], PathError] {
         if pos >= len {
             return Ok(Nil)
         }
 
-        let c: string = safe_substring(path, pos, pos + 1)
+        let c: string = safe_substring(pth, pos, pos + 1)
 
         if std.string.equals(c, ".") {
-            return parse_path_from(path, pos + 1, len)
+            return parse_path_from(pth, pos + 1, len)
         }
 
         if std.string.equals(c, "[") {
-            return parse_index_segment(path, pos + 1, len)
+            return parse_index_segment(pth, pos + 1, len)
         }
 
-        return parse_key_segment(path, pos, len)
+        return parse_key_segment(pth, pos, len)
     }
 
 /// Parses a key segment until a dot or bracket.
 let parse_key_segment: fn(string, i32, i32) -> Result[List[PathSegment], PathError] =
-    fn(path: string, start: i32, len: i32) -> Result[List[PathSegment], PathError] {
-        let end: i32 = find_key_end(path, start, len)
+    fn(pth: string, start: i32, len: i32) -> Result[List[PathSegment], PathError] {
+        let end: i32 = find_key_end(pth, start, len)
         if end == start {
             return Err(EmptyPath)
         }
-        let key: string = safe_substring(path, start, end)
-        let rest_result: Result[List[PathSegment], PathError] = parse_path_from(path, end, len)
+        let key: string = safe_substring(pth, start, end)
+        let rest_result: Result[List[PathSegment], PathError] = parse_path_from(pth, end, len)
         match rest_result {
             Err(e) => { return Err(e) }
             Ok(rest) => { return Ok(Cons(PathKey(key), rest)) }
@@ -131,32 +131,32 @@ let parse_key_segment: fn(string, i32, i32) -> Result[List[PathSegment], PathErr
     }
 
 /// Finds the end of a key.
-let find_key_end: fn(string, i32, i32) -> i32 = fn(path: string, pos: i32, len: i32) -> i32 {
+let find_key_end: fn(string, i32, i32) -> i32 = fn(pth: string, pos: i32, len: i32) -> i32 {
     if pos >= len {
         return pos
     }
-    let c: string = safe_substring(path, pos, pos + 1)
+    let c: string = safe_substring(pth, pos, pos + 1)
     if std.string.equals(c, ".") or std.string.equals(c, "[") {
         return pos
     }
-    return find_key_end(path, pos + 1, len)
+    return find_key_end(pth, pos + 1, len)
 }
 
 /// Parses an index segment [n].
 let parse_index_segment: fn(string, i32, i32) -> Result[List[PathSegment], PathError] =
-    fn(path: string, start: i32, len: i32) -> Result[List[PathSegment], PathError] {
-        let bracket_end: i32 = find_char(path, "]", start, len)
+    fn(pth: string, start: i32, len: i32) -> Result[List[PathSegment], PathError] {
+        let bracket_end: i32 = find_char(pth, "]", start, len)
         if bracket_end < 0 {
-            return Err(UnterminatedBracket { path: path })
+            return Err(UnterminatedBracket { path: pth })
         }
         if bracket_end == start {
             return Err(InvalidIndex { segment: "" })
         }
-        let index_str: string = safe_substring(path, start, bracket_end)
+        let index_str: string = safe_substring(pth, start, bracket_end)
         match parse_index_value(index_str) {
             None => { return Err(InvalidIndex { segment: index_str }) }
             Some(idx) => {
-                let rest_result: Result[List[PathSegment], PathError] = parse_path_from(path, bracket_end + 1, len)
+                let rest_result: Result[List[PathSegment], PathError] = parse_path_from(pth, bracket_end + 1, len)
                 match rest_result {
                     Err(e) => { return Err(e) }
                     Ok(rest) => { return Ok(Cons(PathIndex(idx), rest)) }
@@ -247,11 +247,11 @@ let apply_segment: fn(Json, PathSegment) -> Option[Json] = fn(json: Json, segmen
 ///
 /// **Performance:** O(d) for object-only paths where d is the depth (O(1) per field lookup).
 /// Array indices add O(i) per index segment where i is the index value (list traversal).
-pub let get_path: fn(Json, string) -> Option[Json] = fn(json: Json, path: string) -> Option[Json] {
-    if std.string.byte_length(path) == 0 {
+pub let get_path: fn(Json, string) -> Option[Json] = fn(json: Json, pth: string) -> Option[Json] {
+    if std.string.byte_length(pth) == 0 {
         return Some(json)
     }
-    let segments_result: Result[List[PathSegment], PathError] = parse_path(path)
+    let segments_result: Result[List[PathSegment], PathError] = parse_path(pth)
     match segments_result {
         Err(_) => { return None }
         Ok(segments) => { return get_path_segments(json, segments) }
@@ -262,11 +262,11 @@ pub let get_path: fn(Json, string) -> Option[Json] = fn(json: Json, path: string
 ///
 /// **Performance:** O(d) for object-only paths where d is the depth (O(1) per field access).
 /// Array indices add O(i) per index segment where i is the index value (list traversal).
-pub let set_path: fn(Json, string, Json) -> Json = fn(json: Json, path: string, value: Json) -> Json {
-    if std.string.byte_length(path) == 0 {
+pub let set_path: fn(Json, string, Json) -> Json = fn(json: Json, pth: string, value: Json) -> Json {
+    if std.string.byte_length(pth) == 0 {
         return value
     }
-    let segments_result: Result[List[PathSegment], PathError] = parse_path(path)
+    let segments_result: Result[List[PathSegment], PathError] = parse_path(pth)
     match segments_result {
         Err(_) => { return json }
         Ok(segments) => { return set_path_segments(json, segments, value) }
@@ -374,8 +374,8 @@ let set_at_index_impl: fn(List[Json], i32, Json) -> List[Json] =
 /// Checks if a path exists in the JSON value.
 ///
 /// **Performance:** Same as `get_path` - O(d) for object-only paths, plus O(i) per array index.
-pub let has_path: fn(Json, string) -> bool = fn(json: Json, path: string) -> bool {
-    match get_path(json, path) {
+pub let has_path: fn(Json, string) -> bool = fn(json: Json, pth: string) -> bool {
+    match get_path(json, pth) {
         Some(_) => { return true }
         None => { return false }
     }
@@ -384,11 +384,11 @@ pub let has_path: fn(Json, string) -> bool = fn(json: Json, path: string) -> boo
 /// Removes the value at the given path.
 ///
 /// **Performance:** Same as `set_path` - O(d) for object-only paths, plus O(i) per array index.
-pub let remove_path: fn(Json, string) -> Json = fn(json: Json, path: string) -> Json {
-    if std.string.byte_length(path) == 0 {
+pub let remove_path: fn(Json, string) -> Json = fn(json: Json, pth: string) -> Json {
+    if std.string.byte_length(pth) == 0 {
         return JNull
     }
-    let segments_result: Result[List[PathSegment], PathError] = parse_path(path)
+    let segments_result: Result[List[PathSegment], PathError] = parse_path(pth)
     match segments_result {
         Err(_) => { return json }
         Ok(segments) => { return remove_path_segments(json, segments) }

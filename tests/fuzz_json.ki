@@ -1,13 +1,13 @@
-/// Fuzz tests for the JSON parser
-/// Tests that the parser never crashes on malformed input.
-/// Uses deterministic pseudo-random generation for reproducibility.
+//! Fuzz tests for the JSON parser
+//! Tests that the parser never crashes on malformed input.
+//! Uses deterministic pseudo-random generation for reproducibility.
 
 module fuzz_json
 
-import src.json.types.{ Json, JsonError }
-import src.json.parser.{ parse, parse_strict, parse_with_max_depth }
-import src.json.serializer.{ stringify }
-import src.json.equality.{ equals }
+import json.types.{ Json, JsonError }
+import json.parser.{ parse, parse_strict, parse_with_max_depth }
+import json.serializer.{ stringify }
+import json.equality.{ equals }
 
 // =============================================================================
 // Pseudo-Random Number Generator (Linear Congruential Generator)

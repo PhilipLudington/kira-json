@@ -1,9 +1,9 @@
-/// JSON transformation functions.
-/// Provides map_values, filter_fields, set_field, remove_field, merge, map_array, filter_array.
+//! JSON transformation functions.
+//! Provides map_values, filter_fields, set_field, remove_field, merge, map_array, filter_array.
 
 module json.transform
 
-import src.json.types.{ Json, JNull, JBool, JNumber, JString, JArray, JObject, JsonField }
+import json.types.{ Json, JsonField }
 
 // =============================================================================
 // Internal Utilities
@@ -26,32 +26,32 @@ let entries_to_hashmap_acc: fn(List[(string, Json)], HashMap) -> HashMap =
         }
     }
 
-/// Maps a function over a list.
-let map_list[A]: fn(List[A], fn(A) -> A) -> List[A] = fn(list: List[A], f: fn(A) -> A) -> List[A] {
+/// Maps a function over a list of Json values.
+let map_list_json: fn(List[Json], fn(Json) -> Json) -> List[Json] = fn(list: List[Json], f: fn(Json) -> Json) -> List[Json] {
     match list {
         Nil => { return Nil }
-        Cons(head, tail) => { return Cons(f(head), map_list[A](tail, f)) }
+        Cons(head, tail) => { return Cons(f(head), map_list_json(tail, f)) }
     }
 }
 
-/// Filters a list based on a predicate.
-let filter_list[T]: fn(List[T], fn(T) -> bool) -> List[T] = fn(list: List[T], pred: fn(T) -> bool) -> List[T] {
+/// Filters a list of Json values based on a predicate.
+let filter_list_json: fn(List[Json], fn(Json) -> bool) -> List[Json] = fn(list: List[Json], pred: fn(Json) -> bool) -> List[Json] {
     match list {
         Nil => { return Nil }
         Cons(head, tail) => {
             if pred(head) {
-                return Cons(head, filter_list[T](tail, pred))
+                return Cons(head, filter_list_json(tail, pred))
             }
-            return filter_list[T](tail, pred)
+            return filter_list_json(tail, pred)
         }
     }
 }
 
-/// Concatenates two lists.
-let list_concat[T]: fn(List[T], List[T]) -> List[T] = fn(a: List[T], b: List[T]) -> List[T] {
+/// Concatenates two lists of Json values.
+let list_concat_json: fn(List[Json], List[Json]) -> List[Json] = fn(a: List[Json], b: List[Json]) -> List[Json] {
     match a {
         Nil => { return b }
-        Cons(head, tail) => { return Cons(head, list_concat[T](tail, b)) }
+        Cons(head, tail) => { return Cons(head, list_concat_json(tail, b)) }
     }
 }
 
@@ -151,7 +151,8 @@ pub let map_values: fn(Json, fn(Json) -> Json) -> Json = fn(json: Json, f: fn(Js
     let mapped: Json = f(json)
     match mapped {
         JArray(arr) => {
-            return JArray(map_list[Json](arr, fn(elem: Json) -> Json { return map_values(elem, f) }))
+            let mapped_arr: List[Json] = map_list_json(arr, fn(elem: Json) -> Json { return map_values(elem, f) })
+            return JArray(mapped_arr)
         }
         JObject(map) => {
             let entries: List[(string, Json)] = std.map.entries(map)
@@ -196,9 +197,10 @@ pub let filter_fields_deep: fn(Json, fn(string, Json) -> bool) -> Json =
     fn(json: Json, pred: fn(string, Json) -> bool) -> Json {
         match json {
             JArray(arr) => {
-                return JArray(map_list[Json](arr, fn(elem: Json) -> Json {
-                    return filter_fields_deep(elem, pred)
-                }))
+                let mapped_arr: List[Json] = map_list_json(arr, fn(elem: Json) -> Json {
+                return filter_fields_deep(elem, pred)
+            })
+            return JArray(mapped_arr)
             }
             JObject(map) => {
                 let entries: List[(string, Json)] = std.map.entries(map)
@@ -316,7 +318,8 @@ let merge_hashmaps_deep: fn(HashMap, HashMap) -> HashMap = fn(map_a: HashMap, ma
 pub let map_array: fn(Json, fn(Json) -> Json) -> Json = fn(json: Json, f: fn(Json) -> Json) -> Json {
     match json {
         JArray(arr) => {
-            return JArray(map_list[Json](arr, f))
+            let mapped_arr: List[Json] = map_list_json(arr, f)
+            return JArray(mapped_arr)
         }
         _ => { return json }
     }
@@ -329,7 +332,8 @@ pub let map_array: fn(Json, fn(Json) -> Json) -> Json = fn(json: Json, f: fn(Jso
 pub let filter_array: fn(Json, fn(Json) -> bool) -> Json = fn(json: Json, pred: fn(Json) -> bool) -> Json {
     match json {
         JArray(arr) => {
-            return JArray(filter_list[Json](arr, pred))
+            let filtered_arr: List[Json] = filter_list_json(arr, pred)
+            return JArray(filtered_arr)
         }
         _ => { return json }
     }

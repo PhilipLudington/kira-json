@@ -1,11 +1,11 @@
-/// JSON Test Suite
-/// Based on JSONTestSuite (https://github.com/nst/JSONTestSuite)
-/// Categorized as: must accept, must reject, implementation-defined
+//! JSON Test Suite
+//! Based on JSONTestSuite (https://github.com/nst/JSONTestSuite)
+//! Categorized as: must accept, must reject, implementation-defined
 
 module test_json_suite
 
-import src.json.types.{ Json, JsonError, DuplicateKey, default_max_depth, get_field, as_string, as_number, as_int }
-import src.json.parser.{ parse, parse_strict }
+import json.types.{ Json, JsonError, default_max_depth, get_field, as_string, as_number, as_int }
+import json.parser.{ parse, parse_strict }
 
 // =============================================================================
 // Test Utilities
@@ -386,10 +386,8 @@ let test_impl_lone_surrogate_replaced: fn() -> bool = fn() -> bool {
         Ok(json) => {
             match as_string(json) {
                 Some(s) => {
-                    match std.string.length(s) {
-                        Ok(len) => { return len > 0 }
-                        Err(_) => { return false }
-                    }
+                    let len: i64 = std.string.length(s)
+                    return len > 0
                 }
                 None => { return false }
             }
@@ -427,7 +425,7 @@ let test_impl_very_small_number_accepted: fn() -> bool = fn() -> bool {
 // Test Runner
 // =============================================================================
 
-effect fn run_suite_test(name: string, test_fn: fn() -> bool) -> IO[bool] {
+effect fn run_suite_test(name: string, test_fn: fn() -> bool) -> bool {
     std.io.print("  ")
     std.io.print(name)
     std.io.print(" ... ")
@@ -440,7 +438,7 @@ effect fn run_suite_test(name: string, test_fn: fn() -> bool) -> IO[bool] {
     return result
 }
 
-effect fn main() -> IO[void] {
+effect fn main() -> void {
     std.io.println("JSON Test Suite")
     std.io.println("================")
     std.io.println("")
@@ -554,5 +552,4 @@ effect fn main() -> IO[void] {
         std.io.println("Some tests failed.")
     }
 
-    return
 }

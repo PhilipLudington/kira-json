@@ -1,82 +1,82 @@
-/// JSON Parser Library for Kira
-/// A pure functional JSON parsing, manipulation, and serialization library.
-///
-/// This library has been modularized into the following submodules:
-///
-/// ## Module Structure
-///
-/// - `src.json.types` - Core types (Json, JsonField, JsonError, Schema types) and type predicates
-/// - `src.json.parser` - Parsing functions (parse, parse_strict, parse_bytes, parse_with_limits)
-/// - `src.json.serializer` - Serialization functions (stringify, stringify_pretty)
-/// - `src.json.transform` - Transformation functions (set_field, remove_field, merge, map_values)
-/// - `src.json.equality` - Equality comparison (equals)
-/// - `src.json.path` - Path-based access (get_path, set_path, has_path, remove_path)
-/// - `src.json.builder` - Builder pattern and convenience constructors
-/// - `src.json.schema` - Schema validation (validate, schema_*)
-///
-/// ## Usage
-///
-/// Import specific functions from the relevant submodules:
-///
-/// ```kira
-/// import src.json.types.{ Json, JNull, JString, JNumber, JArray, JObject, JsonError, InvalidUtf8, is_string, as_string, get_field }
-/// import src.json.parser.{ parse, parse_strict, parse_bytes }
-/// import src.json.serializer.{ stringify, stringify_pretty }
-/// import src.json.transform.{ set_field, remove_field, merge }
-/// import src.json.equality.{ equals }
-/// import src.json.path.{ get_path, set_path, has_path }
-/// import src.json.builder.{ builder, with_string, with_number, build, json_null, json_string }
-/// import src.json.schema.{ validate, schema_type, schema_object }
-/// ```
-///
-/// ## Quick Reference
-///
-/// ### Types
-/// - `Json` - The main JSON value type (JNull, JBool, JNumber, JString, JArray, JObject)
-/// - `JsonField` - Key-value pair in an object
-/// - `JsonError` - Structured error type with variants (InvalidUtf8, UnexpectedEof, etc.)
-/// - `Schema` - JSON Schema for validation
-///
-/// ### Parsing (String Input)
-/// - `parse(string) -> Result[Json, JsonError]` - Parse JSON string
-/// - `parse_strict(string) -> Result[Json, JsonError]` - Parse with duplicate key rejection
-/// - `parse_with_limits(string, ParseLimits) -> Result[Json, JsonError]` - Parse with resource limits
-///
-/// ### Parsing (Bytes Input - for untrusted external data)
-/// - `parse_bytes(Bytes) -> Result[Json, JsonError]` - Parse with UTF-8 validation
-/// - `parse_bytes_strict(Bytes) -> Result[Json, JsonError]` - Strict parsing with UTF-8 validation
-/// - `parse_bytes_with_limits(Bytes, ParseLimits) -> Result[Json, JsonError]` - With resource limits
-///
-/// ### Serialization
-/// - `stringify(Json) -> string` - Compact serialization
-/// - `stringify_pretty(Json) -> string` - Pretty-printed with 2-space indentation
-///
-/// ### Type Checking
-/// - `is_null`, `is_bool`, `is_number`, `is_string`, `is_array`, `is_object`
-/// - `as_string`, `as_number`, `as_int`, `as_bool`, `as_array`, `as_object`
-///
-/// ### Access
-/// - `get_field(json, key) -> Option[Json]` - O(1) field lookup
-/// - `get_index(json, index) -> Option[Json]` - Array access
-/// - `get_path(json, "path.to[0].value") -> Option[Json]` - Path-based access
-///
-/// ### Modification
-/// - `set_field(json, key, value) -> Json` - Set/update field
-/// - `remove_field(json, key) -> Json` - Remove field
-/// - `merge(a, b) -> Json` - Shallow merge
-/// - `merge_deep(a, b) -> Json` - Deep merge
-///
-/// ### Validation
-/// - `validate(json, schema) -> Result[void, List[SchemaError]]` - Validate against schema
+//! JSON Parser Library for Kira
+//! A pure functional JSON parsing, manipulation, and serialization library.
+//!
+//! This library has been modularized into the following submodules:
+//!
+//! ## Module Structure
+//!
+//! - `json.types` - Core types (Json, JsonField, JsonError, Schema types) and type predicates
+//! - `json.parser` - Parsing functions (parse, parse_strict, parse_bytes, parse_with_limits)
+//! - `json.serializer` - Serialization functions (stringify, stringify_pretty)
+//! - `json.transform` - Transformation functions (set_field, remove_field, merge, map_values)
+//! - `json.equality` - Equality comparison (equals)
+//! - `json.path` - Path-based access (get_path, set_path, has_path, remove_path)
+//! - `json.builder` - Builder pattern and convenience constructors
+//! - `json.schema` - Schema validation (validate, schema_*)
+//!
+//! ## Usage
+//!
+//! Import specific functions from the relevant submodules:
+//!
+//! ```kira
+//! import json.types.{ Json, JNull, JString, JNumber, JArray, JObject, JsonError, InvalidUtf8, is_string, as_string, get_field }
+//! import json.parser.{ parse, parse_strict, parse_bytes }
+//! import json.serializer.{ stringify, stringify_pretty }
+//! import json.transform.{ set_field, remove_field, merge }
+//! import json.equality.{ equals }
+//! import json.path.{ get_path, set_path, has_path }
+//! import json.builder.{ builder, with_string, with_number, build, json_null, json_string }
+//! import json.schema.{ validate, schema_type, schema_object }
+//! ```
+//!
+//! ## Quick Reference
+//!
+//! ### Types
+//! - `Json` - The main JSON value type (JNull, JBool, JNumber, JString, JArray, JObject)
+//! - `JsonField` - Key-value pair in an object
+//! - `JsonError` - Structured error type with variants (InvalidUtf8, UnexpectedEof, etc.)
+//! - `Schema` - JSON Schema for validation
+//!
+//! ### Parsing (String Input)
+//! - `parse(string) -> Result[Json, JsonError]` - Parse JSON string
+//! - `parse_strict(string) -> Result[Json, JsonError]` - Parse with duplicate key rejection
+//! - `parse_with_limits(string, ParseLimits) -> Result[Json, JsonError]` - Parse with resource limits
+//!
+//! ### Parsing (Bytes Input - for untrusted external data)
+//! - `parse_bytes(Bytes) -> Result[Json, JsonError]` - Parse with UTF-8 validation
+//! - `parse_bytes_strict(Bytes) -> Result[Json, JsonError]` - Strict parsing with UTF-8 validation
+//! - `parse_bytes_with_limits(Bytes, ParseLimits) -> Result[Json, JsonError]` - With resource limits
+//!
+//! ### Serialization
+//! - `stringify(Json) -> string` - Compact serialization
+//! - `stringify_pretty(Json) -> string` - Pretty-printed with 2-space indentation
+//!
+//! ### Type Checking
+//! - `is_null`, `is_bool`, `is_number`, `is_string`, `is_array`, `is_object`
+//! - `as_string`, `as_number`, `as_int`, `as_bool`, `as_array`, `as_object`
+//!
+//! ### Access
+//! - `get_field(json, key) -> Option[Json]` - O(1) field lookup
+//! - `get_index(json, index) -> Option[Json]` - Array access
+//! - `get_path(json, "path.to[0].value") -> Option[Json]` - Path-based access
+//!
+//! ### Modification
+//! - `set_field(json, key, value) -> Json` - Set/update field
+//! - `remove_field(json, key) -> Json` - Remove field
+//! - `merge(a, b) -> Json` - Shallow merge
+//! - `merge_deep(a, b) -> Json` - Deep merge
+//!
+//! ### Validation
+//! - `validate(json, schema) -> Result[void, List[SchemaError]]` - Validate against schema
 
 module json
 
 // This module is a placeholder. Import directly from submodules:
-// - src.json.types
-// - src.json.parser
-// - src.json.serializer
-// - src.json.transform
-// - src.json.equality
-// - src.json.path
-// - src.json.builder
-// - src.json.schema
+// - json.types
+// - json.parser
+// - json.serializer
+// - json.transform
+// - json.equality
+// - json.path
+// - json.builder
+// - json.schema

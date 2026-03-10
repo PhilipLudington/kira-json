@@ -1,5 +1,5 @@
-/// Core type definitions for the JSON library.
-/// This module contains all public types, error types, and basic type utilities.
+//! Core type definitions for the JSON library.
+//! This module contains all public types, error types, and basic type utilities.
 
 module json.types
 
@@ -57,13 +57,13 @@ pub type JsonError =
 /// Resource limits for parsing untrusted JSON input.
 /// Used to prevent resource exhaustion attacks from malicious input.
 pub type ParseLimits = {
-    /// Maximum nesting depth for arrays and objects (default: 128)
+    // Maximum nesting depth for arrays and objects (default: 128)
     max_depth: i32,
-    /// Maximum string length in characters (None = unlimited)
+    // Maximum string length in characters (None = unlimited)
     max_string_length: Option[i32],
-    /// Maximum number of array items (None = unlimited)
+    // Maximum number of array items (None = unlimited)
     max_array_items: Option[i32],
-    /// Maximum number of object fields (None = unlimited)
+    // Maximum number of object fields (None = unlimited)
     max_object_fields: Option[i32]
 }
 
@@ -144,7 +144,7 @@ pub let format_error: fn(JsonError) -> string = fn(err: JsonError) -> string {
             return std.string.concat("Unterminated string at line ", std.string.concat(std.int.to_string(l), std.string.concat(", column ", std.int.to_string(c))))
         }
         InvalidUtf8 { byte_position: pos, error_kind: kind } => {
-            return std.string.concat("Invalid UTF-8 at byte position ", std.string.concat(std.i64.to_string(pos), std.string.concat(": ", kind)))
+            return std.string.concat("Invalid UTF-8 at byte position ", std.string.concat(std.int.to_string(pos), std.string.concat(": ", kind)))
         }
     }
 }
@@ -203,27 +203,27 @@ pub let error_byte_position: fn(JsonError) -> Option[i64] = fn(err: JsonError) -
 /// Schema for validating JSON values.
 /// Recursive through SchemaProperty list for nested object validation.
 pub type Schema = {
-    /// Expected type: "null", "boolean", "number", "integer", "string", "array", "object"
+    // Expected type: "null", "boolean", "number", "integer", "string", "array", "object"
     type_constraint: Option[string],
-    /// List of required property names (for objects)
+    // List of required property names (for objects)
     required: Option[List[string]],
-    /// Schemas for specific properties (for objects)
+    // Schemas for specific properties (for objects)
     properties: Option[List[SchemaProperty]],
-    /// Minimum value (for numbers)
+    // Minimum value (for numbers)
     minimum: Option[f64],
-    /// Maximum value (for numbers)
+    // Maximum value (for numbers)
     maximum: Option[f64],
-    /// Minimum string length
+    // Minimum string length
     min_length: Option[i32],
-    /// Maximum string length
+    // Maximum string length
     max_length: Option[i32],
-    /// Minimum array length
+    // Minimum array length
     min_items: Option[i32],
-    /// Maximum array length
+    // Maximum array length
     max_items: Option[i32],
-    /// Schema for array items (recursive through SchemaRef)
+    // Schema for array items (recursive through SchemaRef)
     items: Option[SchemaRef],
-    /// Allowed values (any type)
+    // Allowed values (any type)
     enum_values: Option[List[Json]]
 }
 
@@ -492,9 +492,9 @@ pub let get_index: fn(Json, i32) -> Option[Json] = fn(json: Json, index: i32) ->
 ///
 /// **Performance:** O(n) for arrays (linked list traversal), O(1) for objects
 /// (HashMap size is cached).
-pub let size: fn(Json) -> Option[i32] = fn(json: Json) -> Option[i32] {
+pub let size: fn(Json) -> Option[i64] = fn(json: Json) -> Option[i64] {
     match json {
-        JArray(arr) => { return Some(list_length[Json](arr)) }
+        JArray(arr) => { return Some(std.list.length(arr)) }
         JObject(map) => { return Some(std.map.size(map)) }
         _ => { return None }
     }
@@ -573,14 +573,6 @@ pub let list_get: fn(List[Json], i32) -> Option[Json] = fn(list: List[Json], ind
     }
 }
 
-/// Helper to get the length of a list.
-pub let list_length[T]: fn(List[T]) -> i32 = fn(list: List[T]) -> i32 {
-    match list {
-        Nil => { return 0 }
-        Cons(_, tail) => { return 1 + list_length[T](tail) }
-    }
-}
-
 /// Reverses a list.
 pub let list_reverse[T]: fn(List[T]) -> List[T] = fn(list: List[T]) -> List[T] {
     return list_reverse_acc[T](list, Nil)
@@ -628,10 +620,10 @@ pub let format_error_with_context: fn(string, JsonError) -> string =
     }
 
 /// Helper for safe substring extraction.
-let safe_substring: fn(string, i32, i32) -> string = fn(s: string, start: i32, end: i32) -> string {
+let safe_substring: fn(string, i64, i64) -> string = fn(s: string, start: i64, end: i64) -> string {
     match std.string.substring(s, start, end) {
-        Ok(sub) => { return sub }
-        Err(_) => { return "" }
+        Some(result) => { return result }
+        None => { return "" }
     }
 }
 
@@ -659,26 +651,26 @@ let split_lines: fn(string) -> List[string] = fn(input: string) -> List[string] 
     return split_lines_acc(input, 0, std.builder.new())
 }
 
-let split_lines_acc: fn(string, i32, StringBuilder) -> List[string] =
-    fn(input: string, pos: i32, current: StringBuilder) -> List[string] {
-        let len: i32 = std.string.byte_length(input)
+let split_lines_acc: fn(string, i64, StringBuilder) -> List[string] =
+    fn(input: string, pos: i64, current: StringBuilder) -> List[string] {
+        let len: i64 = std.string.length(input)
         if pos >= len {
             let final_line: string = std.builder.build(current)
-            if std.string.byte_length(final_line) > 0 {
+            if std.string.length(final_line) > 0 {
                 return Cons(final_line, Nil)
             }
             return Nil
         }
         let c: string = safe_substring(input, pos, pos + 1)
-        if std.string.equals(c, "\n") {
+        if c == "\n" {
             let line: string = std.builder.build(current)
             return Cons(line, split_lines_acc(input, pos + 1, std.builder.new()))
         }
-        if std.string.equals(c, "\r") {
-            let next_pos: i32 = pos + 1
+        if c == "\r" {
+            let next_pos: i64 = pos + 1
             if next_pos < len {
                 let next_c: string = safe_substring(input, next_pos, next_pos + 1)
-                if std.string.equals(next_c, "\n") {
+                if next_c == "\n" {
                     let line: string = std.builder.build(current)
                     return Cons(line, split_lines_acc(input, pos + 2, std.builder.new()))
                 }

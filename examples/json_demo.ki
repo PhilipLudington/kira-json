@@ -1,14 +1,13 @@
-/// JSON Library Demo
-/// Demonstrates parsing, building, transforming, and serializing JSON.
+//! JSON Library Demo
+//! Demonstrates parsing, building, transforming, and serializing JSON.
 
 module json_demo
 
-import src.json.types.{ Json, JsonField, JNull, JBool, JNumber, JString, JArray, is_null, is_bool, type_name, get_field, as_string, as_int }
-import src.json.parser.{ parse }
-import src.json.serializer.{ stringify }
-import src.json.transform.{ set_field, remove_field, merge }
-import src.json.builder.{ json_object }
-import std.list.{ List, Cons, Nil }
+import json.types.{ Json, JsonField, JsonError, is_null, is_bool, type_name, get_field, as_string, as_int, format_error }
+import json.parser.{ parse }
+import json.serializer.{ stringify }
+import json.transform.{ set_field, remove_field, merge }
+import json.builder.{ json_object }
 
 // =============================================================================
 // Demo 1: Building JSON Programmatically
@@ -34,8 +33,6 @@ effect fn demo_building() -> IO[void] {
     std.io.println("Built array:")
     std.io.println(stringify(numbers))
     std.io.println("")
-
-    return
 }
 
 // =============================================================================
@@ -72,7 +69,6 @@ effect fn demo_type_checking() -> IO[void] {
     std.io.println(type_name(str_val))
 
     std.io.println("")
-    return
 }
 
 // =============================================================================
@@ -87,7 +83,7 @@ effect fn demo_parsing() -> IO[void] {
     std.io.print("Parsing: ")
     std.io.println(json_str)
 
-    let result: Result[Json, _] = parse(json_str)
+    let result: Result[Json, JsonError] = parse(json_str)
     match result {
         Ok(json) => {
             std.io.println("Parse OK!")
@@ -109,12 +105,11 @@ effect fn demo_parsing() -> IO[void] {
         }
         Err(e) => {
             std.io.print("Parse error: ")
-            std.io.println(e.message)
+            std.io.println(format_error(e))
         }
     }
 
     std.io.println("")
-    return
 }
 
 // =============================================================================
@@ -136,8 +131,6 @@ effect fn demo_serialization() -> IO[void] {
     std.io.println("Compact:")
     std.io.println(stringify(data))
     std.io.println("")
-
-    return
 }
 
 // =============================================================================
@@ -166,7 +159,6 @@ effect fn demo_transforms() -> IO[void] {
     std.io.println(stringify(without_x))
 
     std.io.println("")
-    return
 }
 
 // =============================================================================
@@ -196,7 +188,6 @@ effect fn demo_merge() -> IO[void] {
     std.io.println(stringify(merged))
 
     std.io.println("")
-    return
 }
 
 // =============================================================================
@@ -216,5 +207,4 @@ effect fn main() -> IO[void] {
     demo_merge()
 
     std.io.println("Demo complete!")
-    return
 }

@@ -1,0 +1,13 @@
+module test_crash
+
+import json.types.{ Json, JsonField, JsonError, get_field, get_index, size, keys, Schema, SchemaProperty, SchemaRef }
+import json.parser.{ parse }
+import json.serializer.{ stringify, stringify_pretty }
+import json.transform.{ set_field, remove_field }
+import json.path.{ get_path, set_path }
+import json.builder.{ json_null, json_bool, json_number, json_int, json_string, json_array, json_object, builder, with_string, with_int, with_bool, build }
+import json.schema.{ validate, schema_object, schema_string, schema_integer, schema_property, schema_type }
+
+effect fn main() -> IO[void] {
+    std.io.println("hello")
+}

@@ -1,0 +1,2381 @@
+//! Tests for the JSON library - Part 2
+//! Builder, edge case, property, schema, and limits tests.
+
+module test_json_part2
+
+// Core types and predicates
+import json.types.{ Json, JsonField, JsonError, ParseLimits, default_limits, unlimited_limits, format_error, format_error_with_context, error_line, error_column, error_byte_position, is_null, is_bool, is_number, is_string, is_array, is_object, type_name, as_string, as_number, as_int, as_bool, as_array, as_object, get_field, get_index, size, keys, values, default_max_depth, make_field, Schema, SchemaProperty, SchemaError, format_schema_error, format_schema_errors }
+
+// Parser
+import json.parser.{ parse, parse_with_max_depth, parse_strict, parse_strict_with_max_depth, parse_with_limits, parse_strict_with_limits }
+
+// Serializer
+import json.serializer.{ stringify, stringify_pretty }
+
+// Transformations
+import json.transform.{ set_field, remove_field, merge, map_array, filter_array, filter_fields }
+
+// Equality
+import json.equality.{ equals }
+
+// Path operations
+import json.path.{ get_path, set_path, has_path, remove_path }
+
+// Builder and constructors
+import json.builder.{ json_null, json_bool, json_number, json_int, json_string, json_array, json_array_empty, json_object, json_object_empty, JsonBuilder, builder, build, with_field, with_string, with_number, with_int, with_bool, with_null, with_array, with_object }
+
+// Schema validation
+import json.schema.{ validate, schema_any, schema_type, schema_string, schema_number, schema_integer, schema_array, schema_object, schema_property, schema_ref, schema_enum }
+
+// =============================================================================
+// Test Utilities
+// =============================================================================
+
+/// Asserts that a condition is true, with a message.
+let assert_true: fn(bool, string) -> void = fn(condition: bool, message: string) -> void {
+    assert(condition, message)
+    return
+}
+
+/// Asserts that two strings are equal.
+let assert_str_eq: fn(string, string, string) -> void =
+    fn(actual: string, expected: string, message: string) -> void {
+        assert(std.string.equals(actual, expected), message)
+        return
+    }
+
+/// Asserts that two i32 values are equal.
+let assert_i32_eq: fn(i32, i32, string) -> void =
+    fn(actual: i32, expected: i32, message: string) -> void {
+        assert(actual == expected, message)
+        return
+    }
+
+/// Asserts that two f64 values are equal.
+let assert_f64_eq: fn(f64, f64, string) -> void =
+    fn(actual: f64, expected: f64, message: string) -> void {
+        assert(actual == expected, message)
+        return
+    }
+
+/// Asserts that an Option[Json] is Some.
+let assert_some_json: fn(Option[Json], string) -> void = fn(opt: Option[Json], message: string) -> void {
+    match opt {
+        Some(_) => { return }
+        None => { assert(false, message) }
+    }
+    return
+}
+
+/// Asserts that an Option[List[Json]] is Some.
+let assert_some_json_list: fn(Option[List[Json]], string) -> void = fn(opt: Option[List[Json]], message: string) -> void {
+    match opt {
+        Some(_) => { return }
+        None => { assert(false, message) }
+    }
+    return
+}
+
+/// Asserts that an Option[List[JsonField]] is Some.
+let assert_some_field_list: fn(Option[List[JsonField]], string) -> void = fn(opt: Option[List[JsonField]], message: string) -> void {
+    match opt {
+        Some(_) => { return }
+        None => { assert(false, message) }
+    }
+    return
+}
+
+/// Asserts that an Option[List[string]] is Some.
+let assert_some_string_list: fn(Option[List[string]], string) -> void = fn(opt: Option[List[string]], message: string) -> void {
+    match opt {
+        Some(_) => { return }
+        None => { assert(false, message) }
+    }
+    return
+}
+
+/// Asserts that an Option[Json] is None.
+let assert_none_json: fn(Option[Json], string) -> void = fn(opt: Option[Json], message: string) -> void {
+    match opt {
+        Some(_) => { assert(false, message) }
+        None => { return }
+    }
+    return
+}
+
+/// Asserts that an Option[string] is None.
+let assert_none_string: fn(Option[string], string) -> void = fn(opt: Option[string], message: string) -> void {
+    match opt {
+        Some(_) => { assert(false, message) }
+        None => { return }
+    }
+    return
+}
+
+/// Asserts that an Option[f64] is None.
+let assert_none_f64: fn(Option[f64], string) -> void = fn(opt: Option[f64], message: string) -> void {
+    match opt {
+        Some(_) => { assert(false, message) }
+        None => { return }
+    }
+    return
+}
+
+/// Asserts that an Option[i64] is None.
+let assert_none_i64: fn(Option[i64], string) -> void = fn(opt: Option[i64], message: string) -> void {
+    match opt {
+        Some(_) => { assert(false, message) }
+        None => { return }
+    }
+    return
+}
+
+/// Asserts that an Option[List[string]] is None.
+let assert_none_string_list: fn(Option[List[string]], string) -> void = fn(opt: Option[List[string]], message: string) -> void {
+    match opt {
+        Some(_) => { assert(false, message) }
+        None => { return }
+    }
+    return
+}
+
+/// Asserts that a Result[Json, JsonError] is Ok.
+let assert_ok_json: fn(Result[Json, JsonError], string) -> void = fn(result: Result[Json, JsonError], message: string) -> void {
+    match result {
+        Ok(_) => { return }
+        Err(_) => { assert(false, message) }
+    }
+    return
+}
+
+/// Asserts that a Result[bool, List[SchemaError]] is Ok.
+let assert_ok_schema: fn(Result[bool, List[SchemaError]], string) -> void = fn(result: Result[bool, List[SchemaError]], message: string) -> void {
+    match result {
+        Ok(_) => { return }
+        Err(_) => { assert(false, message) }
+    }
+    return
+}
+
+/// Asserts that a Result[Json, JsonError] is Err.
+let assert_err_json: fn(Result[Json, JsonError], string) -> void = fn(result: Result[Json, JsonError], message: string) -> void {
+    match result {
+        Ok(_) => { assert(false, message) }
+        Err(_) => { return }
+    }
+    return
+}
+
+/// Asserts that a Result[bool, List[SchemaError]] is Err.
+let assert_err_schema: fn(Result[bool, List[SchemaError]], string) -> void = fn(result: Result[bool, List[SchemaError]], message: string) -> void {
+    match result {
+        Ok(_) => { assert(false, message) }
+        Err(_) => { return }
+    }
+    return
+}
+
+/// Checks that each string in the list parses successfully.
+let check_valid_parses: fn(List[string]) -> void = fn(list: List[string]) -> void {
+    match list {
+        Nil => { return }
+        Cons(input, rest) => {
+            let result: Result[Json, JsonError] = parse(input)
+            assert_ok_json(result, "valid JSON should always parse")
+            check_valid_parses(rest)
+        }
+    }
+}
+
+/// Checks that each string in the list does not crash (error is expected).
+let check_invalid_parses: fn(List[string]) -> void = fn(list: List[string]) -> void {
+    match list {
+        Nil => { return }
+        Cons(input, rest) => {
+            let result: Result[Json, JsonError] = parse(input)
+            // We just want to verify it doesn't crash - error is expected
+            match result {
+                Ok(_) => { }
+                Err(_) => { }
+            }
+            check_invalid_parses(rest)
+        }
+    }
+}
+
+/// Counts the number of errors in a list of SchemaErrors.
+let count_schema_errors: fn(List[SchemaError]) -> i32 = fn(errs: List[SchemaError]) -> i32 {
+    match errs {
+        Nil => { return 0 }
+        Cons(_, rest) => { return 1 + count_schema_errors(rest) }
+    }
+}
+
+// =============================================================================
+// Convenience Constructors Tests
+// =============================================================================
+
+let test_json_null: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_null()
+
+    // Assert
+    assert(is_null(j), "json_null should create JNull")
+    return
+}
+
+let test_json_bool_true: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_bool(true)
+
+    // Assert
+    assert(is_bool(j), "json_bool should create JBool")
+    match as_bool(j) {
+        Some(v) => { assert(v, "value should be true") }
+        None => { assert(false, "as_bool should return Some") }
+    }
+    return
+}
+
+let test_json_bool_false: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_bool(false)
+
+    // Assert
+    match as_bool(j) {
+        Some(v) => { assert(not v, "value should be false") }
+        None => { assert(false, "as_bool should return Some") }
+    }
+    return
+}
+
+let test_json_number: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_number(3.14)
+
+    // Assert
+    assert(is_number(j), "json_number should create JNumber")
+    match as_number(j) {
+        Some(v) => { assert(v > 3.13, "value should be close to 3.14") }
+        None => { assert(false, "as_number should return Some") }
+    }
+    return
+}
+
+let test_json_int: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_int(42)
+
+    // Assert
+    assert(is_number(j), "json_int should create JNumber")
+    match as_int(j) {
+        Some(v) => { assert(v == 42, "value should be 42") }
+        None => { assert(false, "as_int should return Some") }
+    }
+    return
+}
+
+let test_json_string: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_string("hello")
+
+    // Assert
+    assert(is_string(j), "json_string should create JString")
+    match as_string(j) {
+        Some(v) => { assert(std.string.equals(v, "hello"), "value should be 'hello'") }
+        None => { assert(false, "as_string should return Some") }
+    }
+    return
+}
+
+let test_json_array: fn() -> void = fn() -> void {
+    // Arrange
+    let items: List[Json] = Cons(json_int(1), Cons(json_int(2), Nil))
+
+    // Act
+    let j: Json = json_array(items)
+
+    // Assert
+    assert(is_array(j), "json_array should create JArray")
+    match size(j) {
+        Some(s) => { assert_i32_eq(s, 2, "array should have 2 elements") }
+        None => { assert(false, "size should return Some") }
+    }
+    return
+}
+
+let test_json_array_empty: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_array_empty()
+
+    // Assert
+    assert(is_array(j), "json_array_empty should create JArray")
+    match size(j) {
+        Some(s) => { assert_i32_eq(s, 0, "array should be empty") }
+        None => { assert(false, "size should return Some") }
+    }
+    return
+}
+
+let test_json_object: fn() -> void = fn() -> void {
+    // Arrange
+    let fields: List[JsonField] = Cons(
+        make_field("name", json_string("Alice")),
+        Nil
+    )
+
+    // Act
+    let j: Json = json_object(fields)
+
+    // Assert
+    assert(is_object(j), "json_object should create JObject")
+    match get_field(j, "name") {
+        Some(v) => {
+            match as_string(v) {
+                Some(s) => { assert(std.string.equals(s, "Alice"), "name should be Alice") }
+                None => { assert(false, "name should be a string") }
+            }
+        }
+        None => { assert(false, "object should have name field") }
+    }
+    return
+}
+
+let test_json_object_empty: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = json_object_empty()
+
+    // Assert
+    assert(is_object(j), "json_object_empty should create JObject")
+    match size(j) {
+        Some(s) => { assert_i32_eq(s, 0, "object should be empty") }
+        None => { assert(false, "size should return Some") }
+    }
+    return
+}
+
+// =============================================================================
+// Builder Pattern Tests
+// =============================================================================
+
+let test_builder_empty: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(builder())
+
+    // Assert
+    assert(is_object(j), "builder should create an object")
+    match size(j) {
+        Some(s) => { assert_i32_eq(s, 0, "object should be empty") }
+        None => { assert(false, "size should return Some") }
+    }
+    return
+}
+
+let test_builder_with_string: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(with_string(builder(), "name", "Bob"))
+
+    // Assert
+    match get_field(j, "name") {
+        Some(v) => {
+            match as_string(v) {
+                Some(s) => { assert(std.string.equals(s, "Bob"), "name should be Bob") }
+                None => { assert(false, "value should be a string") }
+            }
+        }
+        None => { assert(false, "object should have name field") }
+    }
+    return
+}
+
+let test_builder_with_number: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(with_number(builder(), "price", 19.99))
+
+    // Assert
+    match get_field(j, "price") {
+        Some(v) => {
+            match as_number(v) {
+                Some(n) => { assert(n > 19.0, "price should be close to 19.99") }
+                None => { assert(false, "value should be a number") }
+            }
+        }
+        None => { assert(false, "object should have price field") }
+    }
+    return
+}
+
+let test_builder_with_int: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(with_int(builder(), "count", 100))
+
+    // Assert
+    match get_field(j, "count") {
+        Some(v) => {
+            match as_int(v) {
+                Some(n) => { assert(n == 100, "count should be 100") }
+                None => { assert(false, "value should be a number") }
+            }
+        }
+        None => { assert(false, "object should have count field") }
+    }
+    return
+}
+
+let test_builder_with_bool: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(with_bool(builder(), "active", true))
+
+    // Assert
+    match get_field(j, "active") {
+        Some(v) => {
+            match as_bool(v) {
+                Some(b) => { assert(b, "active should be true") }
+                None => { assert(false, "value should be a boolean") }
+            }
+        }
+        None => { assert(false, "object should have active field") }
+    }
+    return
+}
+
+let test_builder_with_null: fn() -> void = fn() -> void {
+    // Act
+    let j: Json = build(with_null(builder(), "deleted"))
+
+    // Assert
+    match get_field(j, "deleted") {
+        Some(v) => { assert(is_null(v), "deleted should be null") }
+        None => { assert(false, "object should have deleted field") }
+    }
+    return
+}
+
+let test_builder_chained: fn() -> void = fn() -> void {
+    // Act
+    let b1: JsonBuilder = builder()
+    let b2: JsonBuilder = with_string(b1, "name", "Charlie")
+    let b3: JsonBuilder = with_int(b2, "age", 30)
+    let b4: JsonBuilder = with_bool(b3, "active", true)
+    let j: Json = build(b4)
+
+    // Assert
+    match size(j) {
+        Some(s) => { assert_i32_eq(s, 3, "object should have 3 fields") }
+        None => { assert(false, "size should return Some") }
+    }
+    match get_field(j, "name") {
+        Some(v) => {
+            match as_string(v) {
+                Some(s) => { assert(std.string.equals(s, "Charlie"), "name should be Charlie") }
+                None => { assert(false, "name should be a string") }
+            }
+        }
+        None => { assert(false, "object should have name field") }
+    }
+    return
+}
+
+let test_builder_preserves_order: fn() -> void = fn() -> void {
+    // Act - add fields in order: a, b, c
+    let b1: JsonBuilder = builder()
+    let b2: JsonBuilder = with_string(b1, "a", "first")
+    let b3: JsonBuilder = with_string(b2, "b", "second")
+    let b4: JsonBuilder = with_string(b3, "c", "third")
+    let j: Json = build(b4)
+
+    // Assert - stringify and check order
+    let s: string = stringify(j)
+    // Should have a before b before c
+    let a_pos: i32 = find_substring(s, "\"a\"")
+    let b_pos: i32 = find_substring(s, "\"b\"")
+    let c_pos: i32 = find_substring(s, "\"c\"")
+    assert(a_pos < b_pos, "a should come before b")
+    assert(b_pos < c_pos, "b should come before c")
+    return
+}
+
+let test_builder_nested_object: fn() -> void = fn() -> void {
+    // Act
+    let inner: JsonBuilder = with_string(builder(), "city", "NYC")
+    let outer: JsonBuilder = with_object(builder(), "address", inner)
+    let j: Json = build(outer)
+
+    // Assert
+    match get_field(j, "address") {
+        Some(addr) => {
+            assert(is_object(addr), "address should be an object")
+            match get_field(addr, "city") {
+                Some(city) => {
+                    match as_string(city) {
+                        Some(s) => { assert(std.string.equals(s, "NYC"), "city should be NYC") }
+                        None => { assert(false, "city should be a string") }
+                    }
+                }
+                None => { assert(false, "address should have city field") }
+            }
+        }
+        None => { assert(false, "object should have address field") }
+    }
+    return
+}
+
+/// Helper to find substring position (returns -1 if not found)
+let find_substring: fn(string, string) -> i32 = fn(haystack: string, needle: string) -> i32 {
+    let hlen: i32 = to_int(std.string.length(haystack))
+    let nlen: i32 = to_int(std.string.length(needle))
+    if nlen > hlen {
+        return -1
+    }
+    return find_substring_at(haystack, needle, 0, hlen - nlen + 1, nlen)
+}
+
+let find_substring_at: fn(string, string, i32, i32, i32) -> i32 =
+    fn(haystack: string, needle: string, pos: i32, limit: i32, nlen: i32) -> i32 {
+        if pos >= limit {
+            return -1
+        }
+        let pos64: i64 = pos + 0i64
+        let end64: i64 = pos64 + nlen + 0i64
+        match std.string.substring(haystack, pos64, end64) {
+            None => { return -1 }
+            Some(sub) => {
+                if std.string.equals(sub, needle) {
+                    return pos
+                }
+                return find_substring_at(haystack, needle, pos + 1, limit, nlen)
+            }
+        }
+    }
+
+// =============================================================================
+// Error Context Tests
+// =============================================================================
+
+let test_format_error_with_context_single_line: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "{\"key\": value}"
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Act & Assert
+    match result {
+        Err(e) => {
+            let msg: string = format_error_with_context(input, e)
+            // Should contain the line content
+            assert(std.string.contains(msg, "{\"key\": value}"), "should contain input line")
+            // Should contain a caret indicator
+            assert(std.string.contains(msg, "^"), "should contain caret indicator")
+        }
+        Ok(_) => { assert(false, "parse should fail") }
+    }
+    return
+}
+
+let test_format_error_with_context_multiline: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "{\n  \"key\": value\n}"
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Act & Assert
+    match result {
+        Err(e) => {
+            let msg: string = format_error_with_context(input, e)
+            // Should contain the error line content (the line with "value")
+            assert(std.string.contains(msg, "\"key\": value"), "should contain error line")
+            assert(std.string.contains(msg, "^"), "should contain caret indicator")
+        }
+        Ok(_) => { assert(false, "parse should fail") }
+    }
+    return
+}
+
+let test_format_error_with_context_unterminated_string: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "{\"key\": \"unterminated"
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Act & Assert
+    match result {
+        Err(e) => {
+            let msg: string = format_error_with_context(input, e)
+            assert(std.string.contains(msg, "Unterminated"), "should mention unterminated")
+            assert(std.string.contains(msg, "^"), "should contain caret indicator")
+        }
+        Ok(_) => { assert(false, "parse should fail") }
+    }
+    return
+}
+
+// =============================================================================
+// Edge Case Tests (Phase 5.3)
+// =============================================================================
+
+// --- Empty and Whitespace Input ---
+
+let test_edge_empty_input: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = ""
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_err_json(result, "empty input should fail")
+    match result {
+        Err(UnexpectedEof { expected: _, context: _, line: _, col: _ }) => { return }
+        _ => { assert(false, "should be UnexpectedEof error") }
+    }
+    return
+}
+
+let test_edge_whitespace_only_spaces: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "   "
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_err_json(result, "whitespace-only input should fail")
+    return
+}
+
+let test_edge_whitespace_only_tabs: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "\t\t\t"
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_err_json(result, "tab-only input should fail")
+    return
+}
+
+let test_edge_whitespace_only_newlines: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "\n\n\n"
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_err_json(result, "newline-only input should fail")
+    return
+}
+
+let test_edge_whitespace_only_mixed: fn() -> void = fn() -> void {
+    // Arrange
+    let input: string = "  \t\n \r\n  "
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_err_json(result, "mixed whitespace-only input should fail")
+    return
+}
+
+// --- Maximum Nesting Depth ---
+
+let test_edge_nesting_at_max_depth: fn() -> void = fn() -> void {
+    // Arrange - build a structure with exactly 5 levels: [[[[[null]]]]]
+    let input: string = "[[[[[null]]]]]"  // depth = 5
+
+    // Act
+    let result: Result[Json, JsonError] = parse_with_max_depth(input, 5)
+
+    // Assert
+    assert_ok_json(result, "nesting at exactly max depth should succeed")
+    return
+}
+
+let test_edge_nesting_exceeds_max_depth: fn() -> void = fn() -> void {
+    // Arrange - build a structure with 6 levels but limit is 5
+    let input: string = "[[[[[[null]]]]]]"  // depth = 6
+
+    // Act
+    let result: Result[Json, JsonError] = parse_with_max_depth(input, 5)
+
+    // Assert
+    assert_err_json(result, "nesting exceeding max depth should fail")
+    match result {
+        Err(MaxDepthExceeded { depth: _, max_depth: _, line: _, col: _ }) => { return }
+        _ => { assert(false, "should be MaxDepthExceeded error") }
+    }
+    return
+}
+
+let test_edge_nesting_objects_at_max_depth: fn() -> void = fn() -> void {
+    // Arrange - nested objects at depth 3: {"a":{"a":{"a":null}}}
+    let input: string = "{\"a\":{\"a\":{\"a\":null}}}"  // depth = 3
+
+    // Act
+    let result: Result[Json, JsonError] = parse_with_max_depth(input, 3)
+
+    // Assert
+    assert_ok_json(result, "object nesting at exactly max depth should succeed")
+    return
+}
+
+let test_edge_nesting_mixed_at_max_depth: fn() -> void = fn() -> void {
+    // Arrange - mixed array/object nesting: [{"a":[null]}]  depth = 3
+    let input: string = "[{\"a\":[null]}]"
+
+    // Act
+    let result: Result[Json, JsonError] = parse_with_max_depth(input, 3)
+
+    // Assert
+    assert_ok_json(result, "mixed nesting at exactly max depth should succeed")
+    return
+}
+
+// --- Long Strings ---
+
+let test_edge_string_with_special_chars: fn() -> void = fn() -> void {
+    // Arrange - a string with special characters
+    let input: string = "\"Hello\\nWorld\\t!\\\"quote\\\"\\\\backslash\""
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_ok_json(result, "string with special chars should parse")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    assert(std.string.contains(s, "\n"), "should contain newline")
+                    assert(std.string.contains(s, "\t"), "should contain tab")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "should succeed") }
+    }
+    return
+}
+
+let test_edge_string_with_unicode_escapes: fn() -> void = fn() -> void {
+    // Arrange - a string with unicode escapes
+    let input: string = "\"\\u0048\\u0065\\u006C\\u006C\\u006F\""  // "Hello"
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_ok_json(result, "string with unicode escapes should parse")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    assert(std.string.equals(s, "Hello"), "should decode to 'Hello'")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "should succeed") }
+    }
+    return
+}
+
+// --- Long Arrays ---
+
+let test_edge_array_10_elements: fn() -> void = fn() -> void {
+    // Arrange - array with 10 null elements
+    // Note: Limited due to recursive interpreter implementation
+    let input: string = "[null,null,null,null,null,null,null,null,null,null]"
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_ok_json(result, "10 element array should parse")
+    match result {
+        Ok(json) => {
+            assert(is_array(json), "should be an array")
+        }
+        Err(_) => { assert(false, "should succeed") }
+    }
+    return
+}
+
+let test_edge_array_mixed_types: fn() -> void = fn() -> void {
+    // Arrange - array with 8 mixed elements (2 groups of 4 types)
+    let input: string = "[1,\"a\",true,null,2,\"b\",false,null]"
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_ok_json(result, "8 mixed element array should parse")
+    match result {
+        Ok(json) => {
+            assert(is_array(json), "should be an array")
+        }
+        Err(_) => { assert(false, "should succeed") }
+    }
+    return
+}
+
+// --- Unicode Edge Cases ---
+// Note: Using JSON escape sequences instead of raw Unicode literals
+// due to interpreter limitations with multi-byte character handling
+
+let test_edge_unicode_escape_basic: fn() -> void = fn() -> void {
+    // Arrange - basic unicode escapes in string
+    let input: string = "\"\\u0041\\u0042\\u0043\""  // "ABC"
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_ok_json(result, "unicode escapes should parse")
+    match result {
+        Ok(json) => {
+            match as_string(json) {
+                Some(s) => {
+                    assert(std.string.equals(s, "ABC"), "should decode to 'ABC'")
+                }
+                None => { assert(false, "should be a string") }
+            }
+        }
+        Err(_) => { assert(false, "should succeed") }
+    }
+    return
+}
+
+let test_edge_unicode_escape_non_ascii: fn() -> void = fn() -> void {
+    // Arrange - non-ASCII unicode escape (copyright symbol U+00A9)
+    let input: string = "\"\\u00A9\""  // ©
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_ok_json(result, "non-ASCII unicode escape should parse")
+    return
+}
+
+let test_edge_unicode_escape_cjk: fn() -> void = fn() -> void {
+    // Arrange - CJK character (U+4E2D = 中)
+    let input: string = "\"\\u4E2D\""
+
+    // Act
+    let result: Result[Json, JsonError] = parse(input)
+
+    // Assert
+    assert_ok_json(result, "CJK unicode escape should parse")
+    return
+}
+
+// --- Roundtrip Property Tests (Phase 5.2) ---
+
+let test_roundtrip_null_with_equals: fn() -> void = fn() -> void {
+    // Arrange
+    let original: Json = JNull
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "null should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_bool_true: fn() -> void = fn() -> void {
+    // Arrange
+    let original: Json = JBool(true)
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "true should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_bool_false: fn() -> void = fn() -> void {
+    // Arrange
+    let original: Json = JBool(false)
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "false should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_integer: fn() -> void = fn() -> void {
+    // Arrange
+    let original: Json = JNumber(42.0)
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "integer should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_negative_number: fn() -> void = fn() -> void {
+    // Arrange
+    let original: Json = JNumber(-123.456)
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            match as_number(json) {
+                Some(n) => {
+                    // Allow small floating point difference
+                    let diff: f64 = n - (-123.456)
+                    assert(diff > -0.001 and diff < 0.001, "negative number should roundtrip")
+                }
+                None => { assert(false, "should be a number") }
+            }
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_string_simple: fn() -> void = fn() -> void {
+    // Arrange
+    let original: Json = JString("hello world")
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "simple string should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_string_with_escapes: fn() -> void = fn() -> void {
+    // Arrange - string with various escape sequences
+    let original: Json = JString("line1\nline2\ttab\"quote\\backslash")
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "string with escapes should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_string_with_newlines: fn() -> void = fn() -> void {
+    // Arrange - string with newlines and tabs
+    let original: Json = JString("Hello\nWorld\ttab")
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "string with newlines should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_empty_array: fn() -> void = fn() -> void {
+    // Arrange
+    let original: Json = JArray(Nil)
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "empty array should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_array_with_elements: fn() -> void = fn() -> void {
+    // Arrange
+    let original: Json = JArray(Cons(JNumber(1.0), Cons(JString("two"), Cons(JBool(true), Nil))))
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "array with elements should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_empty_object: fn() -> void = fn() -> void {
+    // Arrange
+    let original: Json = json_object_empty()
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "empty object should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_object_with_fields: fn() -> void = fn() -> void {
+    // Arrange
+    let field1: JsonField = JsonField { key: "name", value: JString("Alice") }
+    let field2: JsonField = JsonField { key: "age", value: JNumber(30.0) }
+    let original: Json = json_object(Cons(field1, Cons(field2, Nil)))
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "object with fields should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+let test_roundtrip_nested_structure: fn() -> void = fn() -> void {
+    // Arrange - complex nested structure
+    let inner_field: JsonField = JsonField { key: "items", value: JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Nil))) }
+    let inner: Json = json_object(Cons(inner_field, Nil))
+    let outer_field: JsonField = JsonField { key: "data", value: inner }
+    let original: Json = json_object(Cons(outer_field, Nil))
+
+    // Act
+    let serialized: string = stringify(original)
+    let reparsed: Result[Json, JsonError] = parse(serialized)
+
+    // Assert
+    match reparsed {
+        Ok(json) => {
+            assert(equals(original, json), "nested structure should roundtrip")
+        }
+        Err(_) => { assert(false, "roundtrip should succeed") }
+    }
+    return
+}
+
+// --- Stringify Determinism Tests ---
+
+let test_stringify_determinism_same_output: fn() -> void = fn() -> void {
+    // Arrange
+    let field1: JsonField = JsonField { key: "a", value: JNumber(1.0) }
+    let field2: JsonField = JsonField { key: "b", value: JString("test") }
+    let json: Json = json_object(Cons(field1, Cons(field2, Nil)))
+
+    // Act
+    let output1: string = stringify(json)
+    let output2: string = stringify(json)
+
+    // Assert
+    assert(std.string.equals(output1, output2), "same input should produce same output")
+    return
+}
+
+let test_stringify_determinism_nested: fn() -> void = fn() -> void {
+    // Arrange - complex nested structure
+    let inner: Json = JArray(Cons(JBool(true), Cons(JNull, Nil)))
+    let field: JsonField = JsonField { key: "nested", value: inner }
+    let json: Json = json_object(Cons(field, Nil))
+
+    // Act
+    let output1: string = stringify(json)
+    let output2: string = stringify(json)
+    let output3: string = stringify(json)
+
+    // Assert
+    assert(std.string.equals(output1, output2), "first two outputs should match")
+    assert(std.string.equals(output2, output3), "second and third outputs should match")
+    return
+}
+
+// --- Parse Consistency Tests ---
+
+let test_parse_consistency_valid_never_crashes: fn() -> void = fn() -> void {
+    // Arrange - various valid JSON inputs
+    let inputs: List[string] = Cons("null",
+        Cons("true",
+        Cons("false",
+        Cons("0",
+        Cons("-1",
+        Cons("3.14",
+        Cons("1e10",
+        Cons("\"\"",
+        Cons("\"hello\"",
+        Cons("[]",
+        Cons("[1,2,3]",
+        Cons("{}",
+        Cons("{\"a\":1}",
+        Nil)))))))))))))
+
+    // Act & Assert - all should parse successfully
+    check_valid_parses(inputs)
+    return
+}
+
+let test_parse_consistency_invalid_never_crashes: fn() -> void = fn() -> void {
+    // Arrange - various invalid JSON inputs
+    let inputs: List[string] = Cons("",
+        Cons("{",
+        Cons("}",
+        Cons("[",
+        Cons("]",
+        Cons("\"unterminated",
+        Cons("nul",
+        Cons("tru",
+        Cons("fals",
+        Cons("1.",
+        Cons(".5",
+        Cons("01",
+        Cons("{\"a\"}",
+        Nil)))))))))))))
+
+    // Act & Assert - all should return errors (not crash)
+    check_invalid_parses(inputs)
+    return
+}
+
+// =============================================================================
+// Schema Validation Tests
+// =============================================================================
+
+// --- Type Constraint Tests ---
+
+let test_schema_type_null_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNull
+    let schema: Schema = schema_type("null")
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "null should match null type")
+    return
+}
+
+let test_schema_type_null_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("not null")
+    let schema: Schema = schema_type("null")
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "string should not match null type")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(TypeMismatch { expected: exp, actual: act, path: _ }, _) => {
+                    assert(std.string.equals(exp, "null"), "expected should be null")
+                    assert(std.string.equals(act, "string"), "actual should be string")
+                }
+                _ => { assert(false, "should be TypeMismatch error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+let test_schema_type_boolean_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JBool(true)
+    let schema: Schema = schema_type("boolean")
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "bool should match boolean type")
+    return
+}
+
+let test_schema_type_number_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(42.5)
+    let schema: Schema = schema_type("number")
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "number should match number type")
+    return
+}
+
+let test_schema_type_string_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("hello")
+    let schema: Schema = schema_type("string")
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "string should match string type")
+    return
+}
+
+let test_schema_type_array_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Nil))
+    let schema: Schema = schema_type("array")
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "array should match array type")
+    return
+}
+
+let test_schema_type_object_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = json_object_empty()
+    let schema: Schema = schema_type("object")
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "object should match object type")
+    return
+}
+
+let test_schema_type_integer_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(42.0)
+    let schema: Schema = schema_type("integer")
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "whole number should match integer type")
+    return
+}
+
+let test_schema_type_integer_invalid_fractional: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(42.5)
+    let schema: Schema = schema_type("integer")
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "fractional number should not match integer type")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(IntegerRequired { value: _, path: _ }, _) => { }
+                _ => { assert(false, "should be IntegerRequired error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Required Fields Tests ---
+
+let test_schema_required_present: fn() -> void = fn() -> void {
+    // Arrange
+    let json_result: Result[Json, JsonError] = parse("{\"name\": \"Alice\", \"age\": 30}")
+    var json: Json = JNull
+    match json_result {
+        Ok(j) => { json = j }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+    let schema: Schema = schema_object(Some(Cons("name", Cons("age", Nil))), None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "all required fields present")
+    return
+}
+
+let test_schema_required_missing: fn() -> void = fn() -> void {
+    // Arrange
+    let json_result: Result[Json, JsonError] = parse("{\"name\": \"Alice\"}")
+    var json: Json = JNull
+    match json_result {
+        Ok(j) => { json = j }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+    let schema: Schema = schema_object(Some(Cons("name", Cons("age", Nil))), None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "missing required field should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MissingRequired { field: f, path: _ }, _) => {
+                    assert(std.string.equals(f, "age"), "missing field should be 'age'")
+                }
+                _ => { assert(false, "should be MissingRequired error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+let test_schema_required_multiple_missing: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = json_object_empty()
+    let schema: Schema = schema_object(Some(Cons("a", Cons("b", Nil))), None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "missing required fields should fail")
+    match result {
+        Err(errors) => {
+            // Should have two errors
+            match errors {
+                Cons(_, Cons(_, Nil)) => { }
+                _ => { assert(false, "should have exactly two errors") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Numeric Range Tests ---
+
+let test_schema_number_minimum_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(10.0)
+    let schema: Schema = schema_number(Some(5.0), None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "value above minimum should pass")
+    return
+}
+
+let test_schema_number_minimum_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(3.0)
+    let schema: Schema = schema_number(Some(5.0), None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "value below minimum should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MinimumViolation { value: _, minimum: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MinimumViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+let test_schema_number_maximum_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(10.0)
+    let schema: Schema = schema_number(None, Some(100.0))
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "value below maximum should pass")
+    return
+}
+
+let test_schema_number_maximum_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JNumber(150.0)
+    let schema: Schema = schema_number(None, Some(100.0))
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "value above maximum should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MaximumViolation { value: _, maximum: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MaximumViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- String Length Tests ---
+
+let test_schema_string_min_length_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("hello")
+    let schema: Schema = schema_string(Some(3), None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "string above minLength should pass")
+    return
+}
+
+let test_schema_string_min_length_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("hi")
+    let schema: Schema = schema_string(Some(5), None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "string below minLength should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MinLengthViolation { actual: _, min_length: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MinLengthViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+let test_schema_string_max_length_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("hi")
+    let schema: Schema = schema_string(None, Some(5))
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "string below maxLength should pass")
+    return
+}
+
+let test_schema_string_max_length_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("hello world")
+    let schema: Schema = schema_string(None, Some(5))
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "string above maxLength should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MaxLengthViolation { actual: _, max_length: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MaxLengthViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Array Length Tests ---
+
+let test_schema_array_min_items_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Cons(JNumber(3.0), Nil))))
+    let schema: Schema = schema_array(None, Some(2), None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "array with enough items should pass")
+    return
+}
+
+let test_schema_array_min_items_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Nil))
+    let schema: Schema = schema_array(None, Some(3), None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "array with too few items should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MinItemsViolation { actual: _, min_items: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MinItemsViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+let test_schema_array_max_items_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Nil)))
+    let schema: Schema = schema_array(None, None, Some(5))
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "array under maxItems should pass")
+    return
+}
+
+let test_schema_array_max_items_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Cons(JNumber(3.0), Cons(JNumber(4.0), Nil)))))
+    let schema: Schema = schema_array(None, None, Some(2))
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "array over maxItems should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MaxItemsViolation { actual: _, max_items: _, path: _ }, _) => { }
+                _ => { assert(false, "should be MaxItemsViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Enum Tests ---
+
+let test_schema_enum_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("red")
+    let allowed: List[Json] = Cons(JString("red"), Cons(JString("green"), Cons(JString("blue"), Nil)))
+    let schema: Schema = schema_enum(allowed)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "value in enum should pass")
+    return
+}
+
+let test_schema_enum_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JString("yellow")
+    let allowed: List[Json] = Cons(JString("red"), Cons(JString("green"), Cons(JString("blue"), Nil)))
+    let schema: Schema = schema_enum(allowed)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "value not in enum should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(EnumViolation { path: _ }, _) => { }
+                _ => { assert(false, "should be EnumViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Nested Validation Tests ---
+
+let test_schema_nested_object_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json_result: Result[Json, JsonError] = parse("{\"user\": {\"name\": \"Alice\", \"age\": 30}}")
+    var json: Json = JNull
+    match json_result {
+        Ok(j) => { json = j }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+
+    let user_schema: Schema = schema_object(
+        Some(Cons("name", Nil)),
+        Some(Cons(
+            schema_property("name", schema_string(Some(1), None)),
+            Cons(
+                schema_property("age", schema_number(Some(0.0), Some(150.0))),
+                Nil
+            )
+        ))
+    )
+    let schema: Schema = schema_object(
+        Some(Cons("user", Nil)),
+        Some(Cons(schema_property("user", user_schema), Nil))
+    )
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "valid nested object should pass")
+    return
+}
+
+let test_schema_nested_object_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json_result: Result[Json, JsonError] = parse("{\"user\": {\"name\": \"\", \"age\": 200}}")
+    var json: Json = JNull
+    match json_result {
+        Ok(j) => { json = j }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+
+    let user_schema: Schema = schema_object(
+        None,
+        Some(Cons(
+            schema_property("name", schema_string(Some(1), None)),
+            Cons(
+                schema_property("age", schema_number(Some(0.0), Some(150.0))),
+                Nil
+            )
+        ))
+    )
+    let schema: Schema = schema_object(
+        None,
+        Some(Cons(schema_property("user", user_schema), Nil))
+    )
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "invalid nested object should fail")
+    return
+}
+
+let test_schema_array_items_valid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(2.0), Cons(JNumber(3.0), Nil))))
+    let item_schema: Schema = schema_number(Some(0.0), Some(10.0))
+    let schema: Schema = schema_array(Some(item_schema), None, None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_ok_schema(result, "valid array items should pass")
+    return
+}
+
+let test_schema_array_items_invalid: fn() -> void = fn() -> void {
+    // Arrange
+    let json: Json = JArray(Cons(JNumber(1.0), Cons(JNumber(20.0), Cons(JNumber(3.0), Nil))))
+    let item_schema: Schema = schema_number(Some(0.0), Some(10.0))
+    let schema: Schema = schema_array(Some(item_schema), None, None)
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "invalid array item should fail")
+    match result {
+        Err(errors) => {
+            match errors {
+                Cons(MaximumViolation { value: _, maximum: _, path: p }, _) => {
+                    assert(std.string.equals(p, "$[1]"), "path should be $[1]")
+                }
+                _ => { assert(false, "should be MaximumViolation error") }
+            }
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Multiple Error Collection Tests ---
+
+let test_schema_collects_multiple_errors: fn() -> void = fn() -> void {
+    // Arrange - object with multiple violations
+    let json_result: Result[Json, JsonError] = parse("{\"count\": -5, \"name\": \"\"}")
+    var json: Json = JNull
+    match json_result {
+        Ok(j) => { json = j }
+        Err(_) => { assert(false, "parse should succeed") }
+    }
+
+    let schema: Schema = schema_object(
+        Some(Cons("count", Cons("name", Cons("missing", Nil)))),  // missing field
+        Some(Cons(
+            schema_property("count", schema_number(Some(0.0), None)),  // minimum violation
+            Cons(
+                schema_property("name", schema_string(Some(1), None)),  // minLength violation
+                Nil
+            )
+        ))
+    )
+
+    // Act
+    let result: Result[bool, List[SchemaError]] = validate(json, schema)
+
+    // Assert
+    assert_err_schema(result, "should have multiple errors")
+    match result {
+        Err(errors) => {
+            // Count errors
+            let count: i32 = count_schema_errors(errors)
+            assert(count >= 3, "should have at least 3 errors")
+        }
+        Ok(_) => { }
+    }
+    return
+}
+
+// --- Error Formatting Tests ---
+
+let test_format_schema_error_type_mismatch: fn() -> void = fn() -> void {
+    // Arrange
+    let err: SchemaError = TypeMismatch { expected: "number", actual: "string", path: "$.age" }
+
+    // Act
+    let formatted: string = format_schema_error(err)
+
+    // Assert
+    assert(std.string.contains(formatted, "Type mismatch"), "should contain 'Type mismatch'")
+    assert(std.string.contains(formatted, "number"), "should contain expected type")
+    assert(std.string.contains(formatted, "string"), "should contain actual type")
+    assert(std.string.contains(formatted, "$.age"), "should contain path")
+    return
+}
+
+let test_format_schema_errors_multiple: fn() -> void = fn() -> void {
+    // Arrange
+    let errors: List[SchemaError] = Cons(
+        MissingRequired { field: "name", path: "$" },
+        Cons(
+            MinimumViolation { value: -5.0, minimum: 0.0, path: "$.count" },
+            Nil
+        )
+    )
+
+    // Act
+    let formatted: string = format_schema_errors(errors)
+
+    // Assert
+    assert(std.string.contains(formatted, "Missing required"), "should contain first error")
+    assert(std.string.contains(formatted, "Minimum violation"), "should contain second error")
+    return
+}
+
+// --- Schema Any Tests ---
+
+let test_schema_any_accepts_all_types: fn() -> void = fn() -> void {
+    // Arrange
+    let schema: Schema = schema_any()
+
+    // Act & Assert - should accept all types
+    assert_ok_schema(validate(JNull, schema), "should accept null")
+    assert_ok_schema(validate(JBool(true), schema), "should accept bool")
+    assert_ok_schema(validate(JNumber(42.0), schema), "should accept number")
+    assert_ok_schema(validate(JString("hi"), schema), "should accept string")
+    assert_ok_schema(validate(JArray(Nil), schema), "should accept array")
+    assert_ok_schema(validate(json_object_empty(), schema), "should accept object")
+    return
+}
+
+// =============================================================================
+// Resource Limit Tests
+// =============================================================================
+
+/// Test that default limits are reasonable
+let test_default_limits_values: fn() -> void = fn() -> void {
+    let limits: ParseLimits = default_limits()
+    assert_true(limits.max_depth == 128, "default max_depth should be 128")
+    match limits.max_string_length {
+        Some(n) => { assert_true(n == 10000000, "default max_string_length should be 10000000") }
+        None => { assert_true(false, "default max_string_length should have a value") }
+    }
+    match limits.max_array_items {
+        Some(n) => { assert_true(n == 1000000, "default max_array_items should be 1000000") }
+        None => { assert_true(false, "default max_array_items should have a value") }
+    }
+    match limits.max_object_fields {
+        Some(n) => { assert_true(n == 100000, "default max_object_fields should be 100000") }
+        None => { assert_true(false, "default max_object_fields should have a value") }
+    }
+    return
+}
+
+/// Test that unlimited limits have None for optional fields
+let test_unlimited_limits_values: fn() -> void = fn() -> void {
+    let limits: ParseLimits = unlimited_limits()
+    assert_true(limits.max_depth == 128, "unlimited max_depth should still be 128")
+    match limits.max_string_length {
+        Some(_) => { assert_true(false, "unlimited max_string_length should be None") }
+        None => { }
+    }
+    match limits.max_array_items {
+        Some(_) => { assert_true(false, "unlimited max_array_items should be None") }
+        None => { }
+    }
+    match limits.max_object_fields {
+        Some(_) => { assert_true(false, "unlimited max_object_fields should be None") }
+        None => { }
+    }
+    return
+}
+
+/// Test that string too long error is returned when limit exceeded
+let test_string_too_long_error: fn() -> void = fn() -> void {
+    // Create limits with a very small string length limit
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: Some(5),
+        max_array_items: None,
+        max_object_fields: None
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("\"hello world\"", limits)
+    match result {
+        Ok(_) => { assert_true(false, "should have failed with StringTooLong") }
+        Err(err) => {
+            match err {
+                StringTooLong { length: len, max_length: max, line: _, col: _ } => {
+                    assert_true(len > max, "length should exceed max")
+                    assert_true(max == 5, "max should be 5")
+                }
+                _ => { assert_true(false, "expected StringTooLong error") }
+            }
+        }
+    }
+    return
+}
+
+/// Test that string within limit is accepted
+let test_string_within_limit: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: Some(20),
+        max_array_items: None,
+        max_object_fields: None
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("\"hello\"", limits)
+    assert_ok_json(result, "string within limit should be accepted")
+    return
+}
+
+/// Test that too many array items error is returned
+let test_too_many_array_items_error: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: Some(3),
+        max_object_fields: None
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("[1, 2, 3, 4, 5]", limits)
+    match result {
+        Ok(_) => { assert_true(false, "should have failed with TooManyArrayItems") }
+        Err(err) => {
+            match err {
+                TooManyArrayItems { count: cnt, max_items: max, line: _, col: _ } => {
+                    assert_true(cnt > max, "count should exceed max")
+                    assert_true(max == 3, "max should be 3")
+                }
+                _ => { assert_true(false, "expected TooManyArrayItems error") }
+            }
+        }
+    }
+    return
+}
+
+/// Test that array within limit is accepted
+let test_array_within_limit: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: Some(5),
+        max_object_fields: None
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("[1, 2, 3]", limits)
+    assert_ok_json(result, "array within limit should be accepted")
+    return
+}
+
+/// Test that too many object fields error is returned
+let test_too_many_object_fields_error: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: None,
+        max_object_fields: Some(2)
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("{\"a\": 1, \"b\": 2, \"c\": 3}", limits)
+    match result {
+        Ok(_) => { assert_true(false, "should have failed with TooManyObjectFields") }
+        Err(err) => {
+            match err {
+                TooManyObjectFields { count: cnt, max_fields: max, line: _, col: _ } => {
+                    assert_true(cnt > max, "count should exceed max")
+                    assert_true(max == 2, "max should be 2")
+                }
+                _ => { assert_true(false, "expected TooManyObjectFields error") }
+            }
+        }
+    }
+    return
+}
+
+/// Test that object within limit is accepted
+let test_object_within_limit: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: None,
+        max_object_fields: Some(5)
+    }
+    let result: Result[Json, JsonError] = parse_with_limits("{\"a\": 1, \"b\": 2}", limits)
+    assert_ok_json(result, "object within limit should be accepted")
+    return
+}
+
+/// Test parse_strict_with_limits combines strict mode with limits
+let test_parse_strict_with_limits: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: None,
+        max_array_items: Some(2),
+        max_object_fields: None
+    }
+    // Test that strict mode works (duplicate keys rejected)
+    let strict_result: Result[Json, JsonError] = parse_strict_with_limits("{\"a\": 1, \"a\": 2}", limits)
+    match strict_result {
+        Ok(_) => { assert_true(false, "strict mode should reject duplicate keys") }
+        Err(err) => {
+            match err {
+                DuplicateKey { key: _, line: _, col: _ } => { }
+                _ => { assert_true(false, "expected DuplicateKey error") }
+            }
+        }
+    }
+    // Test that limits work (too many array items)
+    let limit_result: Result[Json, JsonError] = parse_strict_with_limits("[1, 2, 3]", limits)
+    match limit_result {
+        Ok(_) => { assert_true(false, "should have failed with TooManyArrayItems") }
+        Err(err) => {
+            match err {
+                TooManyArrayItems { count: _, max_items: _, line: _, col: _ } => { }
+                _ => { assert_true(false, "expected TooManyArrayItems error") }
+            }
+        }
+    }
+    return
+}
+
+/// Test error formatting for new error types
+let test_format_error_string_too_long: fn() -> void = fn() -> void {
+    let err: JsonError = StringTooLong { length: 100, max_length: 50, line: 1, col: 1 }
+    let formatted: string = format_error(err)
+    assert_true(std.string.contains(formatted, "String too long"), "should contain error description")
+    assert_true(std.string.contains(formatted, "100"), "should contain actual length")
+    assert_true(std.string.contains(formatted, "50"), "should contain max length")
+    return
+}
+
+/// Test error formatting for array items error
+let test_format_error_too_many_array_items: fn() -> void = fn() -> void {
+    let err: JsonError = TooManyArrayItems { count: 10, max_items: 5, line: 2, col: 3 }
+    let formatted: string = format_error(err)
+    assert_true(std.string.contains(formatted, "Too many array items"), "should contain error description")
+    assert_true(std.string.contains(formatted, "10"), "should contain actual count")
+    assert_true(std.string.contains(formatted, "5"), "should contain max items")
+    return
+}
+
+/// Test error formatting for object fields error
+let test_format_error_too_many_object_fields: fn() -> void = fn() -> void {
+    let err: JsonError = TooManyObjectFields { count: 20, max_fields: 10, line: 3, col: 4 }
+    let formatted: string = format_error(err)
+    assert_true(std.string.contains(formatted, "Too many object fields"), "should contain error description")
+    assert_true(std.string.contains(formatted, "20"), "should contain actual count")
+    assert_true(std.string.contains(formatted, "10"), "should contain max fields")
+    return
+}
+
+/// Test error_line for new error types
+let test_error_line_new_errors: fn() -> void = fn() -> void {
+    assert_true(error_line(StringTooLong { length: 1, max_length: 1, line: 5, col: 1 }) == 5, "StringTooLong line")
+    assert_true(error_line(TooManyArrayItems { count: 1, max_items: 1, line: 6, col: 1 }) == 6, "TooManyArrayItems line")
+    assert_true(error_line(TooManyObjectFields { count: 1, max_fields: 1, line: 7, col: 1 }) == 7, "TooManyObjectFields line")
+    return
+}
+
+/// Test error_column for new error types
+let test_error_column_new_errors: fn() -> void = fn() -> void {
+    assert_true(error_column(StringTooLong { length: 1, max_length: 1, line: 1, col: 10 }) == 10, "StringTooLong col")
+    assert_true(error_column(TooManyArrayItems { count: 1, max_items: 1, line: 1, col: 11 }) == 11, "TooManyArrayItems col")
+    assert_true(error_column(TooManyObjectFields { count: 1, max_fields: 1, line: 1, col: 12 }) == 12, "TooManyObjectFields col")
+    return
+}
+
+/// Test empty containers work with any limits
+let test_empty_containers_with_limits: fn() -> void = fn() -> void {
+    let limits: ParseLimits = ParseLimits {
+        max_depth: 128,
+        max_string_length: Some(0),
+        max_array_items: Some(0),
+        max_object_fields: Some(0)
+    }
+    // Empty array should work (0 items)
+    let arr_result: Result[Json, JsonError] = parse_with_limits("[]", limits)
+    assert_ok_json(arr_result, "empty array should be accepted even with max_items=0")
+    // Empty object should work (0 fields)
+    let obj_result: Result[Json, JsonError] = parse_with_limits("{}", limits)
+    assert_ok_json(obj_result, "empty object should be accepted even with max_fields=0")
+    // Empty string should work (0 length)
+    let str_result: Result[Json, JsonError] = parse_with_limits("\"\"", limits)
+    assert_ok_json(str_result, "empty string should be accepted even with max_length=0")
+    return
+}
+
+/// Test: error_byte_position returns Some for InvalidUtf8
+let test_error_byte_position_invalid_utf8: fn() -> void = fn() -> void {
+    let err: JsonError = InvalidUtf8 { byte_position: 42, error_kind: "InvalidStartByte" }
+    match error_byte_position(err) {
+        Some(pos) => { assert_true(pos == 42, "byte position should be 42") }
+        None => { assert(false, "should return Some for InvalidUtf8") }
+    }
+    return
+}
+
+/// Test: error_byte_position returns None for other errors
+let test_error_byte_position_other_errors: fn() -> void = fn() -> void {
+    let err: JsonError = UnexpectedEof { expected: "value", context: "object", line: 1, col: 5 }
+    match error_byte_position(err) {
+        Some(_) => { assert(false, "should return None for non-InvalidUtf8 errors") }
+        None => { return }
+    }
+    return
+}
+
+/// Test: format_error for InvalidUtf8
+let test_format_error_invalid_utf8: fn() -> void = fn() -> void {
+    let err: JsonError = InvalidUtf8 { byte_position: 10, error_kind: "InvalidStartByte" }
+    let msg: string = format_error(err)
+    assert_true(std.string.contains(msg, "Invalid UTF-8"), "should contain 'Invalid UTF-8'")
+    assert_true(std.string.contains(msg, "10"), "should contain position")
+    assert_true(std.string.contains(msg, "InvalidStartByte"), "should contain error kind")
+    return
+}
+
+
+// =============================================================================
+// Test Runner
+// =============================================================================
+
+effect fn run_test(name: string, test_fn: fn() -> void) -> void {
+    std.io.print("  ")
+    std.io.print(name)
+    std.io.print(" ... ")
+    test_fn()
+    std.io.println("ok")
+    return
+}
+
+effect fn run_builder_tests() -> void {
+    std.io.println("Convenience Constructors:")
+    run_test("test_json_null", test_json_null)
+    run_test("test_json_bool_true", test_json_bool_true)
+    run_test("test_json_bool_false", test_json_bool_false)
+    run_test("test_json_number", test_json_number)
+    run_test("test_json_int", test_json_int)
+    run_test("test_json_string", test_json_string)
+    run_test("test_json_array", test_json_array)
+    run_test("test_json_array_empty", test_json_array_empty)
+    run_test("test_json_object", test_json_object)
+    run_test("test_json_object_empty", test_json_object_empty)
+    std.io.println("")
+
+    std.io.println("Builder Pattern:")
+    run_test("test_builder_empty", test_builder_empty)
+    run_test("test_builder_with_string", test_builder_with_string)
+    run_test("test_builder_with_number", test_builder_with_number)
+    run_test("test_builder_with_int", test_builder_with_int)
+    run_test("test_builder_with_bool", test_builder_with_bool)
+    run_test("test_builder_with_null", test_builder_with_null)
+    run_test("test_builder_chained", test_builder_chained)
+    run_test("test_builder_preserves_order", test_builder_preserves_order)
+    run_test("test_builder_nested_object", test_builder_nested_object)
+    std.io.println("")
+    return
+}
+
+effect fn run_edge_case_tests() -> void {
+    std.io.println("Error Context:")
+    run_test("test_format_error_with_context_single_line", test_format_error_with_context_single_line)
+    run_test("test_format_error_with_context_multiline", test_format_error_with_context_multiline)
+    run_test("test_format_error_with_context_unterminated_string", test_format_error_with_context_unterminated_string)
+    std.io.println("")
+
+    std.io.println("Edge Cases - Empty/Whitespace Input:")
+    run_test("test_edge_empty_input", test_edge_empty_input)
+    run_test("test_edge_whitespace_only_spaces", test_edge_whitespace_only_spaces)
+    run_test("test_edge_whitespace_only_tabs", test_edge_whitespace_only_tabs)
+    run_test("test_edge_whitespace_only_newlines", test_edge_whitespace_only_newlines)
+    run_test("test_edge_whitespace_only_mixed", test_edge_whitespace_only_mixed)
+    std.io.println("")
+
+    std.io.println("Edge Cases - Nesting Depth:")
+    run_test("test_edge_nesting_at_max_depth", test_edge_nesting_at_max_depth)
+    run_test("test_edge_nesting_exceeds_max_depth", test_edge_nesting_exceeds_max_depth)
+    run_test("test_edge_nesting_objects_at_max_depth", test_edge_nesting_objects_at_max_depth)
+    run_test("test_edge_nesting_mixed_at_max_depth", test_edge_nesting_mixed_at_max_depth)
+    std.io.println("")
+
+    std.io.println("Edge Cases - Strings:")
+    run_test("test_edge_string_with_special_chars", test_edge_string_with_special_chars)
+    run_test("test_edge_string_with_unicode_escapes", test_edge_string_with_unicode_escapes)
+    std.io.println("")
+
+    std.io.println("Edge Cases - Arrays:")
+    run_test("test_edge_array_10_elements", test_edge_array_10_elements)
+    run_test("test_edge_array_mixed_types", test_edge_array_mixed_types)
+    std.io.println("")
+
+    std.io.println("Edge Cases - Unicode Escapes:")
+    run_test("test_edge_unicode_escape_basic", test_edge_unicode_escape_basic)
+    run_test("test_edge_unicode_escape_non_ascii", test_edge_unicode_escape_non_ascii)
+    run_test("test_edge_unicode_escape_cjk", test_edge_unicode_escape_cjk)
+    std.io.println("")
+    return
+}
+
+effect fn run_property_tests() -> void {
+    std.io.println("Property Tests - Roundtrip:")
+    run_test("test_roundtrip_null_with_equals", test_roundtrip_null_with_equals)
+    run_test("test_roundtrip_bool_true", test_roundtrip_bool_true)
+    run_test("test_roundtrip_bool_false", test_roundtrip_bool_false)
+    run_test("test_roundtrip_integer", test_roundtrip_integer)
+    run_test("test_roundtrip_negative_number", test_roundtrip_negative_number)
+    run_test("test_roundtrip_string_simple", test_roundtrip_string_simple)
+    run_test("test_roundtrip_string_with_escapes", test_roundtrip_string_with_escapes)
+    run_test("test_roundtrip_string_with_newlines", test_roundtrip_string_with_newlines)
+    run_test("test_roundtrip_empty_array", test_roundtrip_empty_array)
+    run_test("test_roundtrip_array_with_elements", test_roundtrip_array_with_elements)
+    run_test("test_roundtrip_empty_object", test_roundtrip_empty_object)
+    run_test("test_roundtrip_object_with_fields", test_roundtrip_object_with_fields)
+    run_test("test_roundtrip_nested_structure", test_roundtrip_nested_structure)
+    std.io.println("")
+
+    std.io.println("Property Tests - Determinism:")
+    run_test("test_stringify_determinism_same_output", test_stringify_determinism_same_output)
+    run_test("test_stringify_determinism_nested", test_stringify_determinism_nested)
+    std.io.println("")
+
+    std.io.println("Property Tests - Parse Consistency:")
+    run_test("test_parse_consistency_valid_never_crashes", test_parse_consistency_valid_never_crashes)
+    run_test("test_parse_consistency_invalid_never_crashes", test_parse_consistency_invalid_never_crashes)
+    std.io.println("")
+    return
+}
+
+effect fn run_schema_tests() -> void {
+    std.io.println("Schema Validation - Type Constraints:")
+    run_test("test_schema_type_null_valid", test_schema_type_null_valid)
+    run_test("test_schema_type_null_invalid", test_schema_type_null_invalid)
+    run_test("test_schema_type_boolean_valid", test_schema_type_boolean_valid)
+    run_test("test_schema_type_number_valid", test_schema_type_number_valid)
+    run_test("test_schema_type_string_valid", test_schema_type_string_valid)
+    run_test("test_schema_type_array_valid", test_schema_type_array_valid)
+    run_test("test_schema_type_object_valid", test_schema_type_object_valid)
+    run_test("test_schema_type_integer_valid", test_schema_type_integer_valid)
+    run_test("test_schema_type_integer_invalid_fractional", test_schema_type_integer_invalid_fractional)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Required Fields:")
+    run_test("test_schema_required_present", test_schema_required_present)
+    run_test("test_schema_required_missing", test_schema_required_missing)
+    run_test("test_schema_required_multiple_missing", test_schema_required_multiple_missing)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Numeric Range:")
+    run_test("test_schema_number_minimum_valid", test_schema_number_minimum_valid)
+    run_test("test_schema_number_minimum_invalid", test_schema_number_minimum_invalid)
+    run_test("test_schema_number_maximum_valid", test_schema_number_maximum_valid)
+    run_test("test_schema_number_maximum_invalid", test_schema_number_maximum_invalid)
+    std.io.println("")
+
+    std.io.println("Schema Validation - String Length:")
+    run_test("test_schema_string_min_length_valid", test_schema_string_min_length_valid)
+    run_test("test_schema_string_min_length_invalid", test_schema_string_min_length_invalid)
+    run_test("test_schema_string_max_length_valid", test_schema_string_max_length_valid)
+    run_test("test_schema_string_max_length_invalid", test_schema_string_max_length_invalid)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Array Length:")
+    run_test("test_schema_array_min_items_valid", test_schema_array_min_items_valid)
+    run_test("test_schema_array_min_items_invalid", test_schema_array_min_items_invalid)
+    run_test("test_schema_array_max_items_valid", test_schema_array_max_items_valid)
+    run_test("test_schema_array_max_items_invalid", test_schema_array_max_items_invalid)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Enum:")
+    run_test("test_schema_enum_valid", test_schema_enum_valid)
+    run_test("test_schema_enum_invalid", test_schema_enum_invalid)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Nested:")
+    run_test("test_schema_nested_object_valid", test_schema_nested_object_valid)
+    run_test("test_schema_nested_object_invalid", test_schema_nested_object_invalid)
+    run_test("test_schema_array_items_valid", test_schema_array_items_valid)
+    run_test("test_schema_array_items_invalid", test_schema_array_items_invalid)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Error Collection:")
+    run_test("test_schema_collects_multiple_errors", test_schema_collects_multiple_errors)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Error Formatting:")
+    run_test("test_format_schema_error_type_mismatch", test_format_schema_error_type_mismatch)
+    run_test("test_format_schema_errors_multiple", test_format_schema_errors_multiple)
+    std.io.println("")
+
+    std.io.println("Schema Validation - Any:")
+    run_test("test_schema_any_accepts_all_types", test_schema_any_accepts_all_types)
+    std.io.println("")
+    return
+}
+
+effect fn run_limits_tests() -> void {
+    std.io.println("Resource Limits - Basic:")
+    run_test("test_default_limits_values", test_default_limits_values)
+    run_test("test_unlimited_limits_values", test_unlimited_limits_values)
+    std.io.println("")
+
+    std.io.println("Resource Limits - String Length:")
+    run_test("test_string_too_long_error", test_string_too_long_error)
+    run_test("test_string_within_limit", test_string_within_limit)
+    std.io.println("")
+
+    std.io.println("Resource Limits - Array Items:")
+    run_test("test_too_many_array_items_error", test_too_many_array_items_error)
+    run_test("test_array_within_limit", test_array_within_limit)
+    std.io.println("")
+
+    std.io.println("Resource Limits - Object Fields:")
+    run_test("test_too_many_object_fields_error", test_too_many_object_fields_error)
+    run_test("test_object_within_limit", test_object_within_limit)
+    std.io.println("")
+
+    std.io.println("Resource Limits - Combined:")
+    run_test("test_parse_strict_with_limits", test_parse_strict_with_limits)
+    run_test("test_empty_containers_with_limits", test_empty_containers_with_limits)
+    std.io.println("")
+
+    std.io.println("Resource Limits - Error Formatting:")
+    run_test("test_format_error_string_too_long", test_format_error_string_too_long)
+    run_test("test_format_error_too_many_array_items", test_format_error_too_many_array_items)
+    run_test("test_format_error_too_many_object_fields", test_format_error_too_many_object_fields)
+    run_test("test_error_line_new_errors", test_error_line_new_errors)
+    run_test("test_error_column_new_errors", test_error_column_new_errors)
+    std.io.println("")
+
+    std.io.println("Error Byte Position and UTF-8 Formatting:")
+    run_test("test_error_byte_position_invalid_utf8", test_error_byte_position_invalid_utf8)
+    run_test("test_error_byte_position_other_errors", test_error_byte_position_other_errors)
+    run_test("test_format_error_invalid_utf8", test_format_error_invalid_utf8)
+    std.io.println("")
+    return
+}
+
+effect fn main() -> void {
+    std.io.println("Running JSON Library Tests - Part 2")
+    std.io.println("====================================")
+    std.io.println("")
+    run_builder_tests()
+    run_edge_case_tests()
+    run_property_tests()
+    run_schema_tests()
+    run_limits_tests()
+    std.io.println("====================================")
+    std.io.println("All Part 2 tests passed!")
+    return
+}

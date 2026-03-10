@@ -1,0 +1,13 @@
+[package]
+name = "json"
+version = "0.1.0"
+
+[modules]
+types = "types.ki"
+parser = "parser.ki"
+serializer = "serializer.ki"
+path = "path.ki"
+schema = "schema.ki"
+builder = "builder.ki"
+equality = "equality.ki"
+transform = "transform.ki"
