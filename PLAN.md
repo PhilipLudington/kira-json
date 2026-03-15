@@ -5,7 +5,7 @@
 Add typed deserialization to kira-json: convert `Json` values into user-defined Kira types (product types and sum types) with clear error reporting. This bridges the gap between the untyped `Json` ADT and application-level types like `User`, `Todo`, etc.
 
 Reference: DESIGN.md, src/json/types.ki
-Current status: Phase 0 complete. Phase 1 next.
+Current status: Phase 1 complete. Phase 2 next.
 
 ## Design Constraints
 
@@ -70,37 +70,46 @@ One test file (`test_decode.ki`) covering all extractors with happy path, missin
 
 ---
 
-## Phase 1: Nested Object and Array Decoders
+## Phase 1: Nested Object and Array Decoders ✅
+**Status:** Complete (2026-03-15)
 
 **Goal:** Decode nested objects and arrays of decoded values.
 **Estimated Effort:** 1–2 days
 
 ### Deliverables
-- Nested object decoding with user-supplied decoder functions
-- Array decoding with element decoder functions
+- Nested object decoding via non-generic field extractors + user composition
+- Array decoding via field extractors + user-defined typed iterators
 - Error context chaining (e.g., `"users[2].address.city"`)
 
+### Design Note
+Kira does not support exporting generic functions across module boundaries (type parameters
+are not resolved on import). The API was adapted: instead of generic `required_object[T]`,
+the module exports non-generic building blocks (`required_object_field`, `required_array_field`,
+`with_context`, `index_context`) that users compose with their own typed decoders. This
+delivers the same functionality with slightly more verbose user code.
+
 ### Tasks
-- [ ] Implement nested object decoders:
-  - `required_object(Json, string, fn(Json) -> Result[T, DecodeError]) -> Result[T, DecodeError]`
-  - `optional_object(Json, string, fn(Json) -> Result[T, DecodeError]) -> Option[T]`
-- [ ] Implement array decoders:
-  - `required_array(Json, string, fn(Json) -> Result[T, DecodeError]) -> Result[List[T], DecodeError]`
-  - `optional_array(Json, string, fn(Json) -> Result[T, DecodeError]) -> Option[List[T]]`
-  - `decode_array(List[Json], fn(Json) -> Result[T, DecodeError]) -> Result[List[T], DecodeError]`
-- [ ] Add context chaining to DecodeError:
+- [x] Implement nested object field extractors (completed 2026-03-15):
+  - `required_object_field(Json, string) -> Result[Json, DecodeError]` — validates field is an object
+  - `optional_object_field(Json, string) -> Option[Json]`
+- [x] Implement array field extractors (completed 2026-03-15):
+  - `required_array_field(Json, string) -> Result[List[Json], DecodeError]` — validates field is an array
+  - `optional_array_field(Json, string) -> Option[List[Json]]`
+- [x] Add context chaining to DecodeError (completed 2026-03-15):
   - `with_context(DecodeError, string) -> DecodeError` — prepends path segment
-  - Array decoders include index in error context (e.g., `"[2]"`)
-  - Object decoders include field name in context
-- [ ] Write tests: nested objects, arrays of primitives, arrays of objects, error path reporting
+  - `index_context(i32) -> string` — formats array index as `"[N]"`
+  - Composition pattern: user wraps decoder errors with `with_context(e, field_name)`
+- [x] Write tests: 28 Phase 1 tests (completed 2026-03-15)
+  - Nested objects, arrays of primitives, arrays of objects, error path reporting
+  - Full path: `"team[1].address"` for deeply nested errors
 
 ### Testing Strategy
-Test nested User-with-Address pattern, array of Users, error messages showing full path. Minimum 20 tests.
+Test nested User-with-Address pattern, array of Users, error messages showing full path. Minimum 20 tests. Achieved 28 tests.
 
 ### Phase 1 Readiness Gate
 Before Phase 2, these must be true:
-- [ ] All Phase 0 and 1 tests pass
-- [ ] Error context correctly reports nested paths like `"users[0].email"`
+- [x] All Phase 0 and 1 tests pass (81 total)
+- [x] Error context correctly reports nested paths like `"users[0].email"`
 
 ---
 

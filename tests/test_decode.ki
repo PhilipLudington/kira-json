@@ -1,11 +1,12 @@
 //! Tests for the json.decode module.
-//! Covers required/optional field extractors, error types, and error formatting.
+//! Covers required/optional field extractors, error types, error formatting,
+//! nested object decoders, array decoders, and context chaining.
 
 module test_decode
 
 import json.types.{ Json, JsonField, get_field, type_name, fields_to_hashmap }
 import json.parser.{ parse }
-import json.decode.{ DecodeError, format_decode_error, required_string, required_number, required_int, required_bool, required_field, optional_string, optional_number, optional_int, optional_bool, optional_field }
+import json.decode.{ DecodeError, format_decode_error, with_context, required_string, required_number, required_int, required_bool, required_field, optional_string, optional_number, optional_int, optional_bool, optional_field, required_object_field, optional_object_field, required_array_field, optional_array_field, index_context }
 
 // =============================================================================
 // Test Utilities
@@ -706,6 +707,558 @@ let test_optional_bool_from_null: fn() -> void = fn() -> void {
 }
 
 // =============================================================================
+// Phase 1: Test Types and Decoders
+// =============================================================================
+
+/// Simple Address type for testing nested object decoding.
+type Address = {
+    street: string,
+    city: string
+}
+
+/// Simple User type for testing nested object + array decoding.
+type User = {
+    name: string,
+    age: i64
+}
+
+/// Decoder for Address from JSON.
+let decode_address: fn(Json) -> Result[Address, DecodeError] =
+    fn(json: Json) -> Result[Address, DecodeError] {
+        match required_string(json, "street") {
+            Err(e) => { return Err(e) }
+            Ok(street) => {
+                match required_string(json, "city") {
+                    Err(e) => { return Err(e) }
+                    Ok(city) => {
+                        return Ok(Address { street: street, city: city })
+                    }
+                }
+            }
+        }
+    }
+
+/// Decoder for User from JSON.
+let decode_user: fn(Json) -> Result[User, DecodeError] =
+    fn(json: Json) -> Result[User, DecodeError] {
+        match required_string(json, "name") {
+            Err(e) => { return Err(e) }
+            Ok(name) => {
+                match required_int(json, "age") {
+                    Err(e) => { return Err(e) }
+                    Ok(age) => {
+                        return Ok(User { name: name, age: age })
+                    }
+                }
+            }
+        }
+    }
+
+/// Decodes a list of JSON strings with index context tracking.
+let decode_string_list: fn(List[Json], i32) -> Result[List[string], DecodeError] =
+    fn(items: List[Json], index: i32) -> Result[List[string], DecodeError] {
+        match items {
+            Nil => { return Ok(Nil) }
+            Cons(item, rest) => {
+                match item {
+                    JString(s) => {
+                        match decode_string_list(rest, index + 1) {
+                            Err(e) => { return Err(e) }
+                            Ok(rest_values) => { return Ok(Cons(s, rest_values)) }
+                        }
+                    }
+                    _ => {
+                        let err: DecodeError = TypeMismatch {
+                            field: "(element)",
+                            expected: "string",
+                            actual: type_name(item),
+                            context: ""
+                        }
+                        return Err(with_context(err, index_context(index)))
+                    }
+                }
+            }
+        }
+    }
+
+/// Decodes a list of JSON objects into User values with index context tracking.
+let decode_user_list: fn(List[Json], i32) -> Result[List[User], DecodeError] =
+    fn(items: List[Json], index: i32) -> Result[List[User], DecodeError] {
+        match items {
+            Nil => { return Ok(Nil) }
+            Cons(item, rest) => {
+                match decode_user(item) {
+                    Err(e) => {
+                        return Err(with_context(e, index_context(index)))
+                    }
+                    Ok(user) => {
+                        match decode_user_list(rest, index + 1) {
+                            Err(e) => { return Err(e) }
+                            Ok(rest_values) => { return Ok(Cons(user, rest_values)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+// =============================================================================
+// Test: with_context
+// =============================================================================
+
+let test_with_context_missing_field_empty: fn() -> void = fn() -> void {
+    let err: DecodeError = MissingField { field: "email", context: "" }
+    let wrapped: DecodeError = with_context(err, "user")
+    let msg: string = format_decode_error(wrapped)
+    assert_str_eq(msg, "Missing required field 'email' in user", "with_context on empty context")
+    return
+}
+
+let test_with_context_missing_field_existing: fn() -> void = fn() -> void {
+    let err: DecodeError = MissingField { field: "city", context: "address" }
+    let wrapped: DecodeError = with_context(err, "user")
+    let msg: string = format_decode_error(wrapped)
+    assert_str_eq(msg, "Missing required field 'city' in user.address", "with_context prepends with dot")
+    return
+}
+
+let test_with_context_array_index: fn() -> void = fn() -> void {
+    let err: DecodeError = MissingField { field: "email", context: "" }
+    let wrapped: DecodeError = with_context(err, "[0]")
+    let msg: string = format_decode_error(wrapped)
+    assert_str_eq(msg, "Missing required field 'email' in [0]", "with_context with array index")
+    return
+}
+
+let test_with_context_field_then_index: fn() -> void = fn() -> void {
+    let err: DecodeError = MissingField { field: "email", context: "" }
+    let step1: DecodeError = with_context(err, "[2]")
+    let step2: DecodeError = with_context(step1, "users")
+    let msg: string = format_decode_error(step2)
+    assert_str_eq(msg, "Missing required field 'email' in users[2]", "with_context nested: users[2]")
+    return
+}
+
+let test_with_context_deep_nesting: fn() -> void = fn() -> void {
+    let err: DecodeError = MissingField { field: "zip", context: "" }
+    let step1: DecodeError = with_context(err, "address")
+    let step2: DecodeError = with_context(step1, "[0]")
+    let step3: DecodeError = with_context(step2, "users")
+    let msg: string = format_decode_error(step3)
+    assert_str_eq(msg, "Missing required field 'zip' in users[0].address", "with_context deep: users[0].address")
+    return
+}
+
+let test_with_context_type_mismatch: fn() -> void = fn() -> void {
+    let err: DecodeError = TypeMismatch { field: "age", expected: "number", actual: "string", context: "" }
+    let wrapped: DecodeError = with_context(err, "user")
+    let msg: string = format_decode_error(wrapped)
+    assert_str_eq(msg, "Type mismatch for field 'age' in user: expected number, got string", "with_context on TypeMismatch")
+    return
+}
+
+let test_with_context_invalid_value: fn() -> void = fn() -> void {
+    let err: DecodeError = InvalidValue { field: "status", message: "unknown", context: "" }
+    let wrapped: DecodeError = with_context(err, "order")
+    let msg: string = format_decode_error(wrapped)
+    assert_str_eq(msg, "Invalid value for field 'status' in order: unknown", "with_context on InvalidValue")
+    return
+}
+
+// =============================================================================
+// Test: index_context
+// =============================================================================
+
+let test_index_context_zero: fn() -> void = fn() -> void {
+    assert_str_eq(index_context(0), "[0]", "index_context(0)")
+    return
+}
+
+let test_index_context_positive: fn() -> void = fn() -> void {
+    assert_str_eq(index_context(42), "[42]", "index_context(42)")
+    return
+}
+
+// =============================================================================
+// Test: required_object_field
+// =============================================================================
+
+let test_required_object_field_happy_path: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"address\": {\"street\": \"Main\", \"city\": \"NYC\"}}")
+    let result: Result[Json, DecodeError] = required_object_field(json, "address")
+    match result {
+        Ok(v) => { assert(type_name(v) == "object", "required_object_field: should return object") }
+        Err(e) => { assert(false, std.string.concat("required_object_field failed: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_required_object_field_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Result[Json, DecodeError] = required_object_field(json, "address")
+    match result {
+        Ok(_) => { assert(false, "required_object_field missing: expected Err") }
+        Err(MissingField { field: f, context: _ }) => {
+            assert(std.string.equals(f, "address"), "required_object_field missing: wrong field")
+        }
+        Err(_) => { assert(false, "required_object_field missing: expected MissingField") }
+    }
+    return
+}
+
+let test_required_object_field_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"address\": \"not an object\"}")
+    let result: Result[Json, DecodeError] = required_object_field(json, "address")
+    match result {
+        Ok(_) => { assert(false, "required_object_field wrong type: expected Err") }
+        Err(TypeMismatch { field: f, expected: exp, actual: act, context: _ }) => {
+            assert(std.string.equals(f, "address"), "required_object_field wrong type: wrong field")
+            assert(std.string.equals(exp, "object"), "required_object_field wrong type: expected 'object'")
+            assert(std.string.equals(act, "string"), "required_object_field wrong type: actual 'string'")
+        }
+        Err(_) => { assert(false, "required_object_field wrong type: expected TypeMismatch") }
+    }
+    return
+}
+
+// =============================================================================
+// Test: optional_object_field
+// =============================================================================
+
+let test_optional_object_field_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"address\": {\"street\": \"Main\"}}")
+    let result: Option[Json] = optional_object_field(json, "address")
+    match result {
+        Some(v) => { assert(type_name(v) == "object", "optional_object_field: should return object") }
+        None => { assert(false, "optional_object_field present: expected Some") }
+    }
+    return
+}
+
+let test_optional_object_field_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Option[Json] = optional_object_field(json, "address")
+    match result {
+        Some(_) => { assert(false, "optional_object_field missing: expected None") }
+        None => { return }
+    }
+    return
+}
+
+let test_optional_object_field_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"address\": 42}")
+    let result: Option[Json] = optional_object_field(json, "address")
+    match result {
+        Some(_) => { assert(false, "optional_object_field wrong type: expected None") }
+        None => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Test: required_array_field
+// =============================================================================
+
+let test_required_array_field_happy_path: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"tags\": [\"a\", \"b\", \"c\"]}")
+    let result: Result[List[Json], DecodeError] = required_array_field(json, "tags")
+    match result {
+        Ok(items) => { assert(std.list.length(items) == 3, "required_array_field: length should be 3") }
+        Err(e) => { assert(false, std.string.concat("required_array_field failed: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_required_array_field_empty: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"items\": []}")
+    let result: Result[List[Json], DecodeError] = required_array_field(json, "items")
+    match result {
+        Ok(items) => { assert(std.list.length(items) == 0, "required_array_field empty: length should be 0") }
+        Err(e) => { assert(false, std.string.concat("required_array_field empty failed: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_required_array_field_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Result[List[Json], DecodeError] = required_array_field(json, "tags")
+    match result {
+        Ok(_) => { assert(false, "required_array_field missing: expected Err") }
+        Err(MissingField { field: f, context: _ }) => {
+            assert(std.string.equals(f, "tags"), "required_array_field missing: wrong field")
+        }
+        Err(_) => { assert(false, "required_array_field missing: expected MissingField") }
+    }
+    return
+}
+
+let test_required_array_field_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"tags\": \"not an array\"}")
+    let result: Result[List[Json], DecodeError] = required_array_field(json, "tags")
+    match result {
+        Ok(_) => { assert(false, "required_array_field wrong type: expected Err") }
+        Err(TypeMismatch { field: f, expected: exp, actual: act, context: _ }) => {
+            assert(std.string.equals(f, "tags"), "required_array_field wrong type: wrong field")
+            assert(std.string.equals(exp, "array"), "required_array_field wrong type: expected 'array'")
+            assert(std.string.equals(act, "string"), "required_array_field wrong type: actual 'string'")
+        }
+        Err(_) => { assert(false, "required_array_field wrong type: expected TypeMismatch") }
+    }
+    return
+}
+
+// =============================================================================
+// Test: optional_array_field
+// =============================================================================
+
+let test_optional_array_field_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"tags\": [1, 2]}")
+    let result: Option[List[Json]] = optional_array_field(json, "tags")
+    match result {
+        Some(items) => { assert(std.list.length(items) == 2, "optional_array_field: length should be 2") }
+        None => { assert(false, "optional_array_field present: expected Some") }
+    }
+    return
+}
+
+let test_optional_array_field_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Option[List[Json]] = optional_array_field(json, "tags")
+    match result {
+        Some(_) => { assert(false, "optional_array_field missing: expected None") }
+        None => { return }
+    }
+    return
+}
+
+let test_optional_array_field_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"tags\": 42}")
+    let result: Option[List[Json]] = optional_array_field(json, "tags")
+    match result {
+        Some(_) => { assert(false, "optional_array_field wrong type: expected None") }
+        None => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Test: Composed nested object decoding (integration)
+// =============================================================================
+
+/// Composed decoder: extract object field, decode, wrap context.
+let test_composed_nested_object_happy: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"address\": {\"street\": \"123 Main\", \"city\": \"NYC\"}}")
+    match required_object_field(json, "address") {
+        Err(e) => { assert(false, std.string.concat("composed nested happy: ", format_decode_error(e))) }
+        Ok(addr_json) => {
+            match decode_address(addr_json) {
+                Err(e) => { assert(false, std.string.concat("composed nested happy decode: ", format_decode_error(e))) }
+                Ok(addr) => {
+                    assert_str_eq(addr.street, "123 Main", "composed nested: street")
+                    assert_str_eq(addr.city, "NYC", "composed nested: city")
+                }
+            }
+        }
+    }
+    return
+}
+
+let test_composed_nested_object_error_with_context: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"address\": {\"street\": \"123 Main\"}}")
+    match required_object_field(json, "address") {
+        Err(e) => { assert(false, std.string.concat("composed nested error: ", format_decode_error(e))) }
+        Ok(addr_json) => {
+            match decode_address(addr_json) {
+                Ok(_) => { assert(false, "composed nested error: expected Err from decode") }
+                Err(e) => {
+                    let wrapped: DecodeError = with_context(e, "address")
+                    let msg: string = format_decode_error(wrapped)
+                    assert_str_eq(msg, "Missing required field 'city' in address", "composed nested error message")
+                }
+            }
+        }
+    }
+    return
+}
+
+// =============================================================================
+// Test: Composed array decoding (integration)
+// =============================================================================
+
+let test_composed_array_strings_happy: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"tags\": [\"rust\", \"kira\", \"json\"]}")
+    match required_array_field(json, "tags") {
+        Err(e) => { assert(false, std.string.concat("composed array happy: ", format_decode_error(e))) }
+        Ok(items) => {
+            match decode_string_list(items, 0) {
+                Err(e) => { assert(false, std.string.concat("composed array decode: ", format_decode_error(e))) }
+                Ok(values) => {
+                    assert(std.list.length(values) == 3, "composed array: length should be 3")
+                }
+            }
+        }
+    }
+    return
+}
+
+let test_composed_array_element_error: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"tags\": [\"ok\", 42]}")
+    match required_array_field(json, "tags") {
+        Err(_) => { assert(false, "composed array error: field extraction should succeed") }
+        Ok(items) => {
+            match decode_string_list(items, 0) {
+                Ok(_) => { assert(false, "composed array error: expected Err from decode") }
+                Err(e) => {
+                    let wrapped: DecodeError = with_context(e, "tags")
+                    let msg: string = format_decode_error(wrapped)
+                    assert_str_eq(msg, "Type mismatch for field '(element)' in tags[1]: expected string, got number", "composed array error message")
+                }
+            }
+        }
+    }
+    return
+}
+
+let test_composed_array_of_users: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"users\": [{\"name\": \"Alice\", \"age\": 30}, {\"name\": \"Bob\", \"age\": 25}]}")
+    match required_array_field(json, "users") {
+        Err(e) => { assert(false, std.string.concat("composed user array: ", format_decode_error(e))) }
+        Ok(items) => {
+            match decode_user_list(items, 0) {
+                Err(e) => { assert(false, std.string.concat("composed user array decode: ", format_decode_error(e))) }
+                Ok(users) => {
+                    assert(std.list.length(users) == 2, "composed user array: length should be 2")
+                }
+            }
+        }
+    }
+    return
+}
+
+let test_composed_array_of_users_error: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"users\": [{\"name\": \"Alice\", \"age\": 30}, {\"name\": \"Bob\"}]}")
+    match required_array_field(json, "users") {
+        Err(_) => { assert(false, "composed user array error: field extraction should succeed") }
+        Ok(items) => {
+            match decode_user_list(items, 0) {
+                Ok(_) => { assert(false, "composed user array error: expected Err") }
+                Err(e) => {
+                    let wrapped: DecodeError = with_context(e, "users")
+                    match wrapped {
+                        MissingField { field: f, context: ctx } => {
+                            assert(std.string.equals(f, "age"), "user array error: field should be 'age'")
+                            assert(std.string.equals(ctx, "users[1]"), "user array error: context should be 'users[1]'")
+                        }
+                        _ => { assert(false, "user array error: expected MissingField") }
+                    }
+                }
+            }
+        }
+    }
+    return
+}
+
+// =============================================================================
+// Test: Deep nested path (object -> object -> missing field)
+// =============================================================================
+
+/// Decoder for User with Address using composed object field extraction.
+let decode_user_with_address: fn(Json) -> Result[UserWithAddress, DecodeError] =
+    fn(json: Json) -> Result[UserWithAddress, DecodeError] {
+        match required_string(json, "name") {
+            Err(e) => { return Err(e) }
+            Ok(name) => {
+                match required_object_field(json, "address") {
+                    Err(e) => { return Err(e) }
+                    Ok(addr_json) => {
+                        match decode_address(addr_json) {
+                            Err(e) => { return Err(with_context(e, "address")) }
+                            Ok(addr) => {
+                                return Ok(UserWithAddress { name: name, address: addr })
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+type UserWithAddress = {
+    name: string,
+    address: Address
+}
+
+let test_deep_nested_happy: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\", \"address\": {\"street\": \"Main\", \"city\": \"NYC\"}}")
+    match decode_user_with_address(json) {
+        Ok(u) => {
+            assert_str_eq(u.name, "Alice", "deep nested happy: name")
+            assert_str_eq(u.address.street, "Main", "deep nested happy: street")
+            assert_str_eq(u.address.city, "NYC", "deep nested happy: city")
+        }
+        Err(e) => { assert(false, std.string.concat("deep nested happy failed: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_deep_nested_error_path: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\", \"address\": {\"street\": \"Main\"}}")
+    match decode_user_with_address(json) {
+        Ok(_) => { assert(false, "deep nested error: expected Err") }
+        Err(MissingField { field: f, context: ctx }) => {
+            assert(std.string.equals(f, "city"), "deep nested error: field should be 'city'")
+            assert(std.string.equals(ctx, "address"), "deep nested error: context should be 'address'")
+        }
+        Err(_) => { assert(false, "deep nested error: expected MissingField") }
+    }
+    return
+}
+
+/// Decodes a list of UserWithAddress with index context.
+let decode_uwa_list: fn(List[Json], i32) -> Result[List[UserWithAddress], DecodeError] =
+    fn(items: List[Json], index: i32) -> Result[List[UserWithAddress], DecodeError] {
+        match items {
+            Nil => { return Ok(Nil) }
+            Cons(item, rest) => {
+                match decode_user_with_address(item) {
+                    Err(e) => {
+                        return Err(with_context(e, index_context(index)))
+                    }
+                    Ok(uwa) => {
+                        match decode_uwa_list(rest, index + 1) {
+                            Err(e) => { return Err(e) }
+                            Ok(rest_values) => { return Ok(Cons(uwa, rest_values)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+let test_array_deep_nested_error_path: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"team\": [{\"name\": \"Alice\", \"address\": {\"street\": \"Main\", \"city\": \"NYC\"}}, {\"name\": \"Bob\", \"address\": {\"street\": \"Elm\"}}]}")
+    match required_array_field(json, "team") {
+        Err(_) => { assert(false, "array deep: field extraction should succeed") }
+        Ok(items) => {
+            match decode_uwa_list(items, 0) {
+                Ok(_) => { assert(false, "array deep: expected Err") }
+                Err(e) => {
+                    let wrapped: DecodeError = with_context(e, "team")
+                    match wrapped {
+                        MissingField { field: f, context: ctx } => {
+                            assert(std.string.equals(f, "city"), "array deep: field should be 'city'")
+                            assert(std.string.equals(ctx, "team[1].address"), "array deep: context should be 'team[1].address'")
+                        }
+                        _ => { assert(false, "array deep: expected MissingField") }
+                    }
+                }
+            }
+        }
+    }
+    return
+}
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -848,10 +1401,90 @@ effect fn run_edge_case_tests() -> void {
     return
 }
 
+effect fn run_with_context_tests() -> void {
+    std.io.println("with_context:")
+    run_test("test_with_context_missing_field_empty", test_with_context_missing_field_empty)
+    run_test("test_with_context_missing_field_existing", test_with_context_missing_field_existing)
+    run_test("test_with_context_array_index", test_with_context_array_index)
+    run_test("test_with_context_field_then_index", test_with_context_field_then_index)
+    run_test("test_with_context_deep_nesting", test_with_context_deep_nesting)
+    run_test("test_with_context_type_mismatch", test_with_context_type_mismatch)
+    run_test("test_with_context_invalid_value", test_with_context_invalid_value)
+    std.io.println("")
+    return
+}
+
+effect fn run_index_context_tests() -> void {
+    std.io.println("index_context:")
+    run_test("test_index_context_zero", test_index_context_zero)
+    run_test("test_index_context_positive", test_index_context_positive)
+    std.io.println("")
+    return
+}
+
+effect fn run_required_object_field_tests() -> void {
+    std.io.println("required_object_field:")
+    run_test("test_required_object_field_happy_path", test_required_object_field_happy_path)
+    run_test("test_required_object_field_missing", test_required_object_field_missing)
+    run_test("test_required_object_field_wrong_type", test_required_object_field_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_optional_object_field_tests() -> void {
+    std.io.println("optional_object_field:")
+    run_test("test_optional_object_field_present", test_optional_object_field_present)
+    run_test("test_optional_object_field_missing", test_optional_object_field_missing)
+    run_test("test_optional_object_field_wrong_type", test_optional_object_field_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_required_array_field_tests() -> void {
+    std.io.println("required_array_field:")
+    run_test("test_required_array_field_happy_path", test_required_array_field_happy_path)
+    run_test("test_required_array_field_empty", test_required_array_field_empty)
+    run_test("test_required_array_field_missing", test_required_array_field_missing)
+    run_test("test_required_array_field_wrong_type", test_required_array_field_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_optional_array_field_tests() -> void {
+    std.io.println("optional_array_field:")
+    run_test("test_optional_array_field_present", test_optional_array_field_present)
+    run_test("test_optional_array_field_missing", test_optional_array_field_missing)
+    run_test("test_optional_array_field_wrong_type", test_optional_array_field_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_composed_tests() -> void {
+    std.io.println("Composed Decoding:")
+    run_test("test_composed_nested_object_happy", test_composed_nested_object_happy)
+    run_test("test_composed_nested_object_error_with_context", test_composed_nested_object_error_with_context)
+    run_test("test_composed_array_strings_happy", test_composed_array_strings_happy)
+    run_test("test_composed_array_element_error", test_composed_array_element_error)
+    run_test("test_composed_array_of_users", test_composed_array_of_users)
+    run_test("test_composed_array_of_users_error", test_composed_array_of_users_error)
+    std.io.println("")
+    return
+}
+
+effect fn run_deep_nested_tests() -> void {
+    std.io.println("Deep Nested Path Reporting:")
+    run_test("test_deep_nested_happy", test_deep_nested_happy)
+    run_test("test_deep_nested_error_path", test_deep_nested_error_path)
+    run_test("test_array_deep_nested_error_path", test_array_deep_nested_error_path)
+    std.io.println("")
+    return
+}
+
 effect fn main() -> void {
     std.io.println("Running Decode Module Tests")
     std.io.println("===========================")
     std.io.println("")
+    // Phase 0 tests (53)
     run_required_string_tests()
     run_required_number_tests()
     run_required_int_tests()
@@ -864,7 +1497,16 @@ effect fn main() -> void {
     run_optional_field_tests()
     run_format_error_tests()
     run_edge_case_tests()
+    // Phase 1 tests (28)
+    run_with_context_tests()
+    run_index_context_tests()
+    run_required_object_field_tests()
+    run_optional_object_field_tests()
+    run_required_array_field_tests()
+    run_optional_array_field_tests()
+    run_composed_tests()
+    run_deep_nested_tests()
     std.io.println("===========================")
-    std.io.println("All 53 decode tests passed!")
+    std.io.println("All 81 decode tests passed!")
     return
 }

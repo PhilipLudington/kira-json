@@ -18,7 +18,7 @@
 
 module json.decode
 
-import json.types.{ Json, get_field, as_string, as_number, as_int, as_bool, type_name }
+import json.types.{ Json, get_field, as_string, as_number, as_int, as_bool, as_array, is_object, type_name }
 
 // =============================================================================
 // DecodeError Type
@@ -229,3 +229,155 @@ pub let optional_field: fn(Json, string) -> Option[Json] =
     fn(json: Json, field: string) -> Option[Json] {
         return get_field(json, field)
     }
+
+// =============================================================================
+// Context Chaining
+// =============================================================================
+
+/// Returns true if a string starts with "[".
+let starts_with_bracket: fn(string) -> bool = fn(s: string) -> bool {
+    match std.string.substring(s, 0i64, 1i64) {
+        Some(c) => { return std.string.equals(c, "[") }
+        None => { return false }
+    }
+}
+
+/// Prepends a path segment to an existing context string.
+/// Handles dot separation vs bracket notation:
+///   prepend_context("users", "[0].city") => "users[0].city"
+///   prepend_context("[0]", "city")       => "[0].city"
+///   prepend_context("address", "city")   => "address.city"
+///   prepend_context("address", "")       => "address"
+let prepend_context: fn(string, string) -> string =
+    fn(prefix: string, existing: string) -> string {
+        if not has_context(existing) {
+            return prefix
+        }
+        if starts_with_bracket(existing) {
+            return std.string.concat(prefix, existing)
+        }
+        return std.string.concat(prefix, std.string.concat(".", existing))
+    }
+
+/// Prepends a path segment to a DecodeError's context.
+/// Used to build nested error paths like "users[0].address.city".
+pub let with_context: fn(DecodeError, string) -> DecodeError =
+    fn(err: DecodeError, ctx: string) -> DecodeError {
+        match err {
+            TypeMismatch { field: f, expected: exp, actual: act, context: c } => {
+                return TypeMismatch { field: f, expected: exp, actual: act, context: prepend_context(ctx, c) }
+            }
+            InvalidValue { field: f, message: msg, context: c } => {
+                return InvalidValue { field: f, message: msg, context: prepend_context(ctx, c) }
+            }
+            MissingField { field: f, context: c } => {
+                return MissingField { field: f, context: prepend_context(ctx, c) }
+            }
+        }
+    }
+
+// =============================================================================
+// Nested Object Field Extractors
+// =============================================================================
+
+/// Extracts a required field that must be a JSON object.
+/// Returns MissingField if the field doesn't exist, TypeMismatch if not an object.
+/// The caller applies their own decoder to the returned Json value and uses
+/// with_context to chain error paths.
+///
+/// ## Example
+/// ```kira
+/// match required_object_field(json, "address") {
+///     Err(e) => { return Err(e) }
+///     Ok(addr_json) => {
+///         match decode_address(addr_json) {
+///             Err(e) => { return Err(with_context(e, "address")) }
+///             Ok(addr) => { /* use addr */ }
+///         }
+///     }
+/// }
+/// ```
+pub let required_object_field: fn(Json, string) -> Result[Json, DecodeError] =
+    fn(json: Json, field: string) -> Result[Json, DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                if not is_object(value) {
+                    return Err(TypeMismatch {
+                        field: field,
+                        expected: "object",
+                        actual: type_name(value),
+                        context: ""
+                    })
+                }
+                return Ok(value)
+            }
+        }
+    }
+
+/// Extracts an optional field that should be a JSON object.
+/// Returns None if the field is missing or not an object.
+pub let optional_object_field: fn(Json, string) -> Option[Json] =
+    fn(json: Json, field: string) -> Option[Json] {
+        match get_field(json, field) {
+            None => { return None }
+            Some(value) => {
+                if not is_object(value) {
+                    return None
+                }
+                return Some(value)
+            }
+        }
+    }
+
+// =============================================================================
+// Array Field Extractors
+// =============================================================================
+
+/// Extracts a required field that must be a JSON array.
+/// Returns MissingField if the field doesn't exist, TypeMismatch if not an array.
+/// Returns the array elements as List[Json] for the caller to decode.
+pub let required_array_field: fn(Json, string) -> Result[List[Json], DecodeError] =
+    fn(json: Json, field: string) -> Result[List[Json], DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                match as_array(value) {
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "array",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                    Some(items) => {
+                        return Ok(items)
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts an optional field that should be a JSON array.
+/// Returns None if the field is missing or not an array.
+pub let optional_array_field: fn(Json, string) -> Option[List[Json]] =
+    fn(json: Json, field: string) -> Option[List[Json]] {
+        match get_field(json, field) {
+            None => { return None }
+            Some(value) => { return as_array(value) }
+        }
+    }
+
+// =============================================================================
+// Array Index Context Helper
+// =============================================================================
+
+/// Formats an array index as a context string, e.g. "[2]".
+pub let index_context: fn(i32) -> string = fn(index: i32) -> string {
+    return std.string.concat("[", std.string.concat(std.int.to_string(index), "]"))
+}
