@@ -5,7 +5,7 @@
 Add typed deserialization to kira-json: convert `Json` values into user-defined Kira types (product types and sum types) with clear error reporting. This bridges the gap between the untyped `Json` ADT and application-level types like `User`, `Todo`, etc.
 
 Reference: DESIGN.md, src/json/types.ki
-Current status: Phase 3 complete. Phase 4 next.
+Current status: All phases complete.
 
 ## Design Constraints
 
@@ -192,15 +192,22 @@ Before Phase 4, these must be true:
 
 ---
 
-## Phase 4: Integration with kira-http Examples
+## Phase 4: Integration with kira-http Examples ✅
+**Status:** Complete (2026-03-15)
 
 **Goal:** Update kira-http examples to use the real decode/encode API instead of pseudo-code.
 **Estimated Effort:** 0.5 days
 
 ### Tasks
-- [ ] Update `kira-http/examples/api_client.ki` to use `json.decode.*` for response parsing
-- [ ] Update `kira-http/examples/rest_api.ki` to use `json.encode.*` for request/response bodies
-- [ ] Verify both examples pass `kira check`
+- [x] Update `kira-http/examples/api_client.ki` to use `json.decode.*` for response parsing (completed 2026-03-15)
+- [x] Update `kira-http/examples/rest_api.ki` to use `json.encode.*` for request/response bodies (completed 2026-03-15)
+- [x] Verify both examples pass `kira check` (completed 2026-03-15)
+
+### Design Notes
+- Renamed `ApiError` variants to `ApiNotFound`, `ApiUnauthorized`, etc. to avoid ambiguity with `http.types.Status` variants
+- Changed effect fn return types from `IO[Result[T, E]]` to `Result[T, E]` (effect keyword implies IO)
+- Used explicit pattern matching instead of `?` operator in pure decoder functions (`?` requires effect fn)
+- Replaced module-level `var` (mutable state) in rest_api.ki with pure sample data functions
 
 ### Testing Strategy
 Both examples compile with `kira check`. Manual smoke test of the API patterns.
