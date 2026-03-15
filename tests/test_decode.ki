@@ -1,0 +1,870 @@
+//! Tests for the json.decode module.
+//! Covers required/optional field extractors, error types, and error formatting.
+
+module test_decode
+
+import json.types.{ Json, JsonField, get_field, type_name, fields_to_hashmap }
+import json.parser.{ parse }
+import json.decode.{ DecodeError, format_decode_error, required_string, required_number, required_int, required_bool, required_field, optional_string, optional_number, optional_int, optional_bool, optional_field }
+
+// =============================================================================
+// Test Utilities
+// =============================================================================
+
+let assert_true: fn(bool, string) -> void = fn(condition: bool, message: string) -> void {
+    assert(condition, message)
+    return
+}
+
+let assert_str_eq: fn(string, string, string) -> void =
+    fn(actual: string, expected: string, message: string) -> void {
+        assert(std.string.equals(actual, expected), message)
+        return
+    }
+
+/// Helper to create a test JSON object from a parsed string.
+let parse_ok: fn(string) -> Json = fn(input: string) -> Json {
+    match parse(input) {
+        Ok(json) => { return json }
+        Err(_) => {
+            assert(false, "parse_ok: failed to parse JSON")
+            return JNull
+        }
+    }
+}
+
+/// Asserts that a Result is Ok and returns the value.
+let assert_ok_string: fn(Result[string, DecodeError], string) -> string =
+    fn(result: Result[string, DecodeError], message: string) -> string {
+        match result {
+            Ok(v) => { return v }
+            Err(e) => {
+                assert(false, std.string.concat(message, std.string.concat(": got Err: ", format_decode_error(e))))
+                return ""
+            }
+        }
+    }
+
+let assert_ok_f64: fn(Result[f64, DecodeError], string) -> f64 =
+    fn(result: Result[f64, DecodeError], message: string) -> f64 {
+        match result {
+            Ok(v) => { return v }
+            Err(e) => {
+                assert(false, std.string.concat(message, std.string.concat(": got Err: ", format_decode_error(e))))
+                return 0.0
+            }
+        }
+    }
+
+let assert_ok_i64: fn(Result[i64, DecodeError], string) -> i64 =
+    fn(result: Result[i64, DecodeError], message: string) -> i64 {
+        match result {
+            Ok(v) => { return v }
+            Err(e) => {
+                assert(false, std.string.concat(message, std.string.concat(": got Err: ", format_decode_error(e))))
+                return 0i64
+            }
+        }
+    }
+
+let assert_ok_bool: fn(Result[bool, DecodeError], string) -> bool =
+    fn(result: Result[bool, DecodeError], message: string) -> bool {
+        match result {
+            Ok(v) => { return v }
+            Err(e) => {
+                assert(false, std.string.concat(message, std.string.concat(": got Err: ", format_decode_error(e))))
+                return false
+            }
+        }
+    }
+
+let assert_ok_json: fn(Result[Json, DecodeError], string) -> Json =
+    fn(result: Result[Json, DecodeError], message: string) -> Json {
+        match result {
+            Ok(v) => { return v }
+            Err(e) => {
+                assert(false, std.string.concat(message, std.string.concat(": got Err: ", format_decode_error(e))))
+                return JNull
+            }
+        }
+    }
+
+/// Asserts that a Result is Err with a MissingField variant.
+let assert_missing_field: fn(Result[string, DecodeError], string, string) -> void =
+    fn(result: Result[string, DecodeError], expected_field: string, message: string) -> void {
+        match result {
+            Ok(_) => { assert(false, std.string.concat(message, ": expected Err, got Ok")) }
+            Err(MissingField { field: f, context: _ }) => {
+                assert(std.string.equals(f, expected_field), std.string.concat(message, ": wrong field name"))
+            }
+            Err(_) => { assert(false, std.string.concat(message, ": expected MissingField, got different error")) }
+        }
+        return
+    }
+
+/// Asserts that a Result is Err with a TypeMismatch variant.
+let assert_type_mismatch_string: fn(Result[string, DecodeError], string, string, string) -> void =
+    fn(result: Result[string, DecodeError], expected_field: string, expected_actual: string, message: string) -> void {
+        match result {
+            Ok(_) => { assert(false, std.string.concat(message, ": expected Err, got Ok")) }
+            Err(TypeMismatch { field: f, expected: _, actual: act, context: _ }) => {
+                assert(std.string.equals(f, expected_field), std.string.concat(message, ": wrong field name"))
+                assert(std.string.equals(act, expected_actual), std.string.concat(message, ": wrong actual type"))
+            }
+            Err(_) => { assert(false, std.string.concat(message, ": expected TypeMismatch, got different error")) }
+        }
+        return
+    }
+
+// =============================================================================
+// Test: required_string
+// =============================================================================
+
+let test_required_string_happy_path: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: string = assert_ok_string(required_string(json, "name"), "required_string happy path")
+    assert_str_eq(result, "Alice", "required_string should return 'Alice'")
+    return
+}
+
+let test_required_string_empty_value: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"\"}")
+    let result: string = assert_ok_string(required_string(json, "name"), "required_string empty string")
+    assert_str_eq(result, "", "required_string should return empty string")
+    return
+}
+
+let test_required_string_missing_field: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"age\": 30}")
+    assert_missing_field(required_string(json, "name"), "name", "required_string missing field")
+    return
+}
+
+let test_required_string_wrong_type_number: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": 42}")
+    assert_type_mismatch_string(required_string(json, "name"), "name", "number", "required_string wrong type number")
+    return
+}
+
+let test_required_string_wrong_type_bool: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": true}")
+    assert_type_mismatch_string(required_string(json, "name"), "name", "boolean", "required_string wrong type bool")
+    return
+}
+
+let test_required_string_wrong_type_null: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": null}")
+    assert_type_mismatch_string(required_string(json, "name"), "name", "null", "required_string wrong type null")
+    return
+}
+
+let test_required_string_wrong_type_array: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": [1, 2]}")
+    assert_type_mismatch_string(required_string(json, "name"), "name", "array", "required_string wrong type array")
+    return
+}
+
+let test_required_string_wrong_type_object: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": {}}")
+    assert_type_mismatch_string(required_string(json, "name"), "name", "object", "required_string wrong type object")
+    return
+}
+
+// =============================================================================
+// Test: required_number
+// =============================================================================
+
+let test_required_number_happy_path: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"score\": 3.14}")
+    let result: f64 = assert_ok_f64(required_number(json, "score"), "required_number happy path")
+    assert(result == 3.14, "required_number should return 3.14")
+    return
+}
+
+let test_required_number_integer_value: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"count\": 42}")
+    let result: f64 = assert_ok_f64(required_number(json, "count"), "required_number integer value")
+    assert(result == 42.0, "required_number should return 42.0")
+    return
+}
+
+let test_required_number_zero: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"value\": 0}")
+    let result: f64 = assert_ok_f64(required_number(json, "value"), "required_number zero")
+    assert(result == 0.0, "required_number should return 0.0")
+    return
+}
+
+let test_required_number_negative: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"temp\": -10.5}")
+    let result: f64 = assert_ok_f64(required_number(json, "temp"), "required_number negative")
+    assert(result == -10.5, "required_number should return -10.5")
+    return
+}
+
+let test_required_number_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Result[f64, DecodeError] = required_number(json, "score")
+    match result {
+        Ok(_) => { assert(false, "required_number missing: expected Err") }
+        Err(MissingField { field: f, context: _ }) => {
+            assert(std.string.equals(f, "score"), "required_number missing: wrong field")
+        }
+        Err(_) => { assert(false, "required_number missing: expected MissingField") }
+    }
+    return
+}
+
+let test_required_number_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"score\": \"high\"}")
+    let result: Result[f64, DecodeError] = required_number(json, "score")
+    match result {
+        Ok(_) => { assert(false, "required_number wrong type: expected Err") }
+        Err(TypeMismatch { field: f, expected: exp, actual: act, context: _ }) => {
+            assert(std.string.equals(f, "score"), "required_number wrong type: wrong field")
+            assert(std.string.equals(exp, "number"), "required_number wrong type: wrong expected")
+            assert(std.string.equals(act, "string"), "required_number wrong type: wrong actual")
+        }
+        Err(_) => { assert(false, "required_number wrong type: expected TypeMismatch") }
+    }
+    return
+}
+
+// =============================================================================
+// Test: required_int
+// =============================================================================
+
+let test_required_int_happy_path: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"age\": 30}")
+    let result: i64 = assert_ok_i64(required_int(json, "age"), "required_int happy path")
+    assert(result == 30, "required_int should return 30")
+    return
+}
+
+let test_required_int_zero: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"count\": 0}")
+    let result: i64 = assert_ok_i64(required_int(json, "count"), "required_int zero")
+    assert(result == 0, "required_int should return 0")
+    return
+}
+
+let test_required_int_negative: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"offset\": -5}")
+    let result: i64 = assert_ok_i64(required_int(json, "offset"), "required_int negative")
+    assert(result == -5, "required_int should return -5")
+    return
+}
+
+let test_required_int_large: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"id\": 1000000}")
+    let result: i64 = assert_ok_i64(required_int(json, "id"), "required_int large")
+    assert(result == 1000000, "required_int should return 1000000")
+    return
+}
+
+let test_required_int_truncates_float: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"value\": 3.9}")
+    let result: i64 = assert_ok_i64(required_int(json, "value"), "required_int truncates float")
+    assert(result == 3, "required_int should truncate 3.9 to 3")
+    return
+}
+
+let test_required_int_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Result[i64, DecodeError] = required_int(json, "age")
+    match result {
+        Ok(_) => { assert(false, "required_int missing: expected Err") }
+        Err(MissingField { field: f, context: _ }) => {
+            assert(std.string.equals(f, "age"), "required_int missing: wrong field")
+        }
+        Err(_) => { assert(false, "required_int missing: expected MissingField") }
+    }
+    return
+}
+
+let test_required_int_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"age\": \"thirty\"}")
+    let result: Result[i64, DecodeError] = required_int(json, "age")
+    match result {
+        Ok(_) => { assert(false, "required_int wrong type: expected Err") }
+        Err(TypeMismatch { field: f, expected: exp, actual: act, context: _ }) => {
+            assert(std.string.equals(f, "age"), "required_int wrong type: wrong field")
+            assert(std.string.equals(exp, "number"), "required_int wrong type: wrong expected")
+            assert(std.string.equals(act, "string"), "required_int wrong type: wrong actual")
+        }
+        Err(_) => { assert(false, "required_int wrong type: expected TypeMismatch") }
+    }
+    return
+}
+
+// =============================================================================
+// Test: required_bool
+// =============================================================================
+
+let test_required_bool_true: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"active\": true}")
+    let result: bool = assert_ok_bool(required_bool(json, "active"), "required_bool true")
+    assert(result == true, "required_bool should return true")
+    return
+}
+
+let test_required_bool_false: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"active\": false}")
+    let result: bool = assert_ok_bool(required_bool(json, "active"), "required_bool false")
+    assert(result == false, "required_bool should return false")
+    return
+}
+
+let test_required_bool_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Result[bool, DecodeError] = required_bool(json, "active")
+    match result {
+        Ok(_) => { assert(false, "required_bool missing: expected Err") }
+        Err(MissingField { field: f, context: _ }) => {
+            assert(std.string.equals(f, "active"), "required_bool missing: wrong field")
+        }
+        Err(_) => { assert(false, "required_bool missing: expected MissingField") }
+    }
+    return
+}
+
+let test_required_bool_wrong_type_string: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"active\": \"yes\"}")
+    let result: Result[bool, DecodeError] = required_bool(json, "active")
+    match result {
+        Ok(_) => { assert(false, "required_bool wrong type: expected Err") }
+        Err(TypeMismatch { field: f, expected: exp, actual: act, context: _ }) => {
+            assert(std.string.equals(f, "active"), "required_bool wrong type: wrong field")
+            assert(std.string.equals(exp, "boolean"), "required_bool wrong type: wrong expected")
+            assert(std.string.equals(act, "string"), "required_bool wrong type: wrong actual")
+        }
+        Err(_) => { assert(false, "required_bool wrong type: expected TypeMismatch") }
+    }
+    return
+}
+
+let test_required_bool_wrong_type_number: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"active\": 1}")
+    let result: Result[bool, DecodeError] = required_bool(json, "active")
+    match result {
+        Ok(_) => { assert(false, "required_bool wrong type number: expected Err") }
+        Err(TypeMismatch { field: _, expected: _, actual: act, context: _ }) => {
+            assert(std.string.equals(act, "number"), "required_bool wrong type: actual should be 'number'")
+        }
+        Err(_) => { assert(false, "required_bool wrong type number: expected TypeMismatch") }
+    }
+    return
+}
+
+// =============================================================================
+// Test: required_field
+// =============================================================================
+
+let test_required_field_string: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"data\": \"hello\"}")
+    let result: Json = assert_ok_json(required_field(json, "data"), "required_field string")
+    assert(type_name(result) == "string", "required_field should return string Json")
+    return
+}
+
+let test_required_field_object: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"nested\": {\"a\": 1}}")
+    let result: Json = assert_ok_json(required_field(json, "nested"), "required_field object")
+    assert(type_name(result) == "object", "required_field should return object Json")
+    return
+}
+
+let test_required_field_null: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"value\": null}")
+    let result: Json = assert_ok_json(required_field(json, "value"), "required_field null")
+    assert(type_name(result) == "null", "required_field should return null Json")
+    return
+}
+
+let test_required_field_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Result[Json, DecodeError] = required_field(json, "data")
+    match result {
+        Ok(_) => { assert(false, "required_field missing: expected Err") }
+        Err(MissingField { field: f, context: _ }) => {
+            assert(std.string.equals(f, "data"), "required_field missing: wrong field")
+        }
+        Err(_) => { assert(false, "required_field missing: expected MissingField") }
+    }
+    return
+}
+
+// =============================================================================
+// Test: optional_string
+// =============================================================================
+
+let test_optional_string_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Bob\"}")
+    let result: Option[string] = optional_string(json, "name")
+    match result {
+        Some(s) => { assert_str_eq(s, "Bob", "optional_string should return 'Bob'") }
+        None => { assert(false, "optional_string present: expected Some") }
+    }
+    return
+}
+
+let test_optional_string_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"age\": 30}")
+    let result: Option[string] = optional_string(json, "name")
+    match result {
+        Some(_) => { assert(false, "optional_string missing: expected None") }
+        None => { return }
+    }
+    return
+}
+
+let test_optional_string_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": 42}")
+    let result: Option[string] = optional_string(json, "name")
+    match result {
+        Some(_) => { assert(false, "optional_string wrong type: expected None") }
+        None => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Test: optional_number
+// =============================================================================
+
+let test_optional_number_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"score\": 9.5}")
+    let result: Option[f64] = optional_number(json, "score")
+    match result {
+        Some(n) => { assert(n == 9.5, "optional_number should return 9.5") }
+        None => { assert(false, "optional_number present: expected Some") }
+    }
+    return
+}
+
+let test_optional_number_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Option[f64] = optional_number(json, "score")
+    match result {
+        Some(_) => { assert(false, "optional_number missing: expected None") }
+        None => { return }
+    }
+    return
+}
+
+let test_optional_number_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"score\": \"high\"}")
+    let result: Option[f64] = optional_number(json, "score")
+    match result {
+        Some(_) => { assert(false, "optional_number wrong type: expected None") }
+        None => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Test: optional_int
+// =============================================================================
+
+let test_optional_int_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"count\": 7}")
+    let result: Option[i64] = optional_int(json, "count")
+    match result {
+        Some(n) => { assert(n == 7, "optional_int should return 7") }
+        None => { assert(false, "optional_int present: expected Some") }
+    }
+    return
+}
+
+let test_optional_int_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Option[i64] = optional_int(json, "count")
+    match result {
+        Some(_) => { assert(false, "optional_int missing: expected None") }
+        None => { return }
+    }
+    return
+}
+
+let test_optional_int_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"count\": true}")
+    let result: Option[i64] = optional_int(json, "count")
+    match result {
+        Some(_) => { assert(false, "optional_int wrong type: expected None") }
+        None => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Test: optional_bool
+// =============================================================================
+
+let test_optional_bool_present_true: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"active\": true}")
+    let result: Option[bool] = optional_bool(json, "active")
+    match result {
+        Some(b) => { assert(b == true, "optional_bool should return true") }
+        None => { assert(false, "optional_bool present: expected Some") }
+    }
+    return
+}
+
+let test_optional_bool_present_false: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"active\": false}")
+    let result: Option[bool] = optional_bool(json, "active")
+    match result {
+        Some(b) => { assert(b == false, "optional_bool should return false") }
+        None => { assert(false, "optional_bool present false: expected Some") }
+    }
+    return
+}
+
+let test_optional_bool_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Option[bool] = optional_bool(json, "active")
+    match result {
+        Some(_) => { assert(false, "optional_bool missing: expected None") }
+        None => { return }
+    }
+    return
+}
+
+let test_optional_bool_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"active\": \"yes\"}")
+    let result: Option[bool] = optional_bool(json, "active")
+    match result {
+        Some(_) => { assert(false, "optional_bool wrong type: expected None") }
+        None => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Test: optional_field
+// =============================================================================
+
+let test_optional_field_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"data\": [1, 2, 3]}")
+    let result: Option[Json] = optional_field(json, "data")
+    match result {
+        Some(v) => { assert(type_name(v) == "array", "optional_field should return array") }
+        None => { assert(false, "optional_field present: expected Some") }
+    }
+    return
+}
+
+let test_optional_field_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Option[Json] = optional_field(json, "data")
+    match result {
+        Some(_) => { assert(false, "optional_field missing: expected None") }
+        None => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Test: format_decode_error
+// =============================================================================
+
+let test_format_missing_field_no_context: fn() -> void = fn() -> void {
+    let err: DecodeError = MissingField { field: "email", context: "" }
+    let msg: string = format_decode_error(err)
+    assert_str_eq(msg, "Missing required field 'email'", "format MissingField without context")
+    return
+}
+
+let test_format_missing_field_with_context: fn() -> void = fn() -> void {
+    let err: DecodeError = MissingField { field: "email", context: "User" }
+    let msg: string = format_decode_error(err)
+    assert_str_eq(msg, "Missing required field 'email' in User", "format MissingField with context")
+    return
+}
+
+let test_format_type_mismatch_no_context: fn() -> void = fn() -> void {
+    let err: DecodeError = TypeMismatch { field: "age", expected: "number", actual: "string", context: "" }
+    let msg: string = format_decode_error(err)
+    assert_str_eq(msg, "Type mismatch for field 'age': expected number, got string", "format TypeMismatch without context")
+    return
+}
+
+let test_format_type_mismatch_with_context: fn() -> void = fn() -> void {
+    let err: DecodeError = TypeMismatch { field: "age", expected: "number", actual: "string", context: "User" }
+    let msg: string = format_decode_error(err)
+    assert_str_eq(msg, "Type mismatch for field 'age' in User: expected number, got string", "format TypeMismatch with context")
+    return
+}
+
+let test_format_invalid_value_no_context: fn() -> void = fn() -> void {
+    let err: DecodeError = InvalidValue { field: "status", message: "unknown status 'xyz'", context: "" }
+    let msg: string = format_decode_error(err)
+    assert_str_eq(msg, "Invalid value for field 'status': unknown status 'xyz'", "format InvalidValue without context")
+    return
+}
+
+let test_format_invalid_value_with_context: fn() -> void = fn() -> void {
+    let err: DecodeError = InvalidValue { field: "status", message: "unknown status 'xyz'", context: "Order" }
+    let msg: string = format_decode_error(err)
+    assert_str_eq(msg, "Invalid value for field 'status' in Order: unknown status 'xyz'", "format InvalidValue with context")
+    return
+}
+
+// =============================================================================
+// Test: empty object
+// =============================================================================
+
+let test_required_string_from_empty_object: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{}")
+    let result: Result[string, DecodeError] = required_string(json, "anything")
+    match result {
+        Ok(_) => { assert(false, "required_string from empty: expected Err") }
+        Err(MissingField { field: f, context: _ }) => {
+            assert(std.string.equals(f, "anything"), "field should be 'anything'")
+        }
+        Err(_) => { assert(false, "expected MissingField from empty object") }
+    }
+    return
+}
+
+let test_optional_string_from_empty_object: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{}")
+    let result: Option[string] = optional_string(json, "anything")
+    match result {
+        Some(_) => { assert(false, "optional_string from empty: expected None") }
+        None => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Test: multiple fields in same object
+// =============================================================================
+
+let test_multiple_required_fields: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\", \"age\": 30, \"active\": true, \"score\": 9.5}")
+    let name: string = assert_ok_string(required_string(json, "name"), "multi: name")
+    let age: i64 = assert_ok_i64(required_int(json, "age"), "multi: age")
+    let active: bool = assert_ok_bool(required_bool(json, "active"), "multi: active")
+    let score: f64 = assert_ok_f64(required_number(json, "score"), "multi: score")
+    assert_str_eq(name, "Alice", "multi: name should be Alice")
+    assert(age == 30, "multi: age should be 30")
+    assert(active == true, "multi: active should be true")
+    assert(score == 9.5, "multi: score should be 9.5")
+    return
+}
+
+let test_mix_required_and_optional: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Bob\", \"age\": 25}")
+    let name: string = assert_ok_string(required_string(json, "name"), "mix: name")
+    let age: i64 = assert_ok_i64(required_int(json, "age"), "mix: age")
+    let nickname: Option[string] = optional_string(json, "nickname")
+    let score: Option[f64] = optional_number(json, "score")
+    assert_str_eq(name, "Bob", "mix: name should be Bob")
+    assert(age == 25, "mix: age should be 25")
+    match nickname {
+        Some(_) => { assert(false, "mix: nickname should be None") }
+        None => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Test: non-object JSON values
+// =============================================================================
+
+let test_required_string_from_non_object: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("\"hello\"")
+    let result: Result[string, DecodeError] = required_string(json, "field")
+    match result {
+        Ok(_) => { assert(false, "required_string from non-object: expected Err") }
+        Err(MissingField { field: _, context: _ }) => { return }
+        Err(_) => { assert(false, "required_string from non-object: expected MissingField") }
+    }
+    return
+}
+
+let test_required_int_from_array: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("[1, 2, 3]")
+    let result: Result[i64, DecodeError] = required_int(json, "0")
+    match result {
+        Ok(_) => { assert(false, "required_int from array: expected Err") }
+        Err(MissingField { field: _, context: _ }) => { return }
+        Err(_) => { assert(false, "required_int from array: expected MissingField") }
+    }
+    return
+}
+
+let test_optional_bool_from_null: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("null")
+    let result: Option[bool] = optional_bool(json, "field")
+    match result {
+        Some(_) => { assert(false, "optional_bool from null: expected None") }
+        None => { return }
+    }
+    return
+}
+
+// =============================================================================
+// Test Runner
+// =============================================================================
+
+effect fn run_test(name: string, test_fn: fn() -> void) -> void {
+    std.io.print("  ")
+    std.io.print(name)
+    std.io.print(" ... ")
+    test_fn()
+    std.io.println("ok")
+    return
+}
+
+effect fn run_required_string_tests() -> void {
+    std.io.println("required_string:")
+    run_test("test_required_string_happy_path", test_required_string_happy_path)
+    run_test("test_required_string_empty_value", test_required_string_empty_value)
+    run_test("test_required_string_missing_field", test_required_string_missing_field)
+    run_test("test_required_string_wrong_type_number", test_required_string_wrong_type_number)
+    run_test("test_required_string_wrong_type_bool", test_required_string_wrong_type_bool)
+    run_test("test_required_string_wrong_type_null", test_required_string_wrong_type_null)
+    run_test("test_required_string_wrong_type_array", test_required_string_wrong_type_array)
+    run_test("test_required_string_wrong_type_object", test_required_string_wrong_type_object)
+    std.io.println("")
+    return
+}
+
+effect fn run_required_number_tests() -> void {
+    std.io.println("required_number:")
+    run_test("test_required_number_happy_path", test_required_number_happy_path)
+    run_test("test_required_number_integer_value", test_required_number_integer_value)
+    run_test("test_required_number_zero", test_required_number_zero)
+    run_test("test_required_number_negative", test_required_number_negative)
+    run_test("test_required_number_missing", test_required_number_missing)
+    run_test("test_required_number_wrong_type", test_required_number_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_required_int_tests() -> void {
+    std.io.println("required_int:")
+    run_test("test_required_int_happy_path", test_required_int_happy_path)
+    run_test("test_required_int_zero", test_required_int_zero)
+    run_test("test_required_int_negative", test_required_int_negative)
+    run_test("test_required_int_large", test_required_int_large)
+    run_test("test_required_int_truncates_float", test_required_int_truncates_float)
+    run_test("test_required_int_missing", test_required_int_missing)
+    run_test("test_required_int_wrong_type", test_required_int_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_required_bool_tests() -> void {
+    std.io.println("required_bool:")
+    run_test("test_required_bool_true", test_required_bool_true)
+    run_test("test_required_bool_false", test_required_bool_false)
+    run_test("test_required_bool_missing", test_required_bool_missing)
+    run_test("test_required_bool_wrong_type_string", test_required_bool_wrong_type_string)
+    run_test("test_required_bool_wrong_type_number", test_required_bool_wrong_type_number)
+    std.io.println("")
+    return
+}
+
+effect fn run_required_field_tests() -> void {
+    std.io.println("required_field:")
+    run_test("test_required_field_string", test_required_field_string)
+    run_test("test_required_field_object", test_required_field_object)
+    run_test("test_required_field_null", test_required_field_null)
+    run_test("test_required_field_missing", test_required_field_missing)
+    std.io.println("")
+    return
+}
+
+effect fn run_optional_string_tests() -> void {
+    std.io.println("optional_string:")
+    run_test("test_optional_string_present", test_optional_string_present)
+    run_test("test_optional_string_missing", test_optional_string_missing)
+    run_test("test_optional_string_wrong_type", test_optional_string_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_optional_number_tests() -> void {
+    std.io.println("optional_number:")
+    run_test("test_optional_number_present", test_optional_number_present)
+    run_test("test_optional_number_missing", test_optional_number_missing)
+    run_test("test_optional_number_wrong_type", test_optional_number_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_optional_int_tests() -> void {
+    std.io.println("optional_int:")
+    run_test("test_optional_int_present", test_optional_int_present)
+    run_test("test_optional_int_missing", test_optional_int_missing)
+    run_test("test_optional_int_wrong_type", test_optional_int_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_optional_bool_tests() -> void {
+    std.io.println("optional_bool:")
+    run_test("test_optional_bool_present_true", test_optional_bool_present_true)
+    run_test("test_optional_bool_present_false", test_optional_bool_present_false)
+    run_test("test_optional_bool_missing", test_optional_bool_missing)
+    run_test("test_optional_bool_wrong_type", test_optional_bool_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_optional_field_tests() -> void {
+    std.io.println("optional_field:")
+    run_test("test_optional_field_present", test_optional_field_present)
+    run_test("test_optional_field_missing", test_optional_field_missing)
+    std.io.println("")
+    return
+}
+
+effect fn run_format_error_tests() -> void {
+    std.io.println("format_decode_error:")
+    run_test("test_format_missing_field_no_context", test_format_missing_field_no_context)
+    run_test("test_format_missing_field_with_context", test_format_missing_field_with_context)
+    run_test("test_format_type_mismatch_no_context", test_format_type_mismatch_no_context)
+    run_test("test_format_type_mismatch_with_context", test_format_type_mismatch_with_context)
+    run_test("test_format_invalid_value_no_context", test_format_invalid_value_no_context)
+    run_test("test_format_invalid_value_with_context", test_format_invalid_value_with_context)
+    std.io.println("")
+    return
+}
+
+effect fn run_edge_case_tests() -> void {
+    std.io.println("Edge Cases:")
+    run_test("test_required_string_from_empty_object", test_required_string_from_empty_object)
+    run_test("test_optional_string_from_empty_object", test_optional_string_from_empty_object)
+    run_test("test_multiple_required_fields", test_multiple_required_fields)
+    run_test("test_mix_required_and_optional", test_mix_required_and_optional)
+    run_test("test_required_string_from_non_object", test_required_string_from_non_object)
+    run_test("test_required_int_from_array", test_required_int_from_array)
+    run_test("test_optional_bool_from_null", test_optional_bool_from_null)
+    std.io.println("")
+    return
+}
+
+effect fn main() -> void {
+    std.io.println("Running Decode Module Tests")
+    std.io.println("===========================")
+    std.io.println("")
+    run_required_string_tests()
+    run_required_number_tests()
+    run_required_int_tests()
+    run_required_bool_tests()
+    run_required_field_tests()
+    run_optional_string_tests()
+    run_optional_number_tests()
+    run_optional_int_tests()
+    run_optional_bool_tests()
+    run_optional_field_tests()
+    run_format_error_tests()
+    run_edge_case_tests()
+    std.io.println("===========================")
+    std.io.println("All 53 decode tests passed!")
+    return
+}

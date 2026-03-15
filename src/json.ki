@@ -13,6 +13,7 @@
 //! - `json.path` - Path-based access (get_path, set_path, has_path, remove_path)
 //! - `json.builder` - Builder pattern and convenience constructors
 //! - `json.schema` - Schema validation (validate, schema_*)
+//! - `json.decode` - Typed deserialization (required_*, optional_*, DecodeError)
 //!
 //! ## Usage
 //!
@@ -27,6 +28,7 @@
 //! import json.path.{ get_path, set_path, has_path }
 //! import json.builder.{ builder, with_string, with_number, build, json_null, json_string }
 //! import json.schema.{ validate, schema_type, schema_object }
+//! import json.decode.{ required_string, required_int, optional_bool, DecodeError, format_decode_error }
 //! ```
 //!
 //! ## Quick Reference
@@ -80,3 +82,4 @@ module json
 // - json.path
 // - json.builder
 // - json.schema
+// - json.decode

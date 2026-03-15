@@ -1,0 +1,231 @@
+//! Typed deserialization helpers for extracting Kira values from JSON.
+//! Provides required and optional field extractors that return Result/Option
+//! for clean error propagation with the ? operator.
+//!
+//! ## Usage
+//!
+//! ```kira
+//! import json.decode.{ required_string, required_int, optional_bool, DecodeError, format_decode_error }
+//!
+//! let decode_user: fn(Json) -> Result[User, DecodeError] =
+//!     fn(json: Json) -> Result[User, DecodeError] {
+//!         let name: string = required_string(json, "name")?
+//!         let age: i64 = required_int(json, "age")?
+//!         let active: bool = optional_bool(json, "active") ?? true
+//!         return Ok(User { name: name, age: age, active: active })
+//!     }
+//! ```
+
+module json.decode
+
+import json.types.{ Json, get_field, as_string, as_number, as_int, as_bool, type_name }
+
+// =============================================================================
+// DecodeError Type
+// =============================================================================
+
+/// Error type for typed deserialization failures.
+/// Each variant carries context about what went wrong and where.
+pub type DecodeError =
+    | MissingField { field: string, context: string }
+    | TypeMismatch { field: string, expected: string, actual: string, context: string }
+    | InvalidValue { field: string, message: string, context: string }
+
+// =============================================================================
+// Error Formatting
+// =============================================================================
+
+/// Returns true if a string is non-empty.
+let has_context: fn(string) -> bool = fn(s: string) -> bool {
+    return not std.string.equals(s, "")
+}
+
+/// Formats a DecodeError as a human-readable string.
+pub let format_decode_error: fn(DecodeError) -> string = fn(err: DecodeError) -> string {
+    match err {
+        TypeMismatch { field: f, expected: exp, actual: act, context: ctx } => {
+            if has_context(ctx) {
+                return std.string.concat("Type mismatch for field '", std.string.concat(f, std.string.concat("' in ", std.string.concat(ctx, std.string.concat(": expected ", std.string.concat(exp, std.string.concat(", got ", act)))))))
+            }
+            return std.string.concat("Type mismatch for field '", std.string.concat(f, std.string.concat("': expected ", std.string.concat(exp, std.string.concat(", got ", act)))))
+        }
+        InvalidValue { field: f, message: msg, context: ctx } => {
+            if has_context(ctx) {
+                return std.string.concat("Invalid value for field '", std.string.concat(f, std.string.concat("' in ", std.string.concat(ctx, std.string.concat(": ", msg)))))
+            }
+            return std.string.concat("Invalid value for field '", std.string.concat(f, std.string.concat("': ", msg)))
+        }
+        MissingField { field: f, context: ctx } => {
+            if has_context(ctx) {
+                return std.string.concat("Missing required field '", std.string.concat(f, std.string.concat("' in ", ctx)))
+            }
+            return std.string.concat("Missing required field '", std.string.concat(f, "'"))
+        }
+    }
+}
+
+// =============================================================================
+// Required Field Extractors
+// =============================================================================
+
+/// Extracts a required string field from a JSON object.
+/// Returns MissingField if the field doesn't exist, TypeMismatch if not a string.
+pub let required_string: fn(Json, string) -> Result[string, DecodeError] =
+    fn(json: Json, field: string) -> Result[string, DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                match as_string(value) {
+                    Some(s) => { return Ok(s) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "string",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts a required number (f64) field from a JSON object.
+/// Returns MissingField if the field doesn't exist, TypeMismatch if not a number.
+pub let required_number: fn(Json, string) -> Result[f64, DecodeError] =
+    fn(json: Json, field: string) -> Result[f64, DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                match as_number(value) {
+                    Some(n) => { return Ok(n) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "number",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts a required integer (i64) field from a JSON object.
+/// The JSON number is truncated towards zero to produce an i64.
+/// Returns MissingField if the field doesn't exist, TypeMismatch if not a number.
+pub let required_int: fn(Json, string) -> Result[i64, DecodeError] =
+    fn(json: Json, field: string) -> Result[i64, DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                match as_int(value) {
+                    Some(n) => { return Ok(n) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "number",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts a required boolean field from a JSON object.
+/// Returns MissingField if the field doesn't exist, TypeMismatch if not a boolean.
+pub let required_bool: fn(Json, string) -> Result[bool, DecodeError] =
+    fn(json: Json, field: string) -> Result[bool, DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                match as_bool(value) {
+                    Some(b) => { return Ok(b) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "boolean",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts a required raw JSON field from a JSON object.
+/// Returns MissingField if the field doesn't exist. No type checking is performed.
+pub let required_field: fn(Json, string) -> Result[Json, DecodeError] =
+    fn(json: Json, field: string) -> Result[Json, DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                return Ok(value)
+            }
+        }
+    }
+
+// =============================================================================
+// Optional Field Extractors
+// =============================================================================
+
+/// Extracts an optional string field from a JSON object.
+/// Returns None if the field is missing or not a string.
+pub let optional_string: fn(Json, string) -> Option[string] =
+    fn(json: Json, field: string) -> Option[string] {
+        match get_field(json, field) {
+            None => { return None }
+            Some(value) => { return as_string(value) }
+        }
+    }
+
+/// Extracts an optional number (f64) field from a JSON object.
+/// Returns None if the field is missing or not a number.
+pub let optional_number: fn(Json, string) -> Option[f64] =
+    fn(json: Json, field: string) -> Option[f64] {
+        match get_field(json, field) {
+            None => { return None }
+            Some(value) => { return as_number(value) }
+        }
+    }
+
+/// Extracts an optional integer (i64) field from a JSON object.
+/// Returns None if the field is missing or not a number.
+pub let optional_int: fn(Json, string) -> Option[i64] =
+    fn(json: Json, field: string) -> Option[i64] {
+        match get_field(json, field) {
+            None => { return None }
+            Some(value) => { return as_int(value) }
+        }
+    }
+
+/// Extracts an optional boolean field from a JSON object.
+/// Returns None if the field is missing or not a boolean.
+pub let optional_bool: fn(Json, string) -> Option[bool] =
+    fn(json: Json, field: string) -> Option[bool] {
+        match get_field(json, field) {
+            None => { return None }
+            Some(value) => { return as_bool(value) }
+        }
+    }
+
+/// Extracts an optional raw JSON field from a JSON object.
+/// Returns None if the field is missing.
+pub let optional_field: fn(Json, string) -> Option[Json] =
+    fn(json: Json, field: string) -> Option[Json] {
+        return get_field(json, field)
+    }
