@@ -294,7 +294,7 @@ let validate_number: fn(f64, Schema, string) -> List[SchemaError] =
 let validate_string: fn(string, Schema, string) -> List[SchemaError] =
     fn(value: string, sch: Schema, p: string) -> List[SchemaError] {
         var errors: List[SchemaError] = Nil
-        let len: i32 = std.string.length(value)
+        let len: i32 = std.int.to_i32(std.string.length(value))
 
         match sch.min_length {
             Some(min) => {

@@ -995,7 +995,7 @@ let test_parse_array_empty: fn() -> void = fn() -> void {
         Ok(v) => {
             assert_true(is_array(v), "parse '[]' should produce array")
             match size(v) {
-                Some(n) => { assert_i32_eq(n, 0, "parse '[]' should produce empty array") }
+                Some(n) => { assert(n == 0, "parse '[]' should produce empty array") }
                 None => { assert(false, "size should work on array") }
             }
         }
@@ -1010,7 +1010,7 @@ let test_parse_array_with_elements: fn() -> void = fn() -> void {
         Ok(v) => {
             assert_true(is_array(v), "parse '[1,2,3]' should produce array")
             match size(v) {
-                Some(n) => { assert_i32_eq(n, 3, "parse '[1,2,3]' should have 3 elements") }
+                Some(n) => { assert(n == 3, "parse '[1,2,3]' should have 3 elements") }
                 None => { assert(false, "size should work on array") }
             }
         }
@@ -1025,7 +1025,7 @@ let test_parse_array_mixed_types: fn() -> void = fn() -> void {
         Ok(v) => {
             assert_true(is_array(v), "parse mixed array should produce array")
             match size(v) {
-                Some(n) => { assert_i32_eq(n, 4, "parse mixed array should have 4 elements") }
+                Some(n) => { assert(n == 4, "parse mixed array should have 4 elements") }
                 None => { assert(false, "size should work on array") }
             }
         }
@@ -1040,7 +1040,7 @@ let test_parse_object_empty: fn() -> void = fn() -> void {
         Ok(v) => {
             assert_true(is_object(v), "parse '{}' should produce object")
             match size(v) {
-                Some(n) => { assert_i32_eq(n, 0, "parse '{}' should produce empty object") }
+                Some(n) => { assert(n == 0, "parse '{}' should produce empty object") }
                 None => { assert(false, "size should work on object") }
             }
         }
@@ -1075,7 +1075,7 @@ let test_parse_object_multiple_fields: fn() -> void = fn() -> void {
         Ok(v) => {
             assert_true(is_object(v), "parse object should produce object")
             match size(v) {
-                Some(n) => { assert_i32_eq(n, 2, "object should have 2 fields") }
+                Some(n) => { assert(n == 2, "object should have 2 fields") }
                 None => { assert(false, "size should work on object") }
             }
         }
@@ -1656,7 +1656,7 @@ let test_remove_field_non_existing: fn() -> void = fn() -> void {
 
     // Assert
     match size(result) {
-        Some(n) => { assert_i32_eq(n, 1, "remove non-existing should not change size") }
+        Some(n) => { assert(n == 1, "remove non-existing should not change size") }
         None => { assert(false, "should be object") }
     }
     return
@@ -1762,7 +1762,7 @@ let test_filter_array_predicate: fn() -> void = fn() -> void {
 
     // Assert
     match size(result) {
-        Some(n) => { assert_i32_eq(n, 2, "filtered array should have 2 elements") }
+        Some(n) => { assert(n == 2, "filtered array should have 2 elements") }
         None => { assert(false, "result should be array") }
     }
     return
@@ -1870,7 +1870,7 @@ let test_roundtrip_array: fn() -> void = fn() -> void {
         Ok(v) => {
             assert_true(is_array(v), "roundtrip should preserve array type")
             match size(v) {
-                Some(n) => { assert_i32_eq(n, 2, "roundtrip should preserve array size") }
+                Some(n) => { assert(n == 2, "roundtrip should preserve array size") }
                 None => { assert(false, "should be array") }
             }
         }
@@ -2683,7 +2683,7 @@ let test_remove_path_array_index: fn() -> void = fn() -> void {
 
     // Assert
     match size(result) {
-        Some(s) => { assert_i32_eq(s, 2, "array should have 2 elements after remove") }
+        Some(s) => { assert(s == 2, "array should have 2 elements after remove") }
         None => { assert(false, "should be array") }
     }
     match get_path(result, "[1]") {
@@ -2955,7 +2955,7 @@ let test_parse_strict_accepts_unique_keys: fn() -> void = fn() -> void {
         Ok(json) => {
             assert(is_object(json), "result should be an object")
             match size(json) {
-                Some(s) => { assert_i32_eq(s, 3, "object should have 3 fields") }
+                Some(s) => { assert(s == 3, "object should have 3 fields") }
                 None => { assert(false, "size should return Some for object") }
             }
         }

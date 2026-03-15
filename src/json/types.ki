@@ -648,7 +648,7 @@ let get_nth_line: fn(List[string], i32, i32) -> string =
 
 /// Splits a string into lines.
 let split_lines: fn(string) -> List[string] = fn(input: string) -> List[string] {
-    return split_lines_acc(input, 0, std.builder.new())
+    return split_lines_acc(input, 0i64, std.builder.new())
 }
 
 let split_lines_acc: fn(string, i64, StringBuilder) -> List[string] =

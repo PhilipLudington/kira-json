@@ -133,7 +133,7 @@ let decrement_depth: fn(ParserState) -> ParserState = fn(state: ParserState) -> 
 let get_char_code: fn(string) -> i32 = fn(s: string) -> i32 {
     let chars: List[char] = std.string.chars(s)
     match chars {
-        Cons(ch, Nil) => { let code: i32 = std.char.to_i32(ch)
+        Cons(ch, Nil) => { let code: i32 = std.int.to_i32(std.char.to_i32(ch))
             return code }
         _ => { return 0 }
     }
@@ -152,8 +152,7 @@ let safe_substring: fn(string, i32, i32) -> string = fn(s: string, start: i32, e
 /// Helper to get string length in characters.
 let safe_length: fn(string) -> i32 = fn(s: string) -> i32 {
     let len64: i64 = std.string.length(s)
-    let len32: i32 = len64
-    return len32
+    return std.int.to_i32(len64)
 }
 
 /// Returns true if the parser has reached the end of input.
@@ -262,7 +261,7 @@ let is_control_char_str: fn(string) -> bool = fn(c: string) -> bool {
     let chars: List[char] = std.string.chars(c)
     match chars {
         Cons(ch, Nil) => {
-            let code: i32 = std.char.to_i32(ch)
+            let code: i32 = std.int.to_i32(std.char.to_i32(ch))
             return code >= 0 and code <= 31
         }
         _ => { return false }
@@ -330,7 +329,7 @@ let parse_bool: fn(ParserState) -> ParseResultJson = fn(state: ParserState) -> P
 /// Expects a specific string literal at the current position.
 let expect_literal: fn(ParserState, string) -> ParseResultString =
     fn(state: ParserState, expected: string) -> ParseResultString {
-        let expected_len: i32 = std.string.byte_length(expected)
+        let expected_len: i32 = std.int.to_i32(std.string.byte_length(expected))
         return expect_literal_from(state, expected, 0, expected_len)
     }
 

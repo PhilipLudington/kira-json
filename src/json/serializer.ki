@@ -32,7 +32,7 @@ let escape_chars_to_builder: fn(List[char], StringBuilder) -> StringBuilder =
 /// Escapes a single character into a StringBuilder.
 /// Properly handles control characters using std.char.to_i32.
 let escape_char: fn(char, StringBuilder) -> StringBuilder = fn(c: char, builder: StringBuilder) -> StringBuilder {
-    let code: i32 = std.char.to_i32(c)
+    let code: i32 = std.int.to_i32(std.char.to_i32(c))
 
     // Check for characters that need escaping
     if code == 34 {  // Double quote "

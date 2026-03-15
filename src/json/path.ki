@@ -92,7 +92,7 @@ pub let parse_path: fn(string) -> Result[List[PathSegment], PathError] = fn(pth:
     if std.string.byte_length(pth) == 0 {
         return Ok(Nil)
     }
-    return parse_path_from(pth, 0, std.string.byte_length(pth))
+    return parse_path_from(pth, 0, std.int.to_i32(std.string.byte_length(pth)))
 }
 
 /// Internal path parser starting from a given position.
@@ -179,7 +179,7 @@ let find_char: fn(string, string, i32, i32) -> i32 = fn(s: string, target: strin
 
 /// Parses a non-negative integer from a string.
 let parse_index_value: fn(string) -> Option[i32] = fn(s: string) -> Option[i32] {
-    let len: i32 = std.string.byte_length(s)
+    let len: i32 = std.int.to_i32(std.string.byte_length(s))
     if len == 0 {
         return None
     }
