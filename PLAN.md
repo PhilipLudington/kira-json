@@ -5,7 +5,7 @@
 Add typed deserialization to kira-json: convert `Json` values into user-defined Kira types (product types and sum types) with clear error reporting. This bridges the gap between the untyped `Json` ADT and application-level types like `User`, `Todo`, etc.
 
 Reference: DESIGN.md, src/json/types.ki
-Current status: Phase 1 complete. Phase 2 next.
+Current status: Phase 2 complete. Phase 3 next.
 
 ## Design Constraints
 
@@ -113,7 +113,8 @@ Before Phase 2, these must be true:
 
 ---
 
-## Phase 2: Convenience Decoders and Coercions
+## Phase 2: Convenience Decoders and Coercions ✅
+**Status:** Complete (2026-03-15)
 
 **Goal:** Common patterns: nullable fields, default values, enum strings, numeric coercions.
 **Estimated Effort:** 1–2 days
@@ -121,27 +122,34 @@ Before Phase 2, these must be true:
 ### Deliverables
 - Nullable field support (`null` → `None`, value → `Some(T)`)
 - Default value support
-- String-to-enum mapping
+- String-to-enum mapping (via `required_string_in`)
 - Numeric coercion helpers (f64 → i32 with range checking)
 
+### Design Notes
+- `nullable_object` adapted to non-generic `nullable_object_field` (same pattern as Phase 1)
+- `required_enum` adapted to `required_string_in(Json, string, List[string])` — validates string is in allowed set, user maps to enum type
+- `required_f32` removed: Kira's `f32` type exists but has no runtime f64→f32 conversion
+
 ### Tasks
-- [ ] Implement nullable decoders:
+- [x] Implement nullable decoders (completed 2026-03-15):
   - `nullable_string(Json, string) -> Result[Option[string], DecodeError]`
   - `nullable_int(Json, string) -> Result[Option[i64], DecodeError]`
-  - `nullable_object(Json, string, fn(Json) -> Result[T, DecodeError]) -> Result[Option[T], DecodeError]`
-- [ ] Implement default-value decoders:
-  - `string_or(Json, string, string) -> Result[string, DecodeError]` — default if missing, error if wrong type
+  - `nullable_number(Json, string) -> Result[Option[f64], DecodeError]`
+  - `nullable_bool(Json, string) -> Result[Option[bool], DecodeError]`
+  - `nullable_object_field(Json, string) -> Result[Option[Json], DecodeError]`
+- [x] Implement default-value decoders (completed 2026-03-15):
+  - `string_or(Json, string, string) -> Result[string, DecodeError]`
   - `int_or(Json, string, i64) -> Result[i64, DecodeError]`
   - `bool_or(Json, string, bool) -> Result[bool, DecodeError]`
-- [ ] Implement string-to-enum mapping:
-  - `required_enum(Json, string, fn(string) -> Option[T]) -> Result[T, DecodeError]`
-- [ ] Implement safe numeric coercion:
+  - `number_or(Json, string, f64) -> Result[f64, DecodeError]`
+- [x] Implement string-to-enum mapping (completed 2026-03-15):
+  - `required_string_in(Json, string, List[string]) -> Result[string, DecodeError]`
+- [x] Implement safe numeric coercion (completed 2026-03-15):
   - `required_i32(Json, string) -> Result[i32, DecodeError]` — error if out of i32 range
-  - `required_f32(Json, string) -> Result[f32, DecodeError]`
-- [ ] Write tests for all variants
+- [x] Write tests: 37 Phase 2 tests (completed 2026-03-15)
 
 ### Testing Strategy
-Test null vs missing vs present for nullable fields. Test defaults. Test enum mapping with valid and invalid strings. Test numeric overflow detection. Minimum 25 tests.
+Test null vs missing vs present for nullable fields. Test defaults. Test enum mapping with valid and invalid strings. Test numeric overflow detection. Minimum 25 tests. Achieved 37 tests.
 
 ---
 

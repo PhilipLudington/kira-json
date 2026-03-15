@@ -18,7 +18,7 @@
 
 module json.decode
 
-import json.types.{ Json, get_field, as_string, as_number, as_int, as_bool, as_array, is_object, type_name }
+import json.types.{ Json, get_field, as_string, as_number, as_int, as_bool, as_array, is_object, is_null, type_name }
 
 // =============================================================================
 // DecodeError Type
@@ -381,3 +381,364 @@ pub let optional_array_field: fn(Json, string) -> Option[List[Json]] =
 pub let index_context: fn(i32) -> string = fn(index: i32) -> string {
     return std.string.concat("[", std.string.concat(std.int.to_string(index), "]"))
 }
+
+// =============================================================================
+// Nullable Field Decoders
+// =============================================================================
+// Nullable fields are REQUIRED to be present, but the value can be null.
+// - Missing field → Err(MissingField)
+// - null value → Ok(None)
+// - Correct type → Ok(Some(value))
+// - Wrong type → Err(TypeMismatch)
+
+/// Extracts a required field that is either null or a string.
+pub let nullable_string: fn(Json, string) -> Result[Option[string], DecodeError] =
+    fn(json: Json, field: string) -> Result[Option[string], DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                if is_null(value) {
+                    return Ok(None)
+                }
+                match as_string(value) {
+                    Some(s) => { return Ok(Some(s)) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "string or null",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts a required field that is either null or an integer.
+pub let nullable_int: fn(Json, string) -> Result[Option[i64], DecodeError] =
+    fn(json: Json, field: string) -> Result[Option[i64], DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                if is_null(value) {
+                    return Ok(None)
+                }
+                match as_int(value) {
+                    Some(n) => { return Ok(Some(n)) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "number or null",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts a required field that is either null or a number (f64).
+pub let nullable_number: fn(Json, string) -> Result[Option[f64], DecodeError] =
+    fn(json: Json, field: string) -> Result[Option[f64], DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                if is_null(value) {
+                    return Ok(None)
+                }
+                match as_number(value) {
+                    Some(n) => { return Ok(Some(n)) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "number or null",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts a required field that is either null or a boolean.
+pub let nullable_bool: fn(Json, string) -> Result[Option[bool], DecodeError] =
+    fn(json: Json, field: string) -> Result[Option[bool], DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                if is_null(value) {
+                    return Ok(None)
+                }
+                match as_bool(value) {
+                    Some(b) => { return Ok(Some(b)) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "boolean or null",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts a required field that is either null or a JSON object.
+/// Returns Ok(None) for null, Ok(Some(json)) for object, error otherwise.
+/// The caller applies their own decoder to the returned Json.
+pub let nullable_object_field: fn(Json, string) -> Result[Option[Json], DecodeError] =
+    fn(json: Json, field: string) -> Result[Option[Json], DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                if is_null(value) {
+                    return Ok(None)
+                }
+                if not is_object(value) {
+                    return Err(TypeMismatch {
+                        field: field,
+                        expected: "object or null",
+                        actual: type_name(value),
+                        context: ""
+                    })
+                }
+                return Ok(Some(value))
+            }
+        }
+    }
+
+// =============================================================================
+// Default-Value Decoders
+// =============================================================================
+// Default decoders use the default if the field is missing, but error if
+// the field is present with the wrong type.
+
+/// Extracts a string field, using a default if missing.
+/// Returns Err(TypeMismatch) if the field is present but not a string.
+pub let string_or: fn(Json, string, string) -> Result[string, DecodeError] =
+    fn(json: Json, field: string, default: string) -> Result[string, DecodeError] {
+        match get_field(json, field) {
+            None => { return Ok(default) }
+            Some(value) => {
+                match as_string(value) {
+                    Some(s) => { return Ok(s) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "string",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts an integer field, using a default if missing.
+/// Returns Err(TypeMismatch) if the field is present but not a number.
+pub let int_or: fn(Json, string, i64) -> Result[i64, DecodeError] =
+    fn(json: Json, field: string, default: i64) -> Result[i64, DecodeError] {
+        match get_field(json, field) {
+            None => { return Ok(default) }
+            Some(value) => {
+                match as_int(value) {
+                    Some(n) => { return Ok(n) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "number",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts a boolean field, using a default if missing.
+/// Returns Err(TypeMismatch) if the field is present but not a boolean.
+pub let bool_or: fn(Json, string, bool) -> Result[bool, DecodeError] =
+    fn(json: Json, field: string, default: bool) -> Result[bool, DecodeError] {
+        match get_field(json, field) {
+            None => { return Ok(default) }
+            Some(value) => {
+                match as_bool(value) {
+                    Some(b) => { return Ok(b) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "boolean",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+/// Extracts a number (f64) field, using a default if missing.
+/// Returns Err(TypeMismatch) if the field is present but not a number.
+pub let number_or: fn(Json, string, f64) -> Result[f64, DecodeError] =
+    fn(json: Json, field: string, default: f64) -> Result[f64, DecodeError] {
+        match get_field(json, field) {
+            None => { return Ok(default) }
+            Some(value) => {
+                match as_number(value) {
+                    Some(n) => { return Ok(n) }
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "number",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+// =============================================================================
+// String-to-Enum Mapping
+// =============================================================================
+
+/// Helper to check if a string is in a list of allowed values.
+let string_in_list: fn(string, List[string]) -> bool =
+    fn(s: string, allowed: List[string]) -> bool {
+        match allowed {
+            Nil => { return false }
+            Cons(head, tail) => {
+                if std.string.equals(s, head) {
+                    return true
+                }
+                return string_in_list(s, tail)
+            }
+        }
+    }
+
+/// Helper to join a list of strings with a separator.
+let join_strings: fn(List[string], string) -> string =
+    fn(items: List[string], sep: string) -> string {
+        return join_strings_acc(items, sep, std.builder.new(), true)
+    }
+
+let join_strings_acc: fn(List[string], string, StringBuilder, bool) -> string =
+    fn(items: List[string], sep: string, sb: StringBuilder, is_first: bool) -> string {
+        match items {
+            Nil => { return std.builder.build(sb) }
+            Cons(item, rest) => {
+                if is_first {
+                    let new_sb: StringBuilder = std.builder.append(sb, item)
+                    return join_strings_acc(rest, sep, new_sb, false)
+                }
+                let new_sb: StringBuilder = std.builder.append(std.builder.append(sb, sep), item)
+                return join_strings_acc(rest, sep, new_sb, false)
+            }
+        }
+    }
+
+/// Extracts a required string field and validates it is one of the allowed values.
+/// Returns InvalidValue if the string is not in the allowed set.
+/// The caller maps the returned string to their enum type.
+///
+/// ## Example
+/// ```kira
+/// match required_string_in(json, "status", Cons("active", Cons("inactive", Nil))) {
+///     Ok(s) => { /* map s to your enum type */ }
+///     Err(e) => { return Err(e) }
+/// }
+/// ```
+pub let required_string_in: fn(Json, string, List[string]) -> Result[string, DecodeError] =
+    fn(json: Json, field: string, allowed: List[string]) -> Result[string, DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                match as_string(value) {
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "string",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                    Some(s) => {
+                        if string_in_list(s, allowed) {
+                            return Ok(s)
+                        }
+                        let allowed_str: string = join_strings(allowed, ", ")
+                        return Err(InvalidValue {
+                            field: field,
+                            message: std.string.concat("expected one of [", std.string.concat(allowed_str, std.string.concat("], got '", std.string.concat(s, "'")))),
+                            context: ""
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+// =============================================================================
+// Safe Numeric Coercion
+// =============================================================================
+
+/// Extracts a required integer field with i32 range checking.
+/// Returns InvalidValue if the number is outside the i32 range (-2147483648 to 2147483647).
+pub let required_i32: fn(Json, string) -> Result[i32, DecodeError] =
+    fn(json: Json, field: string) -> Result[i32, DecodeError] {
+        match get_field(json, field) {
+            None => {
+                return Err(MissingField { field: field, context: "" })
+            }
+            Some(value) => {
+                match as_number(value) {
+                    None => {
+                        return Err(TypeMismatch {
+                            field: field,
+                            expected: "number",
+                            actual: type_name(value),
+                            context: ""
+                        })
+                    }
+                    Some(n) => {
+                        let i: i64 = std.math.trunc_to_i64(n)
+                        if i < -2147483648 {
+                            return Err(InvalidValue {
+                                field: field,
+                                message: std.string.concat("value ", std.string.concat(std.float.to_string(n), " is below i32 minimum (-2147483648)")),
+                                context: ""
+                            })
+                        }
+                        if i > 2147483647 {
+                            return Err(InvalidValue {
+                                field: field,
+                                message: std.string.concat("value ", std.string.concat(std.float.to_string(n), " exceeds i32 maximum (2147483647)")),
+                                context: ""
+                            })
+                        }
+                        return Ok(std.int.to_i32(i))
+                    }
+                }
+            }
+        }
+    }
+

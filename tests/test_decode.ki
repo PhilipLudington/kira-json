@@ -6,7 +6,7 @@ module test_decode
 
 import json.types.{ Json, JsonField, get_field, type_name, fields_to_hashmap }
 import json.parser.{ parse }
-import json.decode.{ DecodeError, format_decode_error, with_context, required_string, required_number, required_int, required_bool, required_field, optional_string, optional_number, optional_int, optional_bool, optional_field, required_object_field, optional_object_field, required_array_field, optional_array_field, index_context }
+import json.decode.{ DecodeError, format_decode_error, with_context, required_string, required_number, required_int, required_bool, required_field, optional_string, optional_number, optional_int, optional_bool, optional_field, required_object_field, optional_object_field, required_array_field, optional_array_field, index_context, nullable_string, nullable_int, nullable_number, nullable_bool, nullable_object_field, string_or, int_or, bool_or, number_or, required_string_in, required_i32 }
 
 // =============================================================================
 // Test Utilities
@@ -1259,6 +1259,439 @@ let test_array_deep_nested_error_path: fn() -> void = fn() -> void {
 }
 
 // =============================================================================
+// Phase 2: Nullable Decoders
+// =============================================================================
+
+let test_nullable_string_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": \"Alice\"}")
+    let result: Result[Option[string], DecodeError] = nullable_string(json, "name")
+    match result {
+        Ok(Some(s)) => { assert_str_eq(s, "Alice", "nullable_string present") }
+        Ok(None) => { assert(false, "nullable_string present: expected Some") }
+        Err(e) => { assert(false, std.string.concat("nullable_string present: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_nullable_string_null: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": null}")
+    let result: Result[Option[string], DecodeError] = nullable_string(json, "name")
+    match result {
+        Ok(None) => { return }
+        Ok(Some(_)) => { assert(false, "nullable_string null: expected None") }
+        Err(e) => { assert(false, std.string.concat("nullable_string null: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_nullable_string_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"age\": 30}")
+    let result: Result[Option[string], DecodeError] = nullable_string(json, "name")
+    match result {
+        Err(MissingField { field: f, context: _ }) => {
+            assert(std.string.equals(f, "name"), "nullable_string missing: wrong field")
+        }
+        Err(_) => { assert(false, "nullable_string missing: expected MissingField") }
+        Ok(_) => { assert(false, "nullable_string missing: expected Err") }
+    }
+    return
+}
+
+let test_nullable_string_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"name\": 42}")
+    let result: Result[Option[string], DecodeError] = nullable_string(json, "name")
+    match result {
+        Err(TypeMismatch { field: _, expected: exp, actual: _, context: _ }) => {
+            assert(std.string.equals(exp, "string or null"), "nullable_string wrong type: expected 'string or null'")
+        }
+        Err(_) => { assert(false, "nullable_string wrong type: expected TypeMismatch") }
+        Ok(_) => { assert(false, "nullable_string wrong type: expected Err") }
+    }
+    return
+}
+
+let test_nullable_int_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"count\": 5}")
+    let result: Result[Option[i64], DecodeError] = nullable_int(json, "count")
+    match result {
+        Ok(Some(n)) => { assert(n == 5, "nullable_int present: value") }
+        Ok(None) => { assert(false, "nullable_int present: expected Some") }
+        Err(e) => { assert(false, std.string.concat("nullable_int present: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_nullable_int_null: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"count\": null}")
+    let result: Result[Option[i64], DecodeError] = nullable_int(json, "count")
+    match result {
+        Ok(None) => { return }
+        Ok(Some(_)) => { assert(false, "nullable_int null: expected None") }
+        Err(_) => { assert(false, "nullable_int null: expected Ok(None)") }
+    }
+    return
+}
+
+let test_nullable_int_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{}")
+    let result: Result[Option[i64], DecodeError] = nullable_int(json, "count")
+    match result {
+        Err(MissingField { field: _, context: _ }) => { return }
+        Err(_) => { assert(false, "nullable_int missing: expected MissingField") }
+        Ok(_) => { assert(false, "nullable_int missing: expected Err") }
+    }
+    return
+}
+
+let test_nullable_number_null: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"score\": null}")
+    let result: Result[Option[f64], DecodeError] = nullable_number(json, "score")
+    match result {
+        Ok(None) => { return }
+        Ok(Some(_)) => { assert(false, "nullable_number null: expected None") }
+        Err(_) => { assert(false, "nullable_number null: expected Ok(None)") }
+    }
+    return
+}
+
+let test_nullable_number_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"score\": 3.14}")
+    let result: Result[Option[f64], DecodeError] = nullable_number(json, "score")
+    match result {
+        Ok(Some(n)) => { assert(n == 3.14, "nullable_number present: value") }
+        Ok(None) => { assert(false, "nullable_number present: expected Some") }
+        Err(_) => { assert(false, "nullable_number present: expected Ok") }
+    }
+    return
+}
+
+let test_nullable_bool_null: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"active\": null}")
+    let result: Result[Option[bool], DecodeError] = nullable_bool(json, "active")
+    match result {
+        Ok(None) => { return }
+        Ok(Some(_)) => { assert(false, "nullable_bool null: expected None") }
+        Err(_) => { assert(false, "nullable_bool null: expected Ok(None)") }
+    }
+    return
+}
+
+let test_nullable_bool_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"active\": true}")
+    let result: Result[Option[bool], DecodeError] = nullable_bool(json, "active")
+    match result {
+        Ok(Some(b)) => { assert(b == true, "nullable_bool present: value") }
+        Ok(None) => { assert(false, "nullable_bool present: expected Some") }
+        Err(_) => { assert(false, "nullable_bool present: expected Ok") }
+    }
+    return
+}
+
+let test_nullable_bool_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"active\": \"yes\"}")
+    let result: Result[Option[bool], DecodeError] = nullable_bool(json, "active")
+    match result {
+        Err(TypeMismatch { field: _, expected: exp, actual: _, context: _ }) => {
+            assert(std.string.equals(exp, "boolean or null"), "nullable_bool wrong type: expected label")
+        }
+        Err(_) => { assert(false, "nullable_bool wrong type: expected TypeMismatch") }
+        Ok(_) => { assert(false, "nullable_bool wrong type: expected Err") }
+    }
+    return
+}
+
+let test_nullable_object_field_null: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"address\": null}")
+    let result: Result[Option[Json], DecodeError] = nullable_object_field(json, "address")
+    match result {
+        Ok(None) => { return }
+        Ok(Some(_)) => { assert(false, "nullable_object_field null: expected None") }
+        Err(_) => { assert(false, "nullable_object_field null: expected Ok(None)") }
+    }
+    return
+}
+
+let test_nullable_object_field_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"address\": {\"city\": \"NYC\"}}")
+    let result: Result[Option[Json], DecodeError] = nullable_object_field(json, "address")
+    match result {
+        Ok(Some(v)) => { assert(type_name(v) == "object", "nullable_object_field present: is object") }
+        Ok(None) => { assert(false, "nullable_object_field present: expected Some") }
+        Err(_) => { assert(false, "nullable_object_field present: expected Ok") }
+    }
+    return
+}
+
+let test_nullable_object_field_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"address\": 42}")
+    let result: Result[Option[Json], DecodeError] = nullable_object_field(json, "address")
+    match result {
+        Err(TypeMismatch { field: _, expected: exp, actual: _, context: _ }) => {
+            assert(std.string.equals(exp, "object or null"), "nullable_object wrong type: expected label")
+        }
+        Err(_) => { assert(false, "nullable_object wrong type: expected TypeMismatch") }
+        Ok(_) => { assert(false, "nullable_object wrong type: expected Err") }
+    }
+    return
+}
+
+// =============================================================================
+// Phase 2: Default-Value Decoders
+// =============================================================================
+
+let test_string_or_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"lang\": \"kira\"}")
+    let result: Result[string, DecodeError] = string_or(json, "lang", "en")
+    match result {
+        Ok(s) => { assert_str_eq(s, "kira", "string_or present") }
+        Err(e) => { assert(false, std.string.concat("string_or present: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_string_or_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{}")
+    let result: Result[string, DecodeError] = string_or(json, "lang", "en")
+    match result {
+        Ok(s) => { assert_str_eq(s, "en", "string_or missing: should use default") }
+        Err(e) => { assert(false, std.string.concat("string_or missing: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_string_or_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"lang\": 42}")
+    let result: Result[string, DecodeError] = string_or(json, "lang", "en")
+    match result {
+        Err(TypeMismatch { field: _, expected: _, actual: _, context: _ }) => { return }
+        Err(_) => { assert(false, "string_or wrong type: expected TypeMismatch") }
+        Ok(_) => { assert(false, "string_or wrong type: expected Err") }
+    }
+    return
+}
+
+let test_int_or_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"port\": 8080}")
+    let result: Result[i64, DecodeError] = int_or(json, "port", 3000i64)
+    match result {
+        Ok(n) => { assert(n == 8080, "int_or present") }
+        Err(e) => { assert(false, std.string.concat("int_or present: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_int_or_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{}")
+    let result: Result[i64, DecodeError] = int_or(json, "port", 3000i64)
+    match result {
+        Ok(n) => { assert(n == 3000, "int_or missing: should use default") }
+        Err(e) => { assert(false, std.string.concat("int_or missing: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_int_or_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"port\": \"abc\"}")
+    let result: Result[i64, DecodeError] = int_or(json, "port", 3000i64)
+    match result {
+        Err(TypeMismatch { field: _, expected: _, actual: _, context: _ }) => { return }
+        Err(_) => { assert(false, "int_or wrong type: expected TypeMismatch") }
+        Ok(_) => { assert(false, "int_or wrong type: expected Err") }
+    }
+    return
+}
+
+let test_bool_or_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"debug\": true}")
+    let result: Result[bool, DecodeError] = bool_or(json, "debug", false)
+    match result {
+        Ok(b) => { assert(b == true, "bool_or present") }
+        Err(e) => { assert(false, std.string.concat("bool_or present: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_bool_or_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{}")
+    let result: Result[bool, DecodeError] = bool_or(json, "debug", false)
+    match result {
+        Ok(b) => { assert(b == false, "bool_or missing: should use default") }
+        Err(e) => { assert(false, std.string.concat("bool_or missing: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_number_or_present: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"rate\": 9.5}")
+    let result: Result[f64, DecodeError] = number_or(json, "rate", 1.0)
+    match result {
+        Ok(n) => { assert(n == 9.5, "number_or present") }
+        Err(e) => { assert(false, std.string.concat("number_or present: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_number_or_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{}")
+    let result: Result[f64, DecodeError] = number_or(json, "rate", 1.0)
+    match result {
+        Ok(n) => { assert(n == 1.0, "number_or missing: should use default") }
+        Err(e) => { assert(false, std.string.concat("number_or missing: ", format_decode_error(e))) }
+    }
+    return
+}
+
+// =============================================================================
+// Phase 2: String-to-Enum Mapping
+// =============================================================================
+
+let test_required_string_in_valid: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"status\": \"active\"}")
+    let allowed: List[string] = Cons("active", Cons("inactive", Cons("pending", Nil)))
+    let result: Result[string, DecodeError] = required_string_in(json, "status", allowed)
+    match result {
+        Ok(s) => { assert_str_eq(s, "active", "required_string_in valid") }
+        Err(e) => { assert(false, std.string.concat("required_string_in valid: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_required_string_in_invalid: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"status\": \"deleted\"}")
+    let allowed: List[string] = Cons("active", Cons("inactive", Cons("pending", Nil)))
+    let result: Result[string, DecodeError] = required_string_in(json, "status", allowed)
+    match result {
+        Err(InvalidValue { field: f, message: _, context: _ }) => {
+            assert(std.string.equals(f, "status"), "required_string_in invalid: field")
+        }
+        Err(_) => { assert(false, "required_string_in invalid: expected InvalidValue") }
+        Ok(_) => { assert(false, "required_string_in invalid: expected Err") }
+    }
+    return
+}
+
+let test_required_string_in_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{}")
+    let allowed: List[string] = Cons("active", Cons("inactive", Nil))
+    let result: Result[string, DecodeError] = required_string_in(json, "status", allowed)
+    match result {
+        Err(MissingField { field: _, context: _ }) => { return }
+        Err(_) => { assert(false, "required_string_in missing: expected MissingField") }
+        Ok(_) => { assert(false, "required_string_in missing: expected Err") }
+    }
+    return
+}
+
+let test_required_string_in_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"status\": 42}")
+    let allowed: List[string] = Cons("active", Cons("inactive", Nil))
+    let result: Result[string, DecodeError] = required_string_in(json, "status", allowed)
+    match result {
+        Err(TypeMismatch { field: _, expected: _, actual: _, context: _ }) => { return }
+        Err(_) => { assert(false, "required_string_in wrong type: expected TypeMismatch") }
+        Ok(_) => { assert(false, "required_string_in wrong type: expected Err") }
+    }
+    return
+}
+
+let test_required_string_in_error_message: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"status\": \"deleted\"}")
+    let allowed: List[string] = Cons("active", Cons("inactive", Nil))
+    let result: Result[string, DecodeError] = required_string_in(json, "status", allowed)
+    match result {
+        Err(InvalidValue { field: _, message: msg, context: _ }) => {
+            assert_str_eq(msg, "expected one of [active, inactive], got 'deleted'", "required_string_in error message")
+        }
+        Err(_) => { assert(false, "required_string_in error msg: expected InvalidValue") }
+        Ok(_) => { assert(false, "required_string_in error msg: expected Err") }
+    }
+    return
+}
+
+// =============================================================================
+// Phase 2: Safe Numeric Coercion
+// =============================================================================
+
+let test_required_i32_happy_path: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"port\": 8080}")
+    let result: Result[i32, DecodeError] = required_i32(json, "port")
+    match result {
+        Ok(n) => { assert(n == 8080, "required_i32 happy path") }
+        Err(e) => { assert(false, std.string.concat("required_i32 happy: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_required_i32_zero: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"val\": 0}")
+    let result: Result[i32, DecodeError] = required_i32(json, "val")
+    match result {
+        Ok(n) => { assert(n == 0, "required_i32 zero") }
+        Err(e) => { assert(false, std.string.concat("required_i32 zero: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_required_i32_negative: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"val\": -100}")
+    let result: Result[i32, DecodeError] = required_i32(json, "val")
+    match result {
+        Ok(n) => { assert(n == -100, "required_i32 negative") }
+        Err(e) => { assert(false, std.string.concat("required_i32 neg: ", format_decode_error(e))) }
+    }
+    return
+}
+
+let test_required_i32_overflow: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"big\": 3000000000}")
+    let result: Result[i32, DecodeError] = required_i32(json, "big")
+    match result {
+        Err(InvalidValue { field: f, message: _, context: _ }) => {
+            assert(std.string.equals(f, "big"), "required_i32 overflow: field")
+        }
+        Err(_) => { assert(false, "required_i32 overflow: expected InvalidValue") }
+        Ok(_) => { assert(false, "required_i32 overflow: expected Err") }
+    }
+    return
+}
+
+let test_required_i32_underflow: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"small\": -3000000000}")
+    let result: Result[i32, DecodeError] = required_i32(json, "small")
+    match result {
+        Err(InvalidValue { field: f, message: _, context: _ }) => {
+            assert(std.string.equals(f, "small"), "required_i32 underflow: field")
+        }
+        Err(_) => { assert(false, "required_i32 underflow: expected InvalidValue") }
+        Ok(_) => { assert(false, "required_i32 underflow: expected Err") }
+    }
+    return
+}
+
+let test_required_i32_missing: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{}")
+    let result: Result[i32, DecodeError] = required_i32(json, "val")
+    match result {
+        Err(MissingField { field: _, context: _ }) => { return }
+        Err(_) => { assert(false, "required_i32 missing: expected MissingField") }
+        Ok(_) => { assert(false, "required_i32 missing: expected Err") }
+    }
+    return
+}
+
+let test_required_i32_wrong_type: fn() -> void = fn() -> void {
+    let json: Json = parse_ok("{\"val\": \"abc\"}")
+    let result: Result[i32, DecodeError] = required_i32(json, "val")
+    match result {
+        Err(TypeMismatch { field: _, expected: _, actual: _, context: _ }) => { return }
+        Err(_) => { assert(false, "required_i32 wrong type: expected TypeMismatch") }
+        Ok(_) => { assert(false, "required_i32 wrong type: expected Err") }
+    }
+    return
+}
+
+
+// =============================================================================
 // Test Runner
 // =============================================================================
 
@@ -1480,6 +1913,67 @@ effect fn run_deep_nested_tests() -> void {
     return
 }
 
+effect fn run_nullable_tests() -> void {
+    std.io.println("nullable decoders:")
+    run_test("test_nullable_string_present", test_nullable_string_present)
+    run_test("test_nullable_string_null", test_nullable_string_null)
+    run_test("test_nullable_string_missing", test_nullable_string_missing)
+    run_test("test_nullable_string_wrong_type", test_nullable_string_wrong_type)
+    run_test("test_nullable_int_present", test_nullable_int_present)
+    run_test("test_nullable_int_null", test_nullable_int_null)
+    run_test("test_nullable_int_missing", test_nullable_int_missing)
+    run_test("test_nullable_number_null", test_nullable_number_null)
+    run_test("test_nullable_number_present", test_nullable_number_present)
+    run_test("test_nullable_bool_null", test_nullable_bool_null)
+    run_test("test_nullable_bool_present", test_nullable_bool_present)
+    run_test("test_nullable_bool_wrong_type", test_nullable_bool_wrong_type)
+    run_test("test_nullable_object_field_null", test_nullable_object_field_null)
+    run_test("test_nullable_object_field_present", test_nullable_object_field_present)
+    run_test("test_nullable_object_field_wrong_type", test_nullable_object_field_wrong_type)
+    std.io.println("")
+    return
+}
+
+effect fn run_default_value_tests() -> void {
+    std.io.println("default-value decoders:")
+    run_test("test_string_or_present", test_string_or_present)
+    run_test("test_string_or_missing", test_string_or_missing)
+    run_test("test_string_or_wrong_type", test_string_or_wrong_type)
+    run_test("test_int_or_present", test_int_or_present)
+    run_test("test_int_or_missing", test_int_or_missing)
+    run_test("test_int_or_wrong_type", test_int_or_wrong_type)
+    run_test("test_bool_or_present", test_bool_or_present)
+    run_test("test_bool_or_missing", test_bool_or_missing)
+    run_test("test_number_or_present", test_number_or_present)
+    run_test("test_number_or_missing", test_number_or_missing)
+    std.io.println("")
+    return
+}
+
+effect fn run_enum_mapping_tests() -> void {
+    std.io.println("string-to-enum mapping:")
+    run_test("test_required_string_in_valid", test_required_string_in_valid)
+    run_test("test_required_string_in_invalid", test_required_string_in_invalid)
+    run_test("test_required_string_in_missing", test_required_string_in_missing)
+    run_test("test_required_string_in_wrong_type", test_required_string_in_wrong_type)
+    run_test("test_required_string_in_error_message", test_required_string_in_error_message)
+    std.io.println("")
+    return
+}
+
+effect fn run_numeric_coercion_tests() -> void {
+    std.io.println("numeric coercion:")
+    run_test("test_required_i32_happy_path", test_required_i32_happy_path)
+    run_test("test_required_i32_zero", test_required_i32_zero)
+    run_test("test_required_i32_negative", test_required_i32_negative)
+    run_test("test_required_i32_overflow", test_required_i32_overflow)
+    run_test("test_required_i32_underflow", test_required_i32_underflow)
+    run_test("test_required_i32_missing", test_required_i32_missing)
+    run_test("test_required_i32_wrong_type", test_required_i32_wrong_type)
+    std.io.println("")
+    return
+}
+
 effect fn main() -> void {
     std.io.println("Running Decode Module Tests")
     std.io.println("===========================")
@@ -1506,7 +2000,12 @@ effect fn main() -> void {
     run_optional_array_field_tests()
     run_composed_tests()
     run_deep_nested_tests()
+    // Phase 2 tests (37)
+    run_nullable_tests()
+    run_default_value_tests()
+    run_enum_mapping_tests()
+    run_numeric_coercion_tests()
     std.io.println("===========================")
-    std.io.println("All 81 decode tests passed!")
+    std.io.println("All 118 decode tests passed!")
     return
 }
