@@ -14,6 +14,7 @@
 //! - `json.builder` - Builder pattern and convenience constructors
 //! - `json.schema` - Schema validation (validate, schema_*)
 //! - `json.decode` - Typed deserialization (required_*, optional_*, DecodeError)
+//! - `json.encode` - Typed serialization (encode_*, encode_field, encode_object)
 //!
 //! ## Usage
 //!
@@ -29,6 +30,7 @@
 //! import json.builder.{ builder, with_string, with_number, build, json_null, json_string }
 //! import json.schema.{ validate, schema_type, schema_object }
 //! import json.decode.{ required_string, required_int, optional_bool, DecodeError, format_decode_error }
+//! import json.encode.{ encode_string, encode_int, encode_object, encode_field, encode_array, encode_optional_field, collect_fields }
 //! ```
 //!
 //! ## Quick Reference
@@ -83,3 +85,4 @@ module json
 // - json.builder
 // - json.schema
 // - json.decode
+// - json.encode

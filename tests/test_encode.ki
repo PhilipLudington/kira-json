@@ -1,0 +1,756 @@
+//! Tests for the json.encode module.
+//! Covers primitive encoders, composite encoders, optional encoders,
+//! and roundtrip tests (encode → stringify → parse → decode).
+
+module test_encode
+
+import json.types.{ Json, JsonField, get_field, as_string, as_number, as_int, as_bool, as_array, is_null, is_object, is_array, type_name, fields_to_hashmap }
+import json.parser.{ parse }
+import json.serializer.{ stringify }
+import json.decode.{ DecodeError, format_decode_error, required_string, required_number, required_int, required_bool, required_field, optional_string, optional_number, optional_int, optional_bool, required_object_field, required_array_field }
+import json.encode.{ encode_string, encode_int, encode_number, encode_bool, encode_null, encode_object, encode_field, encode_array, encode_optional, encode_optional_field, collect_fields }
+
+// =============================================================================
+// Test Utilities
+// =============================================================================
+
+let assert_true: fn(bool, string) -> void = fn(condition: bool, message: string) -> void {
+    assert(condition, message)
+    return
+}
+
+let assert_str_eq: fn(string, string, string) -> void =
+    fn(actual: string, expected: string, message: string) -> void {
+        assert(std.string.equals(actual, expected), message)
+        return
+    }
+
+/// Roundtrip helper: encode → stringify → parse → return Json.
+let roundtrip: fn(Json) -> Json = fn(json: Json) -> Json {
+    let s: string = stringify(json)
+    match parse(s) {
+        Ok(parsed) => { return parsed }
+        Err(_) => {
+            assert(false, "roundtrip: failed to parse stringified JSON")
+            return JNull
+        }
+    }
+}
+
+/// Asserts that a decode Result is Ok and returns the value.
+let assert_ok_string: fn(Result[string, DecodeError], string) -> string =
+    fn(result: Result[string, DecodeError], message: string) -> string {
+        match result {
+            Ok(v) => { return v }
+            Err(e) => {
+                assert(false, std.string.concat(message, std.string.concat(": got Err: ", format_decode_error(e))))
+                return ""
+            }
+        }
+    }
+
+let assert_ok_f64: fn(Result[f64, DecodeError], string) -> f64 =
+    fn(result: Result[f64, DecodeError], message: string) -> f64 {
+        match result {
+            Ok(v) => { return v }
+            Err(e) => {
+                assert(false, std.string.concat(message, std.string.concat(": got Err: ", format_decode_error(e))))
+                return 0.0
+            }
+        }
+    }
+
+let assert_ok_i64: fn(Result[i64, DecodeError], string) -> i64 =
+    fn(result: Result[i64, DecodeError], message: string) -> i64 {
+        match result {
+            Ok(v) => { return v }
+            Err(e) => {
+                assert(false, std.string.concat(message, std.string.concat(": got Err: ", format_decode_error(e))))
+                return 0i64
+            }
+        }
+    }
+
+let assert_ok_bool: fn(Result[bool, DecodeError], string) -> bool =
+    fn(result: Result[bool, DecodeError], message: string) -> bool {
+        match result {
+            Ok(v) => { return v }
+            Err(e) => {
+                assert(false, std.string.concat(message, std.string.concat(": got Err: ", format_decode_error(e))))
+                return false
+            }
+        }
+    }
+
+let assert_ok_json: fn(Result[Json, DecodeError], string) -> Json =
+    fn(result: Result[Json, DecodeError], message: string) -> Json {
+        match result {
+            Ok(v) => { return v }
+            Err(e) => {
+                assert(false, std.string.concat(message, std.string.concat(": got Err: ", format_decode_error(e))))
+                return JNull
+            }
+        }
+    }
+
+// =============================================================================
+// Primitive Encoder Tests
+// =============================================================================
+
+let test_encode_string_basic: fn() -> void = fn() -> void {
+    let json: Json = encode_string("hello")
+    match json {
+        JString(s) => { assert_str_eq(s, "hello", "encode_string should produce JString") }
+        _ => { assert(false, "encode_string should produce JString") }
+    }
+    return
+}
+
+let test_encode_string_empty: fn() -> void = fn() -> void {
+    let json: Json = encode_string("")
+    match json {
+        JString(s) => { assert_str_eq(s, "", "encode_string empty should produce empty JString") }
+        _ => { assert(false, "encode_string empty should produce JString") }
+    }
+    return
+}
+
+let test_encode_string_special_chars: fn() -> void = fn() -> void {
+    let json: Json = encode_string("hello \"world\"\nnewline")
+    match json {
+        JString(s) => { assert_true(std.string.contains(s, "world"), "encode_string should preserve special chars") }
+        _ => { assert(false, "encode_string should produce JString") }
+    }
+    return
+}
+
+let test_encode_int_positive: fn() -> void = fn() -> void {
+    let json: Json = encode_int(42i64)
+    match json {
+        JNumber(n) => { assert_true(n == 42.0, "encode_int 42 should produce JNumber 42.0") }
+        _ => { assert(false, "encode_int should produce JNumber") }
+    }
+    return
+}
+
+let test_encode_int_zero: fn() -> void = fn() -> void {
+    let json: Json = encode_int(0i64)
+    match json {
+        JNumber(n) => { assert_true(n == 0.0, "encode_int 0 should produce JNumber 0.0") }
+        _ => { assert(false, "encode_int should produce JNumber") }
+    }
+    return
+}
+
+let test_encode_int_negative: fn() -> void = fn() -> void {
+    let json: Json = encode_int(-100i64)
+    match json {
+        JNumber(n) => { assert_true(n == -100.0, "encode_int -100 should produce JNumber -100.0") }
+        _ => { assert(false, "encode_int should produce JNumber") }
+    }
+    return
+}
+
+let test_encode_number_float: fn() -> void = fn() -> void {
+    let json: Json = encode_number(3.14)
+    match json {
+        JNumber(n) => { assert_true(n == 3.14, "encode_number 3.14 should produce JNumber 3.14") }
+        _ => { assert(false, "encode_number should produce JNumber") }
+    }
+    return
+}
+
+let test_encode_number_zero: fn() -> void = fn() -> void {
+    let json: Json = encode_number(0.0)
+    match json {
+        JNumber(n) => { assert_true(n == 0.0, "encode_number 0.0 should produce JNumber 0.0") }
+        _ => { assert(false, "encode_number should produce JNumber") }
+    }
+    return
+}
+
+let test_encode_number_negative: fn() -> void = fn() -> void {
+    let json: Json = encode_number(-2.5)
+    match json {
+        JNumber(n) => { assert_true(n == -2.5, "encode_number -2.5 should produce JNumber -2.5") }
+        _ => { assert(false, "encode_number should produce JNumber") }
+    }
+    return
+}
+
+let test_encode_bool_true: fn() -> void = fn() -> void {
+    let json: Json = encode_bool(true)
+    match json {
+        JBool(b) => { assert_true(b, "encode_bool true should produce JBool(true)") }
+        _ => { assert(false, "encode_bool should produce JBool") }
+    }
+    return
+}
+
+let test_encode_bool_false: fn() -> void = fn() -> void {
+    let json: Json = encode_bool(false)
+    match json {
+        JBool(b) => { assert_true(not b, "encode_bool false should produce JBool(false)") }
+        _ => { assert(false, "encode_bool should produce JBool") }
+    }
+    return
+}
+
+let test_encode_null: fn() -> void = fn() -> void {
+    let json: Json = encode_null()
+    assert_true(is_null(json), "encode_null should produce JNull")
+    return
+}
+
+// =============================================================================
+// Composite Encoder Tests
+// =============================================================================
+
+let test_encode_field_creates_json_field: fn() -> void = fn() -> void {
+    let field: JsonField = encode_field("name", encode_string("Alice"))
+    assert_str_eq(field.key, "name", "encode_field key should be 'name'")
+    match field.value {
+        JString(s) => { assert_str_eq(s, "Alice", "encode_field value should be 'Alice'") }
+        _ => { assert(false, "encode_field value should be JString") }
+    }
+    return
+}
+
+let test_encode_object_empty: fn() -> void = fn() -> void {
+    let json: Json = encode_object(Nil)
+    assert_true(is_object(json), "encode_object Nil should produce JObject")
+    return
+}
+
+let test_encode_object_single_field: fn() -> void = fn() -> void {
+    let fields: List[JsonField] = Cons(encode_field("x", encode_int(1i64)), Nil)
+    let json: Json = encode_object(fields)
+    assert_true(is_object(json), "encode_object should produce JObject")
+    match get_field(json, "x") {
+        Some(JNumber(n)) => { assert_true(n == 1.0, "field x should be 1") }
+        _ => { assert(false, "field x should exist and be a number") }
+    }
+    return
+}
+
+let test_encode_object_multiple_fields: fn() -> void = fn() -> void {
+    let fields: List[JsonField] = Cons(encode_field("name", encode_string("Bob")),
+        Cons(encode_field("age", encode_int(30i64)),
+        Cons(encode_field("active", encode_bool(true)),
+        Nil)))
+    let json: Json = encode_object(fields)
+    assert_true(is_object(json), "encode_object should produce JObject")
+    match get_field(json, "name") {
+        Some(JString(s)) => { assert_str_eq(s, "Bob", "name should be Bob") }
+        _ => { assert(false, "name field should exist") }
+    }
+    match get_field(json, "age") {
+        Some(JNumber(n)) => { assert_true(n == 30.0, "age should be 30") }
+        _ => { assert(false, "age field should exist") }
+    }
+    match get_field(json, "active") {
+        Some(JBool(b)) => { assert_true(b, "active should be true") }
+        _ => { assert(false, "active field should exist") }
+    }
+    return
+}
+
+let test_encode_array_empty: fn() -> void = fn() -> void {
+    let json: Json = encode_array(Nil)
+    assert_true(is_array(json), "encode_array Nil should produce JArray")
+    match json {
+        JArray(items) => {
+            match items {
+                Nil => { return }
+                _ => { assert(false, "empty array should have no items") }
+            }
+        }
+        _ => { assert(false, "should be JArray") }
+    }
+    return
+}
+
+let test_encode_array_primitives: fn() -> void = fn() -> void {
+    let items: List[Json] = Cons(encode_int(1i64),
+        Cons(encode_int(2i64),
+        Cons(encode_int(3i64),
+        Nil)))
+    let json: Json = encode_array(items)
+    assert_true(is_array(json), "encode_array should produce JArray")
+    return
+}
+
+let test_encode_array_mixed_types: fn() -> void = fn() -> void {
+    let items: List[Json] = Cons(encode_string("hello"),
+        Cons(encode_int(42i64),
+        Cons(encode_bool(true),
+        Cons(encode_null(),
+        Nil))))
+    let json: Json = encode_array(items)
+    assert_true(is_array(json), "encode_array mixed should produce JArray")
+    return
+}
+
+let test_encode_nested_object: fn() -> void = fn() -> void {
+    let address: Json = encode_object(
+        Cons(encode_field("city", encode_string("Springfield")),
+        Cons(encode_field("zip", encode_string("62704")),
+        Nil)))
+    let user: Json = encode_object(
+        Cons(encode_field("name", encode_string("Alice")),
+        Cons(encode_field("address", address),
+        Nil)))
+    assert_true(is_object(user), "nested encode should produce JObject")
+    match get_field(user, "address") {
+        Some(addr) => {
+            match get_field(addr, "city") {
+                Some(JString(c)) => { assert_str_eq(c, "Springfield", "nested city should be Springfield") }
+                _ => { assert(false, "city field should exist in address") }
+            }
+        }
+        None => { assert(false, "address field should exist") }
+    }
+    return
+}
+
+let test_encode_array_of_objects: fn() -> void = fn() -> void {
+    let u1: Json = encode_object(Cons(encode_field("name", encode_string("Alice")), Nil))
+    let u2: Json = encode_object(Cons(encode_field("name", encode_string("Bob")), Nil))
+    let arr: Json = encode_array(Cons(u1, Cons(u2, Nil)))
+    assert_true(is_array(arr), "array of objects should produce JArray")
+    return
+}
+
+// =============================================================================
+// Optional Encoder Tests
+// =============================================================================
+
+let test_encode_optional_some: fn() -> void = fn() -> void {
+    let json: Json = encode_optional(Some(encode_string("present")))
+    match json {
+        JString(s) => { assert_str_eq(s, "present", "encode_optional Some should unwrap value") }
+        _ => { assert(false, "encode_optional Some should produce the inner value") }
+    }
+    return
+}
+
+let test_encode_optional_none: fn() -> void = fn() -> void {
+    let json: Json = encode_optional(None)
+    assert_true(is_null(json), "encode_optional None should produce JNull")
+    return
+}
+
+let test_encode_optional_field_some: fn() -> void = fn() -> void {
+    let result: Option[JsonField] = encode_optional_field("nickname", Some(encode_string("Ali")))
+    match result {
+        Some(field) => {
+            assert_str_eq(field.key, "nickname", "optional field key should be nickname")
+            match field.value {
+                JString(s) => { assert_str_eq(s, "Ali", "optional field value should be Ali") }
+                _ => { assert(false, "optional field value should be JString") }
+            }
+        }
+        None => { assert(false, "encode_optional_field Some should produce Some(field)") }
+    }
+    return
+}
+
+let test_encode_optional_field_none: fn() -> void = fn() -> void {
+    let result: Option[JsonField] = encode_optional_field("nickname", None)
+    match result {
+        Some(_) => { assert(false, "encode_optional_field None should produce None") }
+        None => { return }
+    }
+    return
+}
+
+let test_collect_fields_all_present: fn() -> void = fn() -> void {
+    let opts: List[Option[JsonField]] = Cons(Some(encode_field("a", encode_int(1i64))),
+        Cons(Some(encode_field("b", encode_int(2i64))),
+        Nil))
+    let fields: List[JsonField] = collect_fields(opts)
+    let json: Json = encode_object(fields)
+    match get_field(json, "a") {
+        Some(_) => { }
+        None => { assert(false, "field a should be present") }
+    }
+    match get_field(json, "b") {
+        Some(_) => { }
+        None => { assert(false, "field b should be present") }
+    }
+    return
+}
+
+let test_collect_fields_some_none: fn() -> void = fn() -> void {
+    let opts: List[Option[JsonField]] = Cons(Some(encode_field("a", encode_int(1i64))),
+        Cons(None,
+        Cons(Some(encode_field("c", encode_int(3i64))),
+        Nil)))
+    let fields: List[JsonField] = collect_fields(opts)
+    let json: Json = encode_object(fields)
+    match get_field(json, "a") {
+        Some(_) => { }
+        None => { assert(false, "field a should be present") }
+    }
+    match get_field(json, "c") {
+        Some(_) => { }
+        None => { assert(false, "field c should be present") }
+    }
+    return
+}
+
+let test_collect_fields_all_none: fn() -> void = fn() -> void {
+    let opts: List[Option[JsonField]] = Cons(None, Cons(None, Nil))
+    let fields: List[JsonField] = collect_fields(opts)
+    let json: Json = encode_object(fields)
+    assert_true(is_object(json), "all None should produce empty object")
+    return
+}
+
+// =============================================================================
+// Roundtrip Tests: encode → stringify → parse → decode
+// =============================================================================
+
+let test_roundtrip_string: fn() -> void = fn() -> void {
+    let original: Json = encode_object(Cons(encode_field("name", encode_string("Alice")), Nil))
+    let parsed: Json = roundtrip(original)
+    let decoded: string = assert_ok_string(required_string(parsed, "name"), "roundtrip string")
+    assert_str_eq(decoded, "Alice", "roundtrip string should preserve value")
+    return
+}
+
+let test_roundtrip_int: fn() -> void = fn() -> void {
+    let original: Json = encode_object(Cons(encode_field("count", encode_int(42i64)), Nil))
+    let parsed: Json = roundtrip(original)
+    let decoded: i64 = assert_ok_i64(required_int(parsed, "count"), "roundtrip int")
+    assert_true(decoded == 42i64, "roundtrip int should preserve value")
+    return
+}
+
+let test_roundtrip_number: fn() -> void = fn() -> void {
+    let original: Json = encode_object(Cons(encode_field("pi", encode_number(3.14)), Nil))
+    let parsed: Json = roundtrip(original)
+    let decoded: f64 = assert_ok_f64(required_number(parsed, "pi"), "roundtrip number")
+    assert_true(decoded == 3.14, "roundtrip number should preserve value")
+    return
+}
+
+let test_roundtrip_bool_true: fn() -> void = fn() -> void {
+    let original: Json = encode_object(Cons(encode_field("active", encode_bool(true)), Nil))
+    let parsed: Json = roundtrip(original)
+    let decoded: bool = assert_ok_bool(required_bool(parsed, "active"), "roundtrip bool true")
+    assert_true(decoded, "roundtrip bool true should preserve value")
+    return
+}
+
+let test_roundtrip_bool_false: fn() -> void = fn() -> void {
+    let original: Json = encode_object(Cons(encode_field("active", encode_bool(false)), Nil))
+    let parsed: Json = roundtrip(original)
+    let decoded: bool = assert_ok_bool(required_bool(parsed, "active"), "roundtrip bool false")
+    assert_true(not decoded, "roundtrip bool false should preserve value")
+    return
+}
+
+let test_roundtrip_null: fn() -> void = fn() -> void {
+    let original: Json = encode_object(Cons(encode_field("value", encode_null()), Nil))
+    let parsed: Json = roundtrip(original)
+    let field: Json = assert_ok_json(required_field(parsed, "value"), "roundtrip null")
+    assert_true(is_null(field), "roundtrip null should preserve JNull")
+    return
+}
+
+let test_roundtrip_nested_object: fn() -> void = fn() -> void {
+    let address: Json = encode_object(
+        Cons(encode_field("city", encode_string("Springfield")),
+        Cons(encode_field("zip", encode_string("62704")),
+        Nil)))
+    let user: Json = encode_object(
+        Cons(encode_field("name", encode_string("Alice")),
+        Cons(encode_field("address", address),
+        Nil)))
+    let parsed: Json = roundtrip(user)
+    let name: string = assert_ok_string(required_string(parsed, "name"), "roundtrip nested name")
+    assert_str_eq(name, "Alice", "roundtrip nested name should be Alice")
+    let addr: Json = assert_ok_json(required_object_field(parsed, "address"), "roundtrip nested address")
+    let city: string = assert_ok_string(required_string(addr, "city"), "roundtrip nested city")
+    assert_str_eq(city, "Springfield", "roundtrip nested city should be Springfield")
+    let zip: string = assert_ok_string(required_string(addr, "zip"), "roundtrip nested zip")
+    assert_str_eq(zip, "62704", "roundtrip nested zip should be 62704")
+    return
+}
+
+let test_roundtrip_array_of_ints: fn() -> void = fn() -> void {
+    let arr: Json = encode_array(Cons(encode_int(1i64), Cons(encode_int(2i64), Cons(encode_int(3i64), Nil))))
+    let obj: Json = encode_object(Cons(encode_field("nums", arr), Nil))
+    let parsed: Json = roundtrip(obj)
+    match required_array_field(parsed, "nums") {
+        Ok(items) => {
+            match items {
+                Cons(first, _) => {
+                    match as_int(first) {
+                        Some(n) => { assert_true(n == 1i64, "first element should be 1") }
+                        None => { assert(false, "first element should be an int") }
+                    }
+                }
+                Nil => { assert(false, "array should not be empty") }
+            }
+        }
+        Err(_) => { assert(false, "roundtrip array should decode") }
+    }
+    return
+}
+
+let test_roundtrip_array_of_strings: fn() -> void = fn() -> void {
+    let arr: Json = encode_array(Cons(encode_string("a"), Cons(encode_string("b"), Nil)))
+    let obj: Json = encode_object(Cons(encode_field("tags", arr), Nil))
+    let parsed: Json = roundtrip(obj)
+    match required_array_field(parsed, "tags") {
+        Ok(items) => {
+            match items {
+                Cons(first, _) => {
+                    match as_string(first) {
+                        Some(s) => { assert_str_eq(s, "a", "first tag should be a") }
+                        None => { assert(false, "first element should be a string") }
+                    }
+                }
+                Nil => { assert(false, "array should not be empty") }
+            }
+        }
+        Err(_) => { assert(false, "roundtrip string array should decode") }
+    }
+    return
+}
+
+let test_roundtrip_array_of_objects: fn() -> void = fn() -> void {
+    let u1: Json = encode_object(Cons(encode_field("name", encode_string("Alice")), Nil))
+    let u2: Json = encode_object(Cons(encode_field("name", encode_string("Bob")), Nil))
+    let arr: Json = encode_array(Cons(u1, Cons(u2, Nil)))
+    let obj: Json = encode_object(Cons(encode_field("users", arr), Nil))
+    let parsed: Json = roundtrip(obj)
+    match required_array_field(parsed, "users") {
+        Ok(items) => {
+            match items {
+                Cons(first, _) => {
+                    let name: string = assert_ok_string(required_string(first, "name"), "first user name")
+                    assert_str_eq(name, "Alice", "first user should be Alice")
+                }
+                Nil => { assert(false, "users array should not be empty") }
+            }
+        }
+        Err(_) => { assert(false, "roundtrip object array should decode") }
+    }
+    return
+}
+
+let test_roundtrip_complex_object: fn() -> void = fn() -> void {
+    let json: Json = encode_object(
+        Cons(encode_field("id", encode_int(1i64)),
+        Cons(encode_field("name", encode_string("Project Alpha")),
+        Cons(encode_field("score", encode_number(98.5)),
+        Cons(encode_field("active", encode_bool(true)),
+        Cons(encode_field("tags", encode_array(
+            Cons(encode_string("kira"), Cons(encode_string("json"), Nil)))),
+        Cons(encode_field("metadata", encode_null()),
+        Nil)))))))
+    let parsed: Json = roundtrip(json)
+    let id: i64 = assert_ok_i64(required_int(parsed, "id"), "complex id")
+    assert_true(id == 1i64, "complex id should be 1")
+    let name: string = assert_ok_string(required_string(parsed, "name"), "complex name")
+    assert_str_eq(name, "Project Alpha", "complex name should be Project Alpha")
+    let score: f64 = assert_ok_f64(required_number(parsed, "score"), "complex score")
+    assert_true(score == 98.5, "complex score should be 98.5")
+    let active: bool = assert_ok_bool(required_bool(parsed, "active"), "complex active")
+    assert_true(active, "complex active should be true")
+    let meta: Json = assert_ok_json(required_field(parsed, "metadata"), "complex metadata")
+    assert_true(is_null(meta), "complex metadata should be null")
+    return
+}
+
+let test_roundtrip_empty_object: fn() -> void = fn() -> void {
+    let json: Json = encode_object(Nil)
+    let parsed: Json = roundtrip(json)
+    assert_true(is_object(parsed), "roundtrip empty object should still be object")
+    return
+}
+
+let test_roundtrip_empty_array: fn() -> void = fn() -> void {
+    let json: Json = encode_object(Cons(encode_field("items", encode_array(Nil)), Nil))
+    let parsed: Json = roundtrip(json)
+    match required_array_field(parsed, "items") {
+        Ok(items) => {
+            match items {
+                Nil => { }
+                _ => { assert(false, "roundtrip empty array should be empty") }
+            }
+        }
+        Err(_) => { assert(false, "roundtrip empty array should decode") }
+    }
+    return
+}
+
+let test_roundtrip_optional_field_present: fn() -> void = fn() -> void {
+    let fields: List[JsonField] = collect_fields(
+        Cons(Some(encode_field("name", encode_string("Alice"))),
+        Cons(encode_optional_field("nickname", Some(encode_string("Ali"))),
+        Nil)))
+    let json: Json = encode_object(fields)
+    let parsed: Json = roundtrip(json)
+    let name: string = assert_ok_string(required_string(parsed, "name"), "optional present name")
+    assert_str_eq(name, "Alice", "name should be Alice")
+    match optional_string(parsed, "nickname") {
+        Some(n) => { assert_str_eq(n, "Ali", "nickname should be Ali") }
+        None => { assert(false, "nickname should be present") }
+    }
+    return
+}
+
+let test_roundtrip_optional_field_absent: fn() -> void = fn() -> void {
+    let fields: List[JsonField] = collect_fields(
+        Cons(Some(encode_field("name", encode_string("Bob"))),
+        Cons(encode_optional_field("nickname", None),
+        Nil)))
+    let json: Json = encode_object(fields)
+    let parsed: Json = roundtrip(json)
+    let name: string = assert_ok_string(required_string(parsed, "name"), "optional absent name")
+    assert_str_eq(name, "Bob", "name should be Bob")
+    match optional_string(parsed, "nickname") {
+        Some(_) => { assert(false, "nickname should be absent when None") }
+        None => { return }
+    }
+    return
+}
+
+let test_roundtrip_encode_optional_null: fn() -> void = fn() -> void {
+    let json: Json = encode_object(
+        Cons(encode_field("value", encode_optional(None)),
+        Nil))
+    let parsed: Json = roundtrip(json)
+    let field: Json = assert_ok_json(required_field(parsed, "value"), "optional null value")
+    assert_true(is_null(field), "encode_optional None should roundtrip as null")
+    return
+}
+
+let test_roundtrip_negative_int: fn() -> void = fn() -> void {
+    let json: Json = encode_object(Cons(encode_field("temp", encode_int(-40i64)), Nil))
+    let parsed: Json = roundtrip(json)
+    let temp: i64 = assert_ok_i64(required_int(parsed, "temp"), "roundtrip negative int")
+    assert_true(temp == -40i64, "roundtrip negative int should be -40")
+    return
+}
+
+let test_roundtrip_large_int: fn() -> void = fn() -> void {
+    let json: Json = encode_object(Cons(encode_field("big", encode_int(1000000i64)), Nil))
+    let parsed: Json = roundtrip(json)
+    let big: i64 = assert_ok_i64(required_int(parsed, "big"), "roundtrip large int")
+    assert_true(big == 1000000i64, "roundtrip large int should be 1000000")
+    return
+}
+
+let test_roundtrip_empty_string: fn() -> void = fn() -> void {
+    let json: Json = encode_object(Cons(encode_field("s", encode_string("")), Nil))
+    let parsed: Json = roundtrip(json)
+    let s: string = assert_ok_string(required_string(parsed, "s"), "roundtrip empty string")
+    assert_str_eq(s, "", "roundtrip empty string should be empty")
+    return
+}
+
+// =============================================================================
+// Test Runner
+// =============================================================================
+
+effect fn run_test(name: string, test_fn: fn() -> void) -> void {
+    std.io.print("  ")
+    std.io.print(name)
+    std.io.print(" ... ")
+    test_fn()
+    std.io.println("ok")
+    return
+}
+
+effect fn run_primitive_encoder_tests() -> void {
+    std.io.println("Primitive Encoders:")
+    run_test("test_encode_string_basic", test_encode_string_basic)
+    run_test("test_encode_string_empty", test_encode_string_empty)
+    run_test("test_encode_string_special_chars", test_encode_string_special_chars)
+    run_test("test_encode_int_positive", test_encode_int_positive)
+    run_test("test_encode_int_zero", test_encode_int_zero)
+    run_test("test_encode_int_negative", test_encode_int_negative)
+    run_test("test_encode_number_float", test_encode_number_float)
+    run_test("test_encode_number_zero", test_encode_number_zero)
+    run_test("test_encode_number_negative", test_encode_number_negative)
+    run_test("test_encode_bool_true", test_encode_bool_true)
+    run_test("test_encode_bool_false", test_encode_bool_false)
+    run_test("test_encode_null", test_encode_null)
+    std.io.println("")
+    return
+}
+
+effect fn run_composite_encoder_tests() -> void {
+    std.io.println("Composite Encoders:")
+    run_test("test_encode_field_creates_json_field", test_encode_field_creates_json_field)
+    run_test("test_encode_object_empty", test_encode_object_empty)
+    run_test("test_encode_object_single_field", test_encode_object_single_field)
+    run_test("test_encode_object_multiple_fields", test_encode_object_multiple_fields)
+    run_test("test_encode_array_empty", test_encode_array_empty)
+    run_test("test_encode_array_primitives", test_encode_array_primitives)
+    run_test("test_encode_array_mixed_types", test_encode_array_mixed_types)
+    run_test("test_encode_nested_object", test_encode_nested_object)
+    run_test("test_encode_array_of_objects", test_encode_array_of_objects)
+    std.io.println("")
+    return
+}
+
+effect fn run_optional_encoder_tests() -> void {
+    std.io.println("Optional Encoders:")
+    run_test("test_encode_optional_some", test_encode_optional_some)
+    run_test("test_encode_optional_none", test_encode_optional_none)
+    run_test("test_encode_optional_field_some", test_encode_optional_field_some)
+    run_test("test_encode_optional_field_none", test_encode_optional_field_none)
+    run_test("test_collect_fields_all_present", test_collect_fields_all_present)
+    run_test("test_collect_fields_some_none", test_collect_fields_some_none)
+    run_test("test_collect_fields_all_none", test_collect_fields_all_none)
+    std.io.println("")
+    return
+}
+
+effect fn run_roundtrip_tests() -> void {
+    std.io.println("Roundtrip Tests:")
+    run_test("test_roundtrip_string", test_roundtrip_string)
+    run_test("test_roundtrip_int", test_roundtrip_int)
+    run_test("test_roundtrip_number", test_roundtrip_number)
+    run_test("test_roundtrip_bool_true", test_roundtrip_bool_true)
+    run_test("test_roundtrip_bool_false", test_roundtrip_bool_false)
+    run_test("test_roundtrip_null", test_roundtrip_null)
+    run_test("test_roundtrip_nested_object", test_roundtrip_nested_object)
+    run_test("test_roundtrip_array_of_ints", test_roundtrip_array_of_ints)
+    run_test("test_roundtrip_array_of_strings", test_roundtrip_array_of_strings)
+    run_test("test_roundtrip_array_of_objects", test_roundtrip_array_of_objects)
+    run_test("test_roundtrip_complex_object", test_roundtrip_complex_object)
+    run_test("test_roundtrip_empty_object", test_roundtrip_empty_object)
+    run_test("test_roundtrip_empty_array", test_roundtrip_empty_array)
+    run_test("test_roundtrip_optional_field_present", test_roundtrip_optional_field_present)
+    run_test("test_roundtrip_optional_field_absent", test_roundtrip_optional_field_absent)
+    run_test("test_roundtrip_encode_optional_null", test_roundtrip_encode_optional_null)
+    run_test("test_roundtrip_negative_int", test_roundtrip_negative_int)
+    run_test("test_roundtrip_large_int", test_roundtrip_large_int)
+    run_test("test_roundtrip_empty_string", test_roundtrip_empty_string)
+    std.io.println("")
+    return
+}
+
+effect fn main() -> void {
+    std.io.println("Running Encode Module Tests")
+    std.io.println("===========================")
+    std.io.println("")
+    // Primitive encoder tests (12)
+    run_primitive_encoder_tests()
+    // Composite encoder tests (9)
+    run_composite_encoder_tests()
+    // Optional encoder tests (7)
+    run_optional_encoder_tests()
+    // Roundtrip tests (19)
+    run_roundtrip_tests()
+    std.io.println("===========================")
+    std.io.println("All 47 encode tests passed!")
+    return
+}

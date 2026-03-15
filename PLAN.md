@@ -5,7 +5,7 @@
 Add typed deserialization to kira-json: convert `Json` values into user-defined Kira types (product types and sum types) with clear error reporting. This bridges the gap between the untyped `Json` ADT and application-level types like `User`, `Todo`, etc.
 
 Reference: DESIGN.md, src/json/types.ki
-Current status: Phase 2 complete. Phase 3 next.
+Current status: Phase 3 complete. Phase 4 next.
 
 ## Design Constraints
 
@@ -153,7 +153,8 @@ Test null vs missing vs present for nullable fields. Test defaults. Test enum ma
 
 ---
 
-## Phase 3: Serialization (Encode)
+## Phase 3: Serialization (Encode) ✅
+**Status:** Complete (2026-03-15)
 
 **Goal:** Symmetric encode support — convert Kira types back to `Json` values.
 **Estimated Effort:** 1 day
@@ -161,30 +162,33 @@ Test null vs missing vs present for nullable fields. Test defaults. Test enum ma
 ### Deliverables
 - `src/json/encode.ki` — new module
 - Primitive encoders and object/array builders that mirror the decode API
+- Bonus: `collect_fields` helper for building objects with optional fields
 
 ### Tasks
-- [ ] Implement primitive encoders:
+- [x] Implement primitive encoders (completed 2026-03-15):
   - `encode_string(string) -> Json`
   - `encode_int(i64) -> Json`
   - `encode_number(f64) -> Json`
   - `encode_bool(bool) -> Json`
   - `encode_null() -> Json`
-- [ ] Implement composite encoders:
+- [x] Implement composite encoders (completed 2026-03-15):
   - `encode_object(List[JsonField]) -> Json`
   - `encode_field(string, Json) -> JsonField`
   - `encode_array(List[Json]) -> Json`
-- [ ] Implement optional encoders:
+- [x] Implement optional encoders (completed 2026-03-15):
   - `encode_optional(Option[Json]) -> Json` — Some(v) → v, None → JNull
   - `encode_optional_field(string, Option[Json]) -> Option[JsonField]` — None omits the field
-- [ ] Write tests: roundtrip encode then decode for each type
+  - `collect_fields(List[Option[JsonField]]) -> List[JsonField]` — filters None entries
+- [x] Write tests: 47 Phase 3 tests (completed 2026-03-15)
+  - 12 primitive encoder tests, 9 composite encoder tests, 7 optional encoder tests, 19 roundtrip tests
 
 ### Testing Strategy
-Roundtrip tests: encode a Kira type, stringify, parse, decode, assert equality. Minimum 15 tests.
+Roundtrip tests: encode a Kira type, stringify, parse, decode, assert equality. Minimum 15 tests. Achieved 19 roundtrip tests (47 total).
 
 ### Phase 3 Readiness Gate
 Before Phase 4, these must be true:
-- [ ] Encode → stringify → parse → decode roundtrip works for nested types
-- [ ] All 90+ tests across decode/encode pass
+- [x] Encode → stringify → parse → decode roundtrip works for nested types
+- [x] All 165 tests across decode/encode pass (118 decode + 47 encode)
 
 ---
 

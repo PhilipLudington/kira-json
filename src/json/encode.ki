@@ -1,0 +1,131 @@
+//! Typed serialization helpers for encoding Kira values into JSON.
+//! Provides primitive, composite, and optional encoders that mirror the decode API.
+//!
+//! ## Usage
+//!
+//! ```kira
+//! import json.encode.{ encode_string, encode_int, encode_bool, encode_field, encode_object, encode_optional_field }
+//!
+//! let encode_user: fn(User) -> Json =
+//!     fn(user: User) -> Json {
+//!         let fields: List[JsonField] = Cons(encode_field("name", encode_string(user.name)),
+//!             Cons(encode_field("age", encode_int(user.age)),
+//!             Cons(encode_field("active", encode_bool(user.active)),
+//!             Nil)))
+//!         return encode_object(fields)
+//!     }
+//! ```
+
+module json.encode
+
+import json.types.{ Json, JsonField, fields_to_hashmap }
+
+// =============================================================================
+// Primitive Encoders
+// =============================================================================
+
+/// Encodes a string value as JSON.
+pub let encode_string: fn(string) -> Json = fn(s: string) -> Json {
+    return JString(s)
+}
+
+/// Encodes an integer value as a JSON number.
+pub let encode_int: fn(i64) -> Json = fn(n: i64) -> Json {
+    return JNumber(std.float.from_int(n))
+}
+
+/// Encodes a floating-point value as a JSON number.
+pub let encode_number: fn(f64) -> Json = fn(n: f64) -> Json {
+    return JNumber(n)
+}
+
+/// Encodes a boolean value as JSON.
+pub let encode_bool: fn(bool) -> Json = fn(b: bool) -> Json {
+    return JBool(b)
+}
+
+/// Encodes a JSON null value.
+pub let encode_null: fn() -> Json = fn() -> Json {
+    return JNull
+}
+
+// =============================================================================
+// Composite Encoders
+// =============================================================================
+
+/// Creates a JSON object from a list of fields.
+pub let encode_object: fn(List[JsonField]) -> Json =
+    fn(fields: List[JsonField]) -> Json {
+        return JObject(fields_to_hashmap(fields))
+    }
+
+/// Creates a named JSON field (key-value pair).
+pub let encode_field: fn(string, Json) -> JsonField =
+    fn(key: string, value: Json) -> JsonField {
+        return JsonField { key: key, value: value }
+    }
+
+/// Creates a JSON array from a list of JSON values.
+pub let encode_array: fn(List[Json]) -> Json = fn(items: List[Json]) -> Json {
+    return JArray(items)
+}
+
+// =============================================================================
+// Optional Encoders
+// =============================================================================
+
+/// Encodes an optional JSON value: Some(v) becomes v, None becomes JNull.
+pub let encode_optional: fn(Option[Json]) -> Json =
+    fn(opt: Option[Json]) -> Json {
+        match opt {
+            Some(v) => { return v }
+            None => { return JNull }
+        }
+    }
+
+/// Creates an optional field: Some(v) returns Some(field), None returns None.
+/// Use with list filtering to omit null fields from objects.
+pub let encode_optional_field: fn(string, Option[Json]) -> Option[JsonField] =
+    fn(key: string, opt: Option[Json]) -> Option[JsonField] {
+        match opt {
+            Some(v) => { return Some(JsonField { key: key, value: v }) }
+            None => { return None }
+        }
+    }
+
+// =============================================================================
+// List Helpers for Optional Fields
+// =============================================================================
+
+/// Collects a list of optional fields into a list of present fields.
+/// Filters out None values, keeping only Some(field) entries.
+pub let collect_fields: fn(List[Option[JsonField]]) -> List[JsonField] =
+    fn(opts: List[Option[JsonField]]) -> List[JsonField] {
+        return collect_fields_acc(opts, Nil)
+    }
+
+let collect_fields_acc: fn(List[Option[JsonField]], List[JsonField]) -> List[JsonField] =
+    fn(opts: List[Option[JsonField]], acc: List[JsonField]) -> List[JsonField] {
+        match opts {
+            Nil => { return list_reverse(acc) }
+            Cons(head, tail) => {
+                match head {
+                    Some(field) => { return collect_fields_acc(tail, Cons(field, acc)) }
+                    None => { return collect_fields_acc(tail, acc) }
+                }
+            }
+        }
+    }
+
+let list_reverse: fn(List[JsonField]) -> List[JsonField] =
+    fn(list: List[JsonField]) -> List[JsonField] {
+        return list_reverse_acc(list, Nil)
+    }
+
+let list_reverse_acc: fn(List[JsonField], List[JsonField]) -> List[JsonField] =
+    fn(list: List[JsonField], acc: List[JsonField]) -> List[JsonField] {
+        match list {
+            Nil => { return acc }
+            Cons(head, tail) => { return list_reverse_acc(tail, Cons(head, acc)) }
+        }
+    }
